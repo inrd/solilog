@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use rusqlite::{Connection, params};
 
+use crate::issue::{Issue, Status};
+
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
 /// Never edit an existing entry; append a new one.
 const MIGRATIONS: &[&str] = &[
@@ -17,13 +19,10 @@ const MIGRATIONS: &[&str] = &[
         title      TEXT    NOT NULL,
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );",
+    // 2: status
+    "ALTER TABLE issues ADD COLUMN status TEXT NOT NULL DEFAULT 'todo'
+        CHECK (status IN ('backlog', 'todo', 'in_progress', 'done', 'blocked', 'cancelled'));",
 ];
-
-#[derive(Debug, Clone)]
-pub struct Issue {
-    pub id: i64,
-    pub title: String,
-}
 
 pub struct Db {
     conn: Connection,
@@ -74,12 +73,13 @@ impl Db {
     pub fn list_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, title FROM issues ORDER BY id DESC")?;
+            .prepare("SELECT id, title, status FROM issues ORDER BY id DESC")?;
         let issues = stmt
             .query_map([], |row| {
                 Ok(Issue {
                     id: row.get(0)?,
                     title: row.get(1)?,
+                    status: row.get(2)?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -87,12 +87,25 @@ impl Db {
     }
 
     pub fn create_issue(&self, title: &str) -> Result<Issue> {
-        self.conn
-            .execute("INSERT INTO issues (title) VALUES (?1)", params![title])?;
+        let status = Status::Todo;
+        self.conn.execute(
+            "INSERT INTO issues (title, status) VALUES (?1, ?2)",
+            params![title, status],
+        )?;
         Ok(Issue {
             id: self.conn.last_insert_rowid(),
             title: title.to_owned(),
+            status,
         })
+    }
+
+    pub fn set_status(&self, id: i64, status: Status) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE issues SET status = ?2 WHERE id = ?1",
+            params![id, status],
+        )?;
+        anyhow::ensure!(n == 1, "no issue with id {id}");
+        Ok(())
     }
 }
 
@@ -120,6 +133,23 @@ mod tests {
             .map(|i| i.title)
             .collect();
         assert_eq!(titles, ["second", "first"]);
+    }
+
+    #[test]
+    fn status_defaults_and_updates() {
+        let db = Db::open_in_memory().unwrap();
+        let issue = db.create_issue("x").unwrap();
+        assert_eq!(issue.status, Status::Todo);
+        db.set_status(issue.id, Status::Blocked).unwrap();
+        assert_eq!(db.list_issues().unwrap()[0].status, Status::Blocked);
+        assert!(db.set_status(999, Status::Done).is_err());
+    }
+
+    #[test]
+    fn status_keys_round_trip() {
+        for s in Status::ALL {
+            assert_eq!(Status::from_key(s.key()), Some(s));
+        }
     }
 
     #[test]
