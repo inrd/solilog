@@ -1,3 +1,4 @@
+mod db;
 mod text_input;
 
 use gpui::{
@@ -5,48 +6,48 @@ use gpui::{
     TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px, rgb, size,
 };
 
+use db::{Db, Issue};
 use text_input::{Submit, TextInput};
 
 const APP_NAME: &str = "Solilog";
 
 actions!(solilog, [Quit]);
 
-struct Issue {
-    id: u32,
-    title: SharedString,
-}
-
 struct Solilog {
+    db: Db,
     input: Entity<TextInput>,
+    /// Newest first.
     issues: Vec<Issue>,
-    next_id: u32,
 }
 
 impl Solilog {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(db: Db, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextInput::new("New issue…", cx));
         cx.subscribe(&input, |this, input, _: &Submit, cx| {
             let title = input.read(cx).text().trim().to_string();
             if title.is_empty() {
                 return;
             }
-            this.issues.push(Issue {
-                id: this.next_id,
-                title: title.into(),
-            });
-            this.next_id += 1;
-            input.update(cx, |input, cx| input.clear(cx));
-            cx.notify();
+            match this.db.create_issue(&title) {
+                Ok(issue) => {
+                    this.issues.insert(0, issue);
+                    input.update(cx, |input, cx| input.clear(cx));
+                    cx.notify();
+                }
+                // Keep the text in the input so nothing is lost.
+                Err(err) => eprintln!("failed to create issue: {err:#}"),
+            }
         })
         .detach();
 
         window.focus(&input.read(cx).focus_handle(cx));
 
-        Self {
-            input,
-            issues: Vec::new(),
-            next_id: 1,
-        }
+        let issues = db.list_issues().unwrap_or_else(|err| {
+            eprintln!("failed to load issues: {err:#}");
+            Vec::new()
+        });
+
+        Self { db, input, issues }
     }
 }
 
@@ -76,7 +77,7 @@ impl Render for Solilog {
                     .flex_col()
                     .overflow_y_scroll()
                     .py_1()
-                    .children(self.issues.iter().rev().map(|issue| {
+                    .children(self.issues.iter().map(|issue| {
                         div()
                             .flex()
                             .gap_3()
@@ -94,8 +95,10 @@ impl Render for Solilog {
     }
 }
 
-fn main() {
-    Application::new().run(|cx: &mut App| {
+fn main() -> anyhow::Result<()> {
+    let db = Db::open_default()?;
+
+    Application::new().run(move |cx: &mut App| {
         text_input::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -110,7 +113,7 @@ fn main() {
                 }),
                 ..Default::default()
             },
-            |window, cx| cx.new(|cx| Solilog::new(window, cx)),
+            |window, cx| cx.new(|cx| Solilog::new(db, window, cx)),
         )
         .unwrap();
 
@@ -124,4 +127,6 @@ fn main() {
 
         cx.activate(true);
     });
+
+    Ok(())
 }
