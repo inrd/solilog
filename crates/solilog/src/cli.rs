@@ -14,7 +14,7 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Project, ProjectPlacement,
+    Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Placement, Project,
     ProjectStatus, ProjectUpdate, Status, View,
 };
 
@@ -255,7 +255,8 @@ pub enum ViewCommand {
 
 #[derive(Subcommand)]
 pub enum LabelCommand {
-    /// List labels as a tree, with the number of issues under each.
+    /// List labels as a tree (siblings in the order set with `label move`),
+    /// with the number of issues under each.
     #[command(visible_alias = "ls")]
     List,
     /// Show one label.
@@ -269,6 +270,20 @@ pub enum LabelCommand {
     /// `globex/acme/reverb`. Issues keep their labels.
     #[command(visible_alias = "mv")]
     Rename { name: String, new_name: String },
+    /// Reorder a label, with its sublabels, before or after a sibling (a
+    /// label with the same parent), and print it. `label list` and the GUI
+    /// sidebar use this order; new labels go last among their siblings. To
+    /// change a label's parent, use `label rename`.
+    #[command(group = clap::ArgGroup::new("placement").required(true))]
+    Move {
+        name: String,
+        /// Put it right before this sibling.
+        #[arg(long, value_name = "LABEL", group = "placement")]
+        before: Option<String>,
+        /// Put it right after this sibling.
+        #[arg(long, value_name = "LABEL", group = "placement")]
+        after: Option<String>,
+    },
     /// Delete a label and its sublabels, removing them from all issues.
     /// Prints the deleted labels.
     #[command(visible_alias = "rm")]
@@ -383,11 +398,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     before,
                     after,
                 } => {
-                    let placement = match (before, after) {
-                        (Some(before), _) => ProjectPlacement::Before(before),
-                        (None, Some(after)) => ProjectPlacement::After(after),
-                        (None, None) => unreachable!("clap requires --before or --after"),
-                    };
+                    let placement = Placement::from_options(before, after)?;
                     out.project(&db.move_project(&name, &placement)?)
                 }
                 ProjectCommand::Delete { name } => out.project(&db.delete_project(&name)?),
@@ -407,6 +418,14 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                 LabelCommand::Create { name } => out.label(&db.create_label(&name)?),
                 LabelCommand::Rename { name, new_name } => {
                     out.label(&db.rename_label(&name, &new_name)?)
+                }
+                LabelCommand::Move {
+                    name,
+                    before,
+                    after,
+                } => {
+                    let placement = Placement::from_options(before, after)?;
+                    out.label(&db.move_label(&name, &placement)?)
                 }
                 LabelCommand::Delete { name } => out.labels(&db.delete_label(&name)?),
             }

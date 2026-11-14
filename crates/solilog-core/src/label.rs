@@ -7,12 +7,16 @@
 //! were given, never the implied ancestors.
 //!
 //! Names are case-insensitive (ASCII) and keep the case they were created with.
+//!
+//! Labels are listed as a tree, siblings in a user-defined order (rearranged
+//! with [`Db::move_label`]). New labels go last among their siblings.
 
 use anyhow::{Context as _, Result};
 use rusqlite::{OptionalExtension as _, params};
 use serde::Serialize;
 
 use crate::Db;
+use crate::order::{Ordered, Placement};
 
 pub const LABEL_SEPARATOR: char = '/';
 
@@ -60,13 +64,31 @@ pub fn label_matches(name: &str, filter: &str) -> bool {
 }
 
 impl Db {
-    /// Every label, sorted by path (so children follow their parent).
+    /// Every label, as a tree: each label is followed by its sublabels, and
+    /// siblings are in the user-defined order.
     pub fn list_labels(&self) -> Result<Vec<Label>> {
-        let names: Vec<String> = self
+        let rows: Vec<(String, (i64, i64))> = self
             .conn
-            .prepare_cached("SELECT name FROM labels ORDER BY name COLLATE NOCASE")?
-            .query_map([], |row| row.get(0))?
+            .prepare_cached("SELECT name, position, id FROM labels")?
+            .query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?))))?
             .collect::<rusqlite::Result<_>>()?;
+        // Sort by the (position, id) of every ancestor, then of the label:
+        // parents come before their children, siblings by position.
+        let rank: std::collections::HashMap<String, (i64, i64)> = rows
+            .iter()
+            .map(|(name, rank)| (name.to_ascii_lowercase(), *rank))
+            .collect();
+        let path_rank = |name: &str| -> Vec<(i64, i64)> {
+            let lower = name.to_ascii_lowercase();
+            lower
+                .match_indices(LABEL_SEPARATOR)
+                .map(|(ix, _)| &lower[..ix])
+                .chain([lower.as_str()])
+                .map(|path| rank.get(path).copied().unwrap_or_default())
+                .collect()
+        };
+        let mut names: Vec<String> = rows.iter().map(|(name, _)| name.clone()).collect();
+        names.sort_by_cached_key(|name| path_rank(name));
         let assigned: Vec<(i64, String)> = self
             .conn
             .prepare_cached(
@@ -138,6 +160,17 @@ impl Db {
             }
             _ => new,
         };
+        // A label that changes parent goes last among its new siblings.
+        let parent = |name: &str| {
+            name.rsplit_once(LABEL_SEPARATOR)
+                .map(|(p, _)| p.to_ascii_lowercase())
+        };
+        if parent(&old) != parent(&new) {
+            self.conn.execute(
+                "UPDATE labels SET position = ?2 WHERE name = ?1",
+                params![old, self.next_position(Ordered::Labels)?],
+            )?;
+        }
         let subtree: Vec<(i64, String)> = self
             .conn
             .prepare("SELECT id, name FROM labels")?
@@ -162,6 +195,40 @@ impl Db {
         })?;
         tx.commit()?;
         self.get_label(&new)
+    }
+
+    /// Moves a label, with its sublabels, before or after a sibling (a label
+    /// with the same parent). Returns the moved label.
+    pub fn move_label(&self, name: &str, placement: &Placement) -> Result<Label> {
+        let name = self.label_name(name)?;
+        let anchor = self.label_name(placement.anchor())?;
+        let parent = |name: &str| {
+            name.rsplit_once(LABEL_SEPARATOR)
+                .map(|(p, _)| p.to_ascii_lowercase())
+        };
+        anyhow::ensure!(
+            parent(&name) == parent(&anchor),
+            "cannot move label {name:?} next to {anchor:?}: only labels with the same parent can be reordered"
+        );
+        let tx = self.conn.unchecked_transaction()?;
+        let siblings: Vec<(i64, String)> = self
+            .conn
+            .prepare_cached("SELECT id, name FROM labels ORDER BY position, id")?
+            .query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?)))?
+            .filter(|r| r.as_ref().map_or(true, |(_, n)| parent(n) == parent(&name)))
+            .collect::<rusqlite::Result<_>>()?;
+        let id_of = |label: &str| {
+            siblings
+                .iter()
+                .find(|(_, n)| n == label)
+                .map(|(id, _)| *id)
+                .context("label vanished while moving")
+        };
+        let (id, anchor) = (id_of(&name)?, id_of(&anchor)?);
+        let order = siblings.iter().map(|(id, _)| *id).collect();
+        self.place(Ordered::Labels, order, id, anchor, placement)?;
+        tx.commit()?;
+        self.get_label(&name)
     }
 
     /// Deletes a label and its sublabels, removing them from every issue.
@@ -266,8 +333,10 @@ impl Db {
             (id, path) = match self.find_label(&path)? {
                 Some(found) => found,
                 None => {
-                    self.conn
-                        .execute("INSERT INTO labels (name) VALUES (?1)", [&path])?;
+                    self.conn.execute(
+                        "INSERT INTO labels (name, position) VALUES (?1, ?2)",
+                        params![path, self.next_position(Ordered::Labels)?],
+                    )?;
                     (self.conn.last_insert_rowid(), path)
                 }
             };
@@ -320,6 +389,40 @@ mod tests {
     }
 
     #[test]
+    fn order() {
+        let db = Db::open_in_memory().unwrap();
+        for name in ["b", "a/z", "a/y", "c"] {
+            db.create_label(name).unwrap();
+        }
+        // Creation order, children after their parent.
+        assert_eq!(names(&db), ["b", "a", "a/z", "a/y", "c"]);
+        let before = |l: &str| Placement::Before(l.into());
+        let after = |l: &str| Placement::After(l.into());
+
+        // A label moves with its sublabels.
+        assert_eq!(db.move_label("A", &before("b")).unwrap().name, "a");
+        assert_eq!(names(&db), ["a", "a/z", "a/y", "b", "c"]);
+        db.move_label("a", &after("c")).unwrap();
+        assert_eq!(names(&db), ["b", "c", "a", "a/z", "a/y"]);
+        db.move_label("a/z", &after("a/y")).unwrap();
+        assert_eq!(names(&db), ["b", "c", "a", "a/y", "a/z"]);
+        db.move_label("c", &before("c")).unwrap();
+        assert_eq!(names(&db), ["b", "c", "a", "a/y", "a/z"]);
+        assert!(db.move_label("a/y", &before("b")).is_err(), "not siblings");
+        assert!(db.move_label("a", &before("nope")).is_err());
+
+        // New sublabels go last among their siblings.
+        db.create_label("a/x").unwrap();
+        assert_eq!(names(&db), ["b", "c", "a", "a/y", "a/z", "a/x"]);
+        // So do labels moved under a new parent; keeping the parent keeps the place.
+        db.rename_label("a/y", "b/y").unwrap();
+        db.rename_label("a/z", "a/Z").unwrap();
+        assert_eq!(names(&db), ["b", "b/y", "c", "a", "a/Z", "a/x"]);
+        db.rename_label("c", "top").unwrap();
+        assert_eq!(names(&db), ["b", "b/y", "top", "a", "a/Z", "a/x"]);
+    }
+
+    #[test]
     fn issue_labels_and_counts() {
         let db = Db::open_in_memory().unwrap();
         let a = db.create_issue(&NewIssue::new("a")).unwrap();
@@ -338,9 +441,9 @@ mod tests {
         assert_eq!(
             counts,
             [
+                ("bug".to_string(), 1),
                 ("acme".to_string(), 2),
-                ("acme/reverb".to_string(), 1),
-                ("bug".to_string(), 1)
+                ("acme/reverb".to_string(), 1)
             ]
         );
         let a = db.remove_labels(a.id, &strings(&["BUG"])).unwrap();

@@ -84,6 +84,14 @@ const MIGRATIONS: &[&str] = &[
         FROM projects
     ) AS ranked
     WHERE ranked.id = projects.id;",
+    // 8: labels are listed in a user-defined order: as a tree, siblings by
+    // `position` ascending. Existing labels start out by name.
+    "ALTER TABLE labels ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    UPDATE labels SET position = ranked.position
+    FROM (
+        SELECT id, row_number() OVER (ORDER BY name COLLATE NOCASE) AS position FROM labels
+    ) AS ranked
+    WHERE ranked.id = labels.id;",
 ];
 
 /// Label names per issue.

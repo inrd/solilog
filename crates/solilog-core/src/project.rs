@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::Db;
 use crate::issue::{Issue, IssueId};
 use crate::label::normalize_label_name;
+use crate::order::{Ordered, Placement};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -145,13 +146,6 @@ pub struct ProjectUpdate {
     pub description: Option<String>,
 }
 
-/// Where [`Db::move_project`] puts a project, relative to another one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProjectPlacement {
-    Before(String),
-    After(String),
-}
-
 fn normalize_project_name(name: &str) -> Result<String> {
     let name = name.trim();
     anyhow::ensure!(!name.is_empty(), "project name cannot be empty");
@@ -230,8 +224,13 @@ impl Db {
         let tx = self.conn.unchecked_transaction()?;
         self.conn.execute(
             "INSERT INTO projects (name, status, description, position)
-             VALUES (?1, ?2, ?3, (SELECT coalesce(max(position), 0) + 1 FROM projects))",
-            params![name, new.status, new.description.trim()],
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                name,
+                new.status,
+                new.description.trim(),
+                self.next_position(Ordered::Projects)?
+            ],
         )?;
         let id = self.conn.last_insert_rowid();
         for label in &labels {
@@ -288,33 +287,16 @@ impl Db {
 
     /// Moves a project before or after another one in the user-defined order.
     /// Returns the moved project.
-    pub fn move_project(&self, name: &str, placement: &ProjectPlacement) -> Result<Project> {
+    pub fn move_project(&self, name: &str, placement: &Placement) -> Result<Project> {
         let id = self.project_id(name)?;
-        let (anchor, after) = match placement {
-            ProjectPlacement::Before(anchor) => (anchor, false),
-            ProjectPlacement::After(anchor) => (anchor, true),
-        };
-        let anchor = self.project_id(anchor)?;
+        let anchor = self.project_id(placement.anchor())?;
         let tx = self.conn.unchecked_transaction()?;
-        let mut order: Vec<i64> = self
+        let order: Vec<i64> = self
             .conn
             .prepare_cached("SELECT id FROM projects ORDER BY position, id")?
             .query_map([], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        if anchor != id {
-            order.retain(|&p| p != id);
-            let ix = order
-                .iter()
-                .position(|&p| p == anchor)
-                .context("project vanished while moving")?;
-            order.insert(ix + usize::from(after), id);
-            let mut update = self
-                .conn
-                .prepare_cached("UPDATE projects SET position = ?2 WHERE id = ?1")?;
-            for (position, project) in order.iter().enumerate() {
-                update.execute(params![project, position as i64 + 1])?;
-            }
-        }
+        self.place(Ordered::Projects, order, id, anchor, placement)?;
         tx.commit()?;
         self.get_project(&self.project_name_by_id(id)?)
     }
@@ -532,8 +514,8 @@ mod tests {
         assert_eq!(names(true), ["b", "c", "a", "d"]);
         assert_eq!(names(false), ["b", "c", "a"]);
 
-        let before = |p: &str| ProjectPlacement::Before(p.into());
-        let after = |p: &str| ProjectPlacement::After(p.into());
+        let before = |p: &str| Placement::Before(p.into());
+        let after = |p: &str| Placement::After(p.into());
         assert_eq!(db.move_project("A", &before("b")).unwrap().name, "a");
         assert_eq!(names(true), ["a", "b", "c", "d"]);
         db.move_project("a", &after("c")).unwrap();

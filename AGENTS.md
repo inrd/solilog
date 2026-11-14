@@ -65,6 +65,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
   also matches its sublabels (`acme` matches `acme/reverb`), but issues only
   carry the labels they were given. Names are case-insensitive and keep the
   case they were created with. Renaming a label moves its sublabels with it.
+  Labels are listed as a tree with siblings in a user-defined order (new ones
+  go last; `Db::move_label` reorders among siblings only, sublabels follow).
 - **Project**: a body of work with a goal (`reverb v1.1`): status
   (`planned`, `active`, `done`, `archived`), description. Issues can be in any number of projects, or none; being outside a
   project is normal. A project's default labels are added to issues when they

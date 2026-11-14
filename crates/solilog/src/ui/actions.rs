@@ -51,6 +51,11 @@ pub mod sidebar {
             Open,
             /// Show or hide done and archived projects in the sidebar.
             ToggleClosedProjects,
+            /// Move the highlighted project or label above the previous one
+            /// (projects within their section, labels among their siblings).
+            MoveUp,
+            /// Move the highlighted project or label below the next one.
+            MoveDown,
         ]
     );
 }
@@ -58,19 +63,9 @@ pub mod sidebar {
 /// Reordering projects. The order is shared by the sidebar, pickers and
 /// `solilog project list`.
 pub mod project {
-    use gpui::{Action, actions};
+    use gpui::Action;
     use schemars::JsonSchema;
     use serde::Deserialize;
-
-    actions!(
-        project,
-        [
-            /// Move the highlighted sidebar project up.
-            MoveUp,
-            /// Move the highlighted sidebar project down.
-            MoveDown,
-        ]
-    );
 
     /// Move a project right before or right after another one (give exactly
     /// one of `before` and `after`). Dragging a project in the sidebar does this.
@@ -78,6 +73,30 @@ pub mod project {
     /// Keymap example: `"cmd-t": ["project::Move", { "name": "Triage", "before": "Website" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct Move {
+        pub name: String,
+        #[serde(default)]
+        pub before: Option<String>,
+        #[serde(default)]
+        pub after: Option<String>,
+    }
+}
+
+/// Reordering labels. The order is shared by the sidebar and
+/// `solilog label list`.
+pub mod label {
+    use gpui::Action;
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+
+    /// Move a label, with its sublabels, right before or right after a
+    /// sibling (give exactly one of `before` and `after`). Dragging a label
+    /// in the sidebar does this.
+    ///
+    /// Keymap example: `"cmd-t": ["label::Move", { "name": "acme/bug", "before": "acme/feature" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
     #[serde(deny_unknown_fields)]
     pub struct Move {
         pub name: String,

@@ -3,18 +3,19 @@
 //! archived projects sit in a collapsed section.
 //!
 //! Key context: `Sidebar`. Each row stands for an action (e.g. `view::Open`);
-//! confirming a row, by key or click, dispatches it. Projects can be dragged
-//! to reorder them, within their section (open or closed).
+//! confirming a row, by key or click, dispatches it. Projects and labels can
+//! be dragged to reorder them: projects within their section (open or
+//! closed), labels among their siblings.
 
 use gpui::{
     Action, ClickEvent, Context, FontWeight, IntoElement, SharedString, Window, div, prelude::*,
     px, rgb,
 };
-use solilog_core::{IssueFilter, ProjectPlacement};
+use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement};
 
 use super::Workspace;
 use super::scope::Source;
-use crate::ui::actions::{project, sidebar, view, workspace};
+use crate::ui::actions::{label, project, sidebar, view, workspace};
 use crate::ui::theme;
 
 pub const CONTEXT: &str = "Sidebar";
@@ -50,17 +51,50 @@ impl SidebarItem {
     }
 }
 
-/// The payload of a project being dragged in the sidebar; also renders the
-/// row that follows the mouse.
-#[derive(Clone)]
-struct DraggedProject {
-    name: String,
-    /// Index in `Workspace::projects`.
-    index: usize,
-    closed: bool,
+/// Rows can only be reordered among rows of the same group.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Group {
+    /// The open or the closed projects.
+    Projects { closed: bool },
+    /// The children of a label (lowercase), or the top-level labels.
+    Labels { parent: Option<String> },
 }
 
-impl Render for DraggedProject {
+/// A project or label row that can be reordered; the payload of a drag, which
+/// also renders the row that follows the mouse.
+#[derive(Clone)]
+struct DraggedRow {
+    name: String,
+    title: SharedString,
+    group: Group,
+    /// Index among the rows of its kind, to tell moving up from moving down.
+    index: usize,
+}
+
+impl DraggedRow {
+    /// The action that moves this row next to `anchor`.
+    fn move_action(&self, placement: Placement) -> Box<dyn Action> {
+        let name = self.name.clone();
+        let (before, after) = match placement {
+            Placement::Before(anchor) => (Some(anchor), None),
+            Placement::After(anchor) => (None, Some(anchor)),
+        };
+        match self.group {
+            Group::Projects { .. } => Box::new(project::Move {
+                name,
+                before,
+                after,
+            }),
+            Group::Labels { .. } => Box::new(label::Move {
+                name,
+                before,
+                after,
+            }),
+        }
+    }
+}
+
+impl Render for DraggedRow {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .w(px(WIDTH - 8.))
@@ -72,7 +106,7 @@ impl Render for DraggedProject {
             .line_height(px(20.))
             .text_color(rgb(theme::TEXT))
             .truncate()
-            .child(self.name.clone())
+            .child(self.title.clone())
     }
 }
 
@@ -255,64 +289,85 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The project's index in `self.projects`, and whether it is closed.
-    fn project_slot(&self, name: &str) -> Option<(usize, bool)> {
-        self.projects
-            .iter()
-            .position(|p| p.name == name)
-            .map(|ix| (ix, self.projects[ix].status.is_closed()))
-    }
-
-    /// Moves the highlighted project past its neighbor in the same section.
-    fn move_highlighted_project(
-        &mut self,
-        down: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let SidebarItem::Project(name) = &self.sidebar_cursor else {
-            return;
-        };
-        let Some((ix, closed)) = self.project_slot(name) else {
-            return;
-        };
-        let same_section = |p: &&solilog_core::Project| p.status.is_closed() == closed;
-        let neighbor = if down {
-            self.projects[ix + 1..].iter().find(same_section)
-        } else {
-            self.projects[..ix].iter().rev().find(same_section)
-        };
-        if let Some(neighbor) = neighbor {
-            let (before, after) = if down {
-                (None, Some(neighbor.name.clone()))
-            } else {
-                (Some(neighbor.name.clone()), None)
-            };
-            let action = project::Move {
-                name: name.clone(),
-                before,
-                after,
-            };
-            window.dispatch_action(Box::new(action), cx);
+    /// The reorderable row for a sidebar item, if it is a project or label.
+    fn reorderable(&self, item: &SidebarItem) -> Option<DraggedRow> {
+        match item {
+            SidebarItem::Project(name) => {
+                let index = self.projects.iter().position(|p| p.name == *name)?;
+                let closed = self.projects[index].status.is_closed();
+                Some(DraggedRow {
+                    name: name.clone(),
+                    title: name.clone().into(),
+                    group: Group::Projects { closed },
+                    index,
+                })
+            }
+            SidebarItem::Label(name) => {
+                let index = self.labels.iter().position(|l| l.name == *name)?;
+                let label = &self.labels[index];
+                let leaf = name.rsplit(LABEL_SEPARATOR).next().unwrap_or(name);
+                Some(DraggedRow {
+                    name: name.clone(),
+                    title: leaf.to_string().into(),
+                    group: Group::Labels {
+                        parent: label.parent().map(str::to_ascii_lowercase),
+                    },
+                    index,
+                })
+            }
+            _ => None,
         }
     }
 
-    fn on_move_project_up(
-        &mut self,
-        _: &project::MoveUp,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.move_highlighted_project(false, window, cx);
+    /// The names of the rows in a group, in order.
+    fn group_members(&self, group: &Group) -> Vec<&str> {
+        match group {
+            Group::Projects { closed } => self
+                .projects
+                .iter()
+                .filter(|p| p.status.is_closed() == *closed)
+                .map(|p| p.name.as_str())
+                .collect(),
+            Group::Labels { parent } => self
+                .labels
+                .iter()
+                .filter(|l| l.parent().map(str::to_ascii_lowercase) == *parent)
+                .map(|l| l.name.as_str())
+                .collect(),
+        }
     }
 
-    fn on_move_project_down(
-        &mut self,
-        _: &project::MoveDown,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.move_highlighted_project(true, window, cx);
+    /// Moves the highlighted project or label past its neighbor in its group.
+    fn move_highlighted(&mut self, down: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row) = self.reorderable(&self.sidebar_cursor) else {
+            return;
+        };
+        let members = self.group_members(&row.group);
+        let Some(ix) = members.iter().position(|name| *name == row.name) else {
+            return;
+        };
+        let neighbor = if down {
+            members.get(ix + 1)
+        } else {
+            ix.checked_sub(1).and_then(|ix| members.get(ix))
+        };
+        if let Some(neighbor) = neighbor {
+            let neighbor = neighbor.to_string();
+            let placement = if down {
+                Placement::After(neighbor)
+            } else {
+                Placement::Before(neighbor)
+            };
+            window.dispatch_action(row.move_action(placement), cx);
+        }
+    }
+
+    fn on_move_up(&mut self, _: &sidebar::MoveUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_highlighted(false, window, cx);
+    }
+
+    fn on_move_down(&mut self, _: &sidebar::MoveDown, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_highlighted(true, window, cx);
     }
 
     pub(super) fn on_move_project(
@@ -321,20 +376,22 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let placement = match (&action.before, &action.after) {
-            (Some(before), None) => ProjectPlacement::Before(before.clone()),
-            (None, Some(after)) => ProjectPlacement::After(after.clone()),
-            _ => {
-                let err =
-                    anyhow::anyhow!("project::Move needs exactly one of `before` and `after`");
-                self.report::<()>(Err(err), cx);
-                return;
-            }
-        };
-        if self
-            .report(self.db.move_project(&action.name, &placement), cx)
-            .is_some()
-        {
+        let moved = Placement::from_options(action.before.clone(), action.after.clone())
+            .and_then(|placement| self.db.move_project(&action.name, &placement));
+        if self.report(moved, cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
+    pub(super) fn on_move_label(
+        &mut self,
+        action: &label::Move,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let moved = Placement::from_options(action.before.clone(), action.after.clone())
+            .and_then(|placement| self.db.move_label(&action.name, &placement));
+        if self.report(moved, cx).is_some() {
             self.reload(cx);
         }
     }
@@ -343,20 +400,18 @@ impl Workspace {
         window.dispatch_action(self.sidebar_cursor.action(), cx);
     }
 
-    /// Makes a project row draggable, and a drop target for the projects of
-    /// its section. The dropped project takes the target's place: it goes
+    /// Makes a project or label row draggable, and a drop target for the
+    /// rows of its group. The dropped row takes the target's place: it goes
     /// after the target when moving down, before it when moving up.
-    fn project_drag_and_drop(
+    fn drag_and_drop(
         &self,
         row: gpui::Stateful<gpui::Div>,
-        target: DraggedProject,
+        target: DraggedRow,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let accepts = {
             let target = target.clone();
-            move |dragged: &DraggedProject| {
-                dragged.closed == target.closed && dragged.name != target.name
-            }
+            move |dragged: &DraggedRow| dragged.group == target.group && dragged.name != target.name
         };
         row.on_drag(target.clone(), |dragged, _, _, cx| {
             cx.new(|_| dragged.clone())
@@ -365,13 +420,13 @@ impl Workspace {
             let accepts = accepts.clone();
             move |value, _, _| value.downcast_ref().is_some_and(&accepts)
         })
-        .drag_over::<DraggedProject>({
+        .drag_over::<DraggedRow>({
             let (accepts, index) = (accepts.clone(), target.index);
             move |style, dragged, _, _| {
                 if !accepts(dragged) {
                     return style;
                 }
-                // A line where the project will land; the padding it
+                // A line where the row will land; the padding it
                 // replaces keeps the row height.
                 let style = style.rounded_none().border_color(rgb(theme::ACCENT));
                 if dragged.index < index {
@@ -381,22 +436,17 @@ impl Workspace {
                 }
             }
         })
-        .on_drop(cx.listener(move |_, dragged: &DraggedProject, window, cx| {
+        .on_drop(cx.listener(move |_, dragged: &DraggedRow, window, cx| {
             if !accepts(dragged) {
                 return;
             }
-            let anchor = Some(target.name.clone());
-            let (before, after) = if dragged.index < target.index {
-                (None, anchor)
+            let anchor = target.name.clone();
+            let placement = if dragged.index < target.index {
+                Placement::After(anchor)
             } else {
-                (anchor, None)
+                Placement::Before(anchor)
             };
-            let action = project::Move {
-                name: dragged.name.clone(),
-                before,
-                after,
-            };
-            window.dispatch_action(Box::new(action), cx);
+            window.dispatch_action(dragged.move_action(placement), cx);
         }))
     }
 
@@ -440,17 +490,7 @@ impl Workspace {
                     };
                     let action = item.action();
                     let muted = item == SidebarItem::ClosedProjects;
-                    let dragged = match &item {
-                        SidebarItem::Project(name) => {
-                            self.project_slot(name)
-                                .map(|(index, closed)| DraggedProject {
-                                    name: name.clone(),
-                                    index,
-                                    closed,
-                                })
-                        }
-                        _ => None,
-                    };
+                    let reorderable = self.reorderable(&item);
                     div()
                         .id(("sidebar", ix))
                         .flex()
@@ -471,8 +511,8 @@ impl Workspace {
                             window.focus(&this.list_focus);
                             window.dispatch_action(action.boxed_clone(), cx);
                         }))
-                        .when_some(dragged, |row, target| {
-                            self.project_drag_and_drop(row, target, cx)
+                        .when_some(reorderable, |row, target| {
+                            self.drag_and_drop(row, target, cx)
                         })
                         .child(
                             div()
@@ -508,8 +548,8 @@ impl Workspace {
                 .on_action(cx.listener(Self::on_sidebar_next))
                 .on_action(cx.listener(Self::on_sidebar_previous))
                 .on_action(cx.listener(Self::on_sidebar_open))
-                .on_action(cx.listener(Self::on_move_project_up))
-                .on_action(cx.listener(Self::on_move_project_down))
+                .on_action(cx.listener(Self::on_move_up))
+                .on_action(cx.listener(Self::on_move_down))
                 .w(px(WIDTH))
                 .flex_none()
                 .h_full()
