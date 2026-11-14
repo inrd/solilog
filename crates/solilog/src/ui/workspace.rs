@@ -19,12 +19,12 @@ use gpui::{
     div, prelude::*, px, rgb,
 };
 use solilog_core::{
-    Db, Issue, IssueChange, IssueFilter, IssueId, Label, NewProject, Project, Status, View,
+    Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Project, Status, View,
 };
 
 use super::actions::{
     self, command_palette, humanize_action_name,
-    issue::{self, AddLabel, AddToProject, RemoveFromProject, RemoveLabel, SetStatus},
+    issue::{self, AddLabel, AddToProject, Edit, RemoveFromProject, RemoveLabel, SetStatus},
     issue_list, view,
     workspace::{OpenKeymap, ReloadKeymap},
 };
@@ -756,6 +756,57 @@ impl Workspace {
         }
     }
 
+    /// Edits one issue: the action's, else the single target issue.
+    fn on_edit_issue(&mut self, action: &Edit, window: &mut Window, cx: &mut Context<Self>) {
+        let issue = match action.id {
+            Some(id) => self.report(self.db.get_issue(id), cx),
+            None => match self.target_issues(cx).as_slice() {
+                [] => None,
+                [issue] => Some(issue.clone()),
+                _ => {
+                    self.error = Some("Select a single issue to edit".into());
+                    cx.notify();
+                    None
+                }
+            },
+        };
+        let Some(issue) = issue else {
+            return;
+        };
+        let Some(title) = &action.title else {
+            // For now, editing an issue means editing its title.
+            let id = issue.id;
+            let placeholder = format!("Edit title of {id}…");
+            let picker = cx.new(|cx| {
+                Picker::new(&placeholder, Vec::new(), 0, cx)
+                    .creatable("Set title to")
+                    .query(&issue.title, cx)
+            });
+            let create: CreateAction = Box::new(move |title| {
+                Box::new(Edit {
+                    id: Some(id),
+                    title: Some(title),
+                })
+            });
+            return self.open_modal(
+                picker,
+                |picker| Modal::ActionPicker {
+                    picker,
+                    actions: Vec::new(),
+                    create: Some(create),
+                },
+                window,
+                cx,
+            );
+        };
+        let edit = IssueEdit {
+            title: Some(title.clone()),
+        };
+        if self.report(self.db.edit_issue(issue.id, &edit), cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
     /// Opens the menu of the target issues, at `position` (window
     /// coordinates) when opened with the mouse.
     fn show_issue_menu(
@@ -769,10 +820,16 @@ impl Workspace {
             return;
         };
         let highlighted = self.selected.unwrap_or(first.id);
-        let mut entries: Vec<MenuEntry> = vec![
-            ("Set Status…", Box::new(SetStatus::default())),
-            ("Add Label…", Box::new(AddLabel::default())),
-        ];
+        let mut entries: Vec<MenuEntry> = Vec::new();
+        if let [issue] = issues.as_slice() {
+            let edit = Edit {
+                id: Some(issue.id),
+                title: None,
+            };
+            entries.push(("Edit…", Box::new(edit)));
+        }
+        entries.push(("Set Status…", Box::new(SetStatus::default())));
+        entries.push(("Add Label…", Box::new(AddLabel::default())));
         if issues.iter().any(|i| !i.labels.is_empty()) {
             entries.push(("Remove Label…", Box::new(RemoveLabel::default())));
         }
@@ -1139,6 +1196,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_command_palette))
             .on_action(cx.listener(Self::on_new_issue))
             .on_action(cx.listener(Self::on_set_status))
+            .on_action(cx.listener(Self::on_edit_issue))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))

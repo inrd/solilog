@@ -16,7 +16,7 @@ use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, params};
 
 use crate::filter::IssueFilter;
-use crate::issue::{Issue, IssueChange, IssueId, NewIssue, Status};
+use crate::issue::{Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status, normalize_title};
 use crate::label::normalize_label_name;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
@@ -222,8 +222,7 @@ impl Db {
     /// Creates an issue (and any labels that don't exist yet), adds it to
     /// its projects with their default labels, and returns it.
     pub fn create_issue(&self, new: &NewIssue) -> Result<Issue> {
-        let title = new.title.trim();
-        anyhow::ensure!(!title.is_empty(), "issue title cannot be empty");
+        let title = normalize_title(&new.title)?;
         let labels = new
             .labels
             .iter()
@@ -243,6 +242,17 @@ impl Db {
             )?;
         }
         self.join_projects(id, &new.projects)?;
+        tx.commit()?;
+        self.get_issue(id)
+    }
+
+    /// Changes the fields of one issue (its title, …) and returns it.
+    pub fn edit_issue(&self, id: IssueId, edit: &IssueEdit) -> Result<Issue> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.get_issue(id)?;
+        if let Some(title) = &edit.title {
+            self.set_issue_column(id, "title", &normalize_title(title)?)?;
+        }
         tx.commit()?;
         self.get_issue(id)
     }
@@ -401,6 +411,26 @@ mod tests {
             .into_iter()
             .map(|i| i.title)
             .collect()
+    }
+
+    #[test]
+    fn edit_title() {
+        let db = Db::open_in_memory().unwrap();
+        let issue = db.create_issue(&NewIssue::new("old").labels(["bug"])).unwrap();
+        let edit = |title: &str| IssueEdit {
+            title: Some(title.into()),
+        };
+        let edited = db.edit_issue(issue.id, &edit("  new  ")).unwrap();
+        assert_eq!(edited.title, "new");
+        assert_eq!(edited.labels, ["bug"]);
+        assert_eq!(db.get_issue(issue.id).unwrap().title, "new");
+
+        assert!(db.edit_issue(issue.id, &edit("  ")).is_err());
+        assert_eq!(db.get_issue(issue.id).unwrap().title, "new");
+        assert!(db.edit_issue(IssueId(999), &edit("x")).is_err());
+        // Nothing to change: returns the issue as it is.
+        let same = db.edit_issue(issue.id, &IssueEdit::default()).unwrap();
+        assert_eq!(same, edited);
     }
 
     #[test]

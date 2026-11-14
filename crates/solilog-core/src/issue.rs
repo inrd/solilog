@@ -135,6 +135,20 @@ pub enum IssueChange {
     RemoveFromProjects(Vec<String>),
 }
 
+/// Changes to the fields of one issue, for
+/// [`Db::edit_issue`](crate::Db::edit_issue); `None` fields are left alone.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IssueEdit {
+    pub title: Option<String>,
+}
+
+/// Trims a title and checks that it is not empty.
+pub(crate) fn normalize_title(title: &str) -> anyhow::Result<&str> {
+    let title = title.trim();
+    anyhow::ensure!(!title.is_empty(), "issue title cannot be empty");
+    Ok(title)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {

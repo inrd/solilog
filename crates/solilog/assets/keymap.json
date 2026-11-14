@@ -29,6 +29,7 @@
     "context": "IssueList",
     "bindings": {
       "c": "issue::New",
+      "e": "issue::Edit",
       "s": "issue::SetStatus",
       "l": "issue::AddLabel",
       "shift-l": "issue::RemoveLabel",

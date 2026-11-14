@@ -242,6 +242,22 @@ pub mod issue {
         pub confirmed: bool,
     }
 
+    /// Edit an issue's fields: the given `id` (`SOL-12`), else the
+    /// highlighted issue. Without a `title`, asks for one, prefilled with the
+    /// current title.
+    ///
+    /// Keymap example: `"e": ["issue::Edit", { "title": "Triage me" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct Edit {
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub id: Option<IssueId>,
+        #[serde(default)]
+        pub title: Option<String>,
+    }
+
     /// Set the status of the selected issues. Without a `status`, opens the status picker.
     ///
     /// Keymap example: `"d": ["issue::SetStatus", { "status": "done" }]`

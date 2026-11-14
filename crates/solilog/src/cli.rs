@@ -14,7 +14,7 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Placement, Project,
+    Db, Issue, IssueEdit, IssueFilter, IssueId, Label, NewIssue, NewProject, Placement, Project,
     ProjectStatus, ProjectUpdate, Status, View,
 };
 
@@ -99,6 +99,16 @@ pub enum IssueCommand {
         /// Add to this existing project, with its default labels (repeatable).
         #[arg(long, short, value_name = "PROJECT")]
         project: Vec<String>,
+    },
+    /// Change an issue's fields (give at least one) and print it.
+    ///
+    /// Example: `solilog issue edit SOL-12 --title "Fix the reverb tail"`.
+    #[command(group = clap::ArgGroup::new("fields").required(true).multiple(true))]
+    Edit {
+        id: IssueId,
+        /// New title; `-` reads it from stdin.
+        #[arg(long, short, group = "fields")]
+        title: Option<String>,
     },
     /// Change an issue's status and print it.
     SetStatus { id: IssueId, status: Status },
@@ -351,6 +361,12 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                         .labels(label)
                         .projects(project);
                     out.issue(&db.create_issue(&new)?)
+                }
+                IssueCommand::Edit { id, title } => {
+                    let edit = IssueEdit {
+                        title: title.map(|t| read_arg(t, "title")).transpose()?,
+                    };
+                    out.issue(&db.edit_issue(id, &edit)?)
                 }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
                 IssueCommand::Archive { id } => out.issue(&db.set_archived(id, true)?),
