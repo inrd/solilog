@@ -1,14 +1,15 @@
 //! Single-line text input.
 //!
 //! GPUI ships no input widget; this is adapted from gpui's `examples/input.rs`.
-//! Emits [`Submit`] when Enter is pressed.
+//! Emits [`Submit`] when Enter is pressed. Key bindings live in the keymap
+//! (`assets/keymap.json`, context `TextInput`).
 
 use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
     fill, point, prelude::*, px, relative, rgb, rgba, size,
 };
@@ -36,30 +37,11 @@ actions!(
     ]
 );
 
-/// Key bindings for the text input. Call once at startup.
-pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("backspace", Backspace, Some(CONTEXT)),
-        KeyBinding::new("delete", Delete, Some(CONTEXT)),
-        KeyBinding::new("left", Left, Some(CONTEXT)),
-        KeyBinding::new("right", Right, Some(CONTEXT)),
-        KeyBinding::new("shift-left", SelectLeft, Some(CONTEXT)),
-        KeyBinding::new("shift-right", SelectRight, Some(CONTEXT)),
-        KeyBinding::new("cmd-left", Home, Some(CONTEXT)),
-        KeyBinding::new("cmd-right", End, Some(CONTEXT)),
-        KeyBinding::new("home", Home, Some(CONTEXT)),
-        KeyBinding::new("end", End, Some(CONTEXT)),
-        KeyBinding::new("cmd-a", SelectAll, Some(CONTEXT)),
-        KeyBinding::new("cmd-v", Paste, Some(CONTEXT)),
-        KeyBinding::new("cmd-c", Copy, Some(CONTEXT)),
-        KeyBinding::new("cmd-x", Cut, Some(CONTEXT)),
-        KeyBinding::new("enter", Enter, Some(CONTEXT)),
-        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some(CONTEXT)),
-    ]);
-}
-
 /// Emitted when the user presses Enter.
 pub struct Submit;
+
+/// Emitted whenever the text changes.
+pub struct Changed;
 
 pub struct TextInput {
     focus_handle: FocusHandle,
@@ -74,6 +56,7 @@ pub struct TextInput {
 }
 
 impl EventEmitter<Submit> for TextInput {}
+impl EventEmitter<Changed> for TextInput {}
 
 impl TextInput {
     pub fn new(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
@@ -99,6 +82,7 @@ impl TextInput {
         self.selected_range = 0..0;
         self.selection_reversed = false;
         self.marked_range = None;
+        cx.emit(Changed);
         cx.notify();
     }
 
@@ -363,6 +347,7 @@ impl EntityInputHandler for TextInput {
                 .into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
+        cx.emit(Changed);
         cx.notify();
     }
 
@@ -394,6 +379,7 @@ impl EntityInputHandler for TextInput {
             .map(|new_range| new_range.start + range.start..new_range.end + range.end)
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
 
+        cx.emit(Changed);
         cx.notify();
     }
 

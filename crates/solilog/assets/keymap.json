@@ -1,0 +1,77 @@
+// Default Solilog keymap. Override in ~/.config/solilog/keymap.json (same format).
+//
+// Contexts, outermost first:
+//   Workspace            the whole window
+//   IssueList            the issue list has focus
+//   NewIssue > TextInput the new-issue input has focus
+//   Picker               any popup list (command palette, status picker)
+//   TextInput            any single-line text field
+[
+  {
+    "bindings": {
+      "cmd-q": "workspace::Quit"
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "cmd-k": "command_palette::Toggle",
+      "cmd-shift-p": "command_palette::Toggle",
+      "cmd-n": "issue::New"
+    }
+  },
+  {
+    "context": "IssueList",
+    "bindings": {
+      "c": "issue::New",
+      "s": "issue::SetStatus",
+      "j": "issue_list::SelectNext",
+      "k": "issue_list::SelectPrevious",
+      "down": "issue_list::SelectNext",
+      "up": "issue_list::SelectPrevious",
+      "g g": "issue_list::SelectFirst",
+      "shift-g": "issue_list::SelectLast",
+      "home": "issue_list::SelectFirst",
+      "end": "issue_list::SelectLast"
+    }
+  },
+  {
+    "context": "NewIssue",
+    "bindings": {
+      "escape": "issue_list::Focus",
+      "down": "issue_list::Focus"
+    }
+  },
+  {
+    "context": "Picker",
+    "bindings": {
+      "up": "picker::SelectPrevious",
+      "down": "picker::SelectNext",
+      "ctrl-p": "picker::SelectPrevious",
+      "ctrl-n": "picker::SelectNext",
+      "enter": "picker::Confirm",
+      "escape": "picker::Dismiss"
+    }
+  },
+  {
+    "context": "TextInput",
+    "bindings": {
+      "backspace": "text_input::Backspace",
+      "delete": "text_input::Delete",
+      "left": "text_input::Left",
+      "right": "text_input::Right",
+      "shift-left": "text_input::SelectLeft",
+      "shift-right": "text_input::SelectRight",
+      "cmd-left": "text_input::Home",
+      "cmd-right": "text_input::End",
+      "home": "text_input::Home",
+      "end": "text_input::End",
+      "cmd-a": "text_input::SelectAll",
+      "cmd-v": "text_input::Paste",
+      "cmd-c": "text_input::Copy",
+      "cmd-x": "text_input::Cut",
+      "enter": "text_input::Enter",
+      "ctrl-cmd-space": "text_input::ShowCharacterPalette"
+    }
+  }
+]

@@ -1,0 +1,16 @@
+[package]
+name = "solilog-core"
+description = "Solilog domain types, storage and operations. No UI dependencies."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+dirs.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
