@@ -10,6 +10,7 @@
 //   Checklist            the open issue's checklist, in IssueDetail; each
 //                        item is a ChecklistItem holding a TextInput
 //   NewIssue > TextInput the new-issue input has focus
+//   ImagePreview         an image attachment shown over the window
 //   Picker               any popup list (command palette, status picker)
 //   TextInput            any text field; multi-line ones are also `multiline`
 [
@@ -137,6 +138,18 @@
     "bindings": {
       "escape": "issue_detail::StopEditing",
       "cmd-enter": "issue_detail::StopEditing"
+    }
+  },
+  {
+    "context": "ImagePreview",
+    "bindings": {
+      "right": "image_preview::Next",
+      "l": "image_preview::Next",
+      "left": "image_preview::Previous",
+      "h": "image_preview::Previous",
+      "escape": "image_preview::Close",
+      "space": "image_preview::Close",
+      "r": "attachment::Reveal"
     }
   },
   {

@@ -1,6 +1,7 @@
 //! The attachments of the open issue, below its description: one row per
-//! file (an icon for its kind, its name and size). Clicking a row shows the
-//! file in the Finder. Files are added by dropping them on the open issue,
+//! file (an icon for its kind, its name and size). Clicking an image
+//! previews it in the app (see `preview.rs`); clicking another file shows it
+//! in the Finder. Files are added by dropping them on the open issue,
 //! by pasting (files copied in the Finder, or an image), or from a file
 //! dialog (`attachment::Add`).
 
@@ -14,7 +15,7 @@ use solilog_core::{Attachment, AttachmentId, AttachmentKind, IssueId, format_siz
 
 use super::super::Workspace;
 use super::IssueDetail;
-use crate::ui::actions::attachment::{Add, Delete, Paste, Reveal};
+use crate::ui::actions::attachment::{Add, Delete, Paste, Preview, Reveal};
 use crate::ui::clipboard::{self, Attachable};
 use crate::ui::picker::PickerItem;
 use crate::ui::theme;
@@ -145,8 +146,17 @@ impl Workspace {
         else {
             return;
         };
-        match attachment.path {
-            Some(path) if path.exists() => cx.reveal_path(&path),
+        self.reveal_attachment(&attachment, cx);
+    }
+
+    /// Shows the file in the Finder, or an error if it is gone.
+    pub(in crate::ui::workspace) fn reveal_attachment(
+        &mut self,
+        attachment: &Attachment,
+        cx: &mut Context<Self>,
+    ) {
+        match &attachment.path {
+            Some(path) if path.exists() => cx.reveal_path(path),
             Some(path) => {
                 self.error = Some(format!("{} is missing", path.display()));
                 cx.notify();
@@ -261,9 +271,15 @@ impl Workspace {
                 .hover(|s| s.bg(rgb(theme::HOVER)))
                 .on_click({
                     let focus = pane_focus.clone();
+                    let image = attachment.kind == AttachmentKind::Image;
                     move |_: &ClickEvent, window, cx| {
                         window.focus(&focus);
-                        window.dispatch_action(Reveal { id: Some(id) }.boxed_clone(), cx);
+                        let action = if image {
+                            Preview { id: Some(id) }.boxed_clone()
+                        } else {
+                            Reveal { id: Some(id) }.boxed_clone()
+                        };
+                        window.dispatch_action(action, cx);
                     }
                 })
                 .child(kind_icon(attachment.kind))

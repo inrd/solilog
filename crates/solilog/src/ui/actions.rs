@@ -484,9 +484,22 @@ pub mod attachment {
         pub paths: Vec<PathBuf>,
     }
 
+    /// Show an image attachment in the app: the given `id`, else the open
+    /// issue's first image. The preview goes through the issue's other
+    /// images (`image_preview::Next`, `Previous`). Clicking an image
+    /// attachment does this.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = attachment)]
+    #[serde(deny_unknown_fields)]
+    pub struct Preview {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<AttachmentId>,
+    }
+
     /// Show an attachment's file in the Finder (the file manager): the
-    /// given `id`, else one picked among the open issue's attachments.
-    /// Clicking an attachment does this.
+    /// given `id`, else the image being previewed, else one picked among
+    /// the open issue's attachments. Clicking a file attachment does this.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = attachment)]
     #[serde(deny_unknown_fields)]
@@ -509,6 +522,23 @@ pub mod attachment {
         #[serde(default)]
         pub confirmed: bool,
     }
+}
+
+/// The image preview (see `attachment::Preview`).
+pub mod image_preview {
+    use gpui::actions;
+
+    actions!(
+        image_preview,
+        [
+            /// Show the issue's next image (after the last, the first).
+            Next,
+            /// Show the issue's previous image.
+            Previous,
+            /// Close the preview, back to the issue.
+            Close,
+        ]
+    );
 }
 
 pub mod view {

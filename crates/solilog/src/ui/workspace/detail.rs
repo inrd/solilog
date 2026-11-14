@@ -12,6 +12,7 @@
 
 mod attachments;
 mod checklist;
+mod preview;
 
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ use crate::ui::status_icon::status_icon;
 use crate::ui::text_input::{Changed, Submit, TextInput};
 use crate::ui::theme;
 use checklist::Checklist;
+use preview::ImagePreview;
 
 pub const CONTEXT: &str = "IssueDetail";
 
@@ -43,6 +45,8 @@ pub(super) struct IssueDetail {
     title: Entity<TextInput>,
     description: Entity<TextInput>,
     checklist: Checklist,
+    /// The image attachment shown over the window, if any.
+    preview: Option<ImagePreview>,
     focus: FocusHandle,
     scroll: ScrollHandle,
     autosave: Option<Task<()>>,
@@ -115,6 +119,7 @@ impl Workspace {
             title,
             description,
             checklist,
+            preview: None,
             focus,
             scroll,
             autosave: None,
@@ -441,6 +446,7 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_paste_attachments))
                     .on_action(cx.listener(Self::on_reveal_attachment))
                     .on_action(cx.listener(Self::on_delete_attachment))
+                    .on_action(cx.listener(Self::on_preview_attachment))
                     // Files dropped anywhere on the issue are attached to it.
                     .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(rgb(theme::SELECTION)))
                     .on_drop({

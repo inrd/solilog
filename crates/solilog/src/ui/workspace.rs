@@ -1495,6 +1495,7 @@ fn simplest_binding(
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_checklist(window, cx);
+        self.sync_image_preview(window);
         // The footer's hints come from the last rendered frame, which does
         // not have a newly focused element yet: render once more.
         let focused = window.focused(cx);
@@ -1571,6 +1572,7 @@ impl Render for Workspace {
                     }),
             )
             .child(self.render_footer(window, cx))
+            .children(self.render_image_preview(cx))
             .children(self.render_modal(cx))
     }
 }
@@ -1631,10 +1633,16 @@ impl Workspace {
     /// Candidate footer hints, most useful first. Only those bound from the
     /// focused element show, so each context gets its own.
     fn footer_hints(&self) -> Vec<(Box<dyn Action>, &'static str)> {
-        use actions::{archive, checklist, issue_detail, picker, sidebar};
+        use actions::{
+            archive, attachment, checklist, image_preview, issue_detail, picker, sidebar,
+        };
         let mut hints: Vec<(Box<dyn Action>, &'static str)> = vec![
             (Box::new(picker::Confirm), "Choose"),
             (Box::new(picker::Dismiss), "Cancel"),
+            (Box::new(image_preview::Previous), "Previous"),
+            (Box::new(image_preview::Next), "Next"),
+            (Box::new(attachment::Reveal::default()), "Show in Finder"),
+            (Box::new(image_preview::Close), "Close"),
             (Box::new(issue::Open::default()), "Open"),
             (Box::new(sidebar::Open), "Open"),
             (Box::new(issue_detail::Close), "Back"),

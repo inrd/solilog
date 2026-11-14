@@ -151,7 +151,8 @@ One concept, one name, consistent across surfaces:
 - Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `IssueDetail` | `NewIssue > TextInput`;
   `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items
   (attachment commands are registered on `IssueDetail`);
-  `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
+  `ImagePreview` for an image attachment shown over the window (outside
+  `IssueDetail`, so the issue's single-key bindings don't apply); `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
   bindings in a context that holds text fields need `&& !TextInput` (see `IssueDetail`).
 - Issue commands act on the selected issues (`issue_list::ToggleSelected`,
   `SelectAll`, `ExtendSelectionDown/Up`; cmd/shift-click), or on the
@@ -163,7 +164,10 @@ One concept, one name, consistent across surfaces:
   (`workspace/detail.rs`, `workspace/detail/checklist.rs`). Issue commands
   then act on it; checklist item commands act on the item being edited.
   Files dropped on it, or pasted (`ui/clipboard.rs` reads copied Finder
-  files and images on macOS), become attachments.
+  files and images on macOS), become attachments. Clicking an image
+  attachment previews it (`attachment::Preview`, `workspace/detail/preview.rs`;
+  arrows go through the issue's images, `r` shows it in the Finder); other
+  files are shown in the Finder.
 - The archive (`workspace::OpenArchive`, palette only) replaces the issue list
   and lists archived projects and issues, with a context menu to delete them
   or bring them back.
