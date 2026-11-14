@@ -496,7 +496,9 @@ mod tests {
         assert!(notes.exists(), "the original stays");
 
         // Taken names get a number, ignoring case.
-        let again = db.add_attachments(issue, std::slice::from_ref(&notes)).unwrap();
+        let again = db
+            .add_attachments(issue, std::slice::from_ref(&notes))
+            .unwrap();
         assert_eq!(names(&again), ["notes (2).txt"]);
         let pasted = db.add_attachment_data(issue, "NOTES.txt", b"abc").unwrap();
         assert_eq!(pasted.name, "NOTES (3).txt");
@@ -529,7 +531,10 @@ mod tests {
         assert!(db.add_attachments(issue, &[ok.clone(), missing]).is_err());
         assert!(db.add_attachments(issue, &[t.dir.join("src")]).is_err());
         assert!(db.list_attachments(issue).unwrap().is_empty());
-        assert!(db.add_attachments(IssueId(99), std::slice::from_ref(&ok)).is_err());
+        assert!(
+            db.add_attachments(IssueId(99), std::slice::from_ref(&ok))
+                .is_err()
+        );
         // Nothing left in the directory either.
         let dir = db.issue_attachments_dir(issue).unwrap();
         assert_eq!(fs::read_dir(&dir).map_or(0, |d| d.count()), 0);

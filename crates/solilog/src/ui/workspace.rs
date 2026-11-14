@@ -18,7 +18,7 @@ use std::time::Duration;
 use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
     MouseDownEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task, Window,
-    anchored, deferred, div, prelude::*, px, rgb,
+    anchored, deferred, div, prelude::*, px, rgb, svg,
 };
 use solilog_core::{
     Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement, Project,
@@ -1216,6 +1216,9 @@ impl Workspace {
             .when(!issue.description.is_empty(), |row| {
                 row.child(description_icon())
             })
+            .when(!issue.attachments.is_empty(), |row| {
+                row.child(attachments_icon())
+            })
             .children(
                 issue
                     .checklist_progress()
@@ -1310,8 +1313,6 @@ fn of_issues(issues: &[Issue]) -> String {
     }
 }
 
-/// A small rounded tag, used for projects and labels.
-/// Checklist progress of an issue in the list: done/total items.
 /// Shown in the list for issues with a description: a few lines of text.
 fn description_icon() -> impl IntoElement {
     let line = |width: f32| {
@@ -1333,6 +1334,16 @@ fn description_icon() -> impl IntoElement {
         .child(line(8.))
 }
 
+/// Shown in the list for issues with attachments: a paperclip.
+fn attachments_icon() -> impl IntoElement {
+    svg()
+        .path(super::assets::PAPERCLIP)
+        .flex_none()
+        .size(px(13.))
+        .text_color(rgb(theme::TEXT_MUTED))
+}
+
+/// Checklist progress of an issue in the list: done/total items.
 fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
     div()
         .flex_none()
@@ -1345,6 +1356,7 @@ fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
         .child(format!("✓ {done}/{total}"))
 }
 
+/// A small rounded tag, used for projects and labels.
 fn chip(text: String, color: u32) -> impl IntoElement {
     div()
         .flex_none()
