@@ -84,13 +84,16 @@ pub enum IssueCommand {
         #[command(flatten)]
         filter: FilterArgs,
     },
-    /// Show one issue.
+    /// Show one issue, with its description.
     Show { id: IssueId },
     /// Create an issue and print it.
     #[command(visible_alias = "new")]
     Create {
         /// Title; `-` reads it from stdin.
         title: String,
+        /// Plain-text description, any number of lines; `-` reads it from stdin.
+        #[arg(long, short, default_value = "")]
+        description: String,
         #[arg(long, short, default_value_t = Status::Todo)]
         status: Status,
         /// Add this label, creating it if needed (repeatable).
@@ -102,13 +105,18 @@ pub enum IssueCommand {
     },
     /// Change an issue's fields (give at least one) and print it.
     ///
-    /// Example: `solilog issue edit SOL-12 --title "Fix the reverb tail"`.
+    /// Examples: `solilog issue edit SOL-12 --title "Fix the reverb tail"`,
+    /// `git log -1 --format=%B | solilog issue edit SOL-12 --description -`.
     #[command(group = clap::ArgGroup::new("fields").required(true).multiple(true))]
     Edit {
         id: IssueId,
         /// New title; `-` reads it from stdin.
         #[arg(long, short, group = "fields")]
         title: Option<String>,
+        /// New plain-text description (replaces the old one; `""` removes
+        /// it); `-` reads it from stdin.
+        #[arg(long, short, group = "fields")]
+        description: Option<String>,
     },
     /// Change an issue's status and print it.
     SetStatus { id: IssueId, status: Status },
@@ -364,19 +372,30 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                 IssueCommand::Show { id } => out.issue(&db.get_issue(id)?),
                 IssueCommand::Create {
                     title,
+                    description,
                     status,
                     label,
                     project,
                 } => {
+                    check_one_stdin([&title, &description])?;
                     let new = NewIssue::new(read_arg(title, "title")?)
+                        .description(read_arg(description, "description")?)
                         .status(status)
                         .labels(label)
                         .projects(project);
                     out.issue(&db.create_issue(&new)?)
                 }
-                IssueCommand::Edit { id, title } => {
+                IssueCommand::Edit {
+                    id,
+                    title,
+                    description,
+                } => {
+                    check_one_stdin([&title, &description].into_iter().flatten())?;
                     let edit = IssueEdit {
                         title: title.map(|t| read_arg(t, "title")).transpose()?,
+                        description: description
+                            .map(|d| read_arg(d, "description"))
+                            .transpose()?,
                     };
                     out.issue(&db.edit_issue(id, &edit)?)
                 }
@@ -551,6 +570,16 @@ fn read_arg(value: String, what: &str) -> Result<String> {
     Ok(buf)
 }
 
+/// Stdin can be read only once: at most one argument may be `-`.
+fn check_one_stdin<'a>(values: impl IntoIterator<Item = &'a String>) -> Result<()> {
+    let from_stdin = values.into_iter().filter(|v| *v == "-").count();
+    anyhow::ensure!(
+        from_stdin <= 1,
+        "only one argument can be read from stdin (`-`)"
+    );
+    Ok(())
+}
+
 struct Output {
     json: bool,
 }
@@ -571,7 +600,13 @@ impl Output {
     }
 
     fn issue(&self, issue: &Issue) -> Result<()> {
-        self.print(issue, || issue_line(issue))
+        self.print(issue, || {
+            let mut text = issue_line(issue);
+            if !issue.description.is_empty() {
+                text.push_str(&format!("\n\n{}", issue.description));
+            }
+            text
+        })
     }
 
     fn view(&self, view: &View) -> Result<()> {

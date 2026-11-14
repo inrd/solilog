@@ -136,6 +136,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.close_detail(cx);
         self.showing_archive = true;
         self.error = None;
         self.reload(cx);
@@ -251,7 +252,12 @@ impl Workspace {
         self.set_archived(true, cx);
     }
 
-    fn on_unarchive_issue(&mut self, _: &issue::Unarchive, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_unarchive_issue(
+        &mut self,
+        _: &issue::Unarchive,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.set_archived(false, cx);
     }
 

@@ -5,9 +5,11 @@
 //   Sidebar              the sidebar has focus
 //   IssueList            the issue list has focus
 //   Archive              the archive has focus (it replaces the issue list)
+//   IssueDetail          an open issue (it replaces the issue list); its
+//                        title and description fields are TextInputs in it
 //   NewIssue > TextInput the new-issue input has focus
 //   Picker               any popup list (command palette, status picker)
-//   TextInput            any single-line text field
+//   TextInput            any text field; multi-line ones are also `multiline`
 [
   {
     "bindings": {
@@ -29,6 +31,7 @@
     "context": "IssueList",
     "bindings": {
       "c": "issue::New",
+      "enter": "issue::Open",
       "e": "issue::Edit",
       "s": "issue::SetStatus",
       "l": "issue::AddLabel",
@@ -103,6 +106,33 @@
     }
   },
   {
+    // Not while typing in the title or description.
+    "context": "IssueDetail && !TextInput",
+    "bindings": {
+      "escape": "issue_detail::Close",
+      "backspace": "issue_detail::Close",
+      "e": "issue_detail::EditTitle",
+      "enter": "issue_detail::EditDescription",
+      "d": "issue_detail::EditDescription",
+      "s": "issue::SetStatus",
+      "l": "issue::AddLabel",
+      "shift-l": "issue::RemoveLabel",
+      "p": "issue::AddToProject",
+      "shift-p": "issue::RemoveFromProject",
+      "m": "issue_list::ShowContextMenu",
+      "shift-f10": "issue_list::ShowContextMenu",
+      "h": "workspace::FocusSidebar",
+      "left": "workspace::FocusSidebar"
+    }
+  },
+  {
+    "context": "IssueDetail > TextInput",
+    "bindings": {
+      "escape": "issue_detail::StopEditing",
+      "cmd-enter": "issue_detail::StopEditing"
+    }
+  },
+  {
     "context": "NewIssue",
     "bindings": {
       "escape": "issue_list::Focus",
@@ -129,16 +159,38 @@
       "right": "text_input::Right",
       "shift-left": "text_input::SelectLeft",
       "shift-right": "text_input::SelectRight",
+      "alt-left": "text_input::WordLeft",
+      "alt-right": "text_input::WordRight",
+      "alt-shift-left": "text_input::SelectWordLeft",
+      "alt-shift-right": "text_input::SelectWordRight",
+      "alt-backspace": "text_input::DeleteWordLeft",
       "cmd-left": "text_input::Home",
       "cmd-right": "text_input::End",
+      "cmd-shift-left": "text_input::SelectHome",
+      "cmd-shift-right": "text_input::SelectEnd",
       "home": "text_input::Home",
       "end": "text_input::End",
+      "shift-home": "text_input::SelectHome",
+      "shift-end": "text_input::SelectEnd",
       "cmd-a": "text_input::SelectAll",
       "cmd-v": "text_input::Paste",
       "cmd-c": "text_input::Copy",
       "cmd-x": "text_input::Cut",
       "enter": "text_input::Enter",
       "ctrl-cmd-space": "text_input::ShowCharacterPalette"
+    }
+  },
+  {
+    "context": "TextInput && multiline",
+    "bindings": {
+      "up": "text_input::Up",
+      "down": "text_input::Down",
+      "shift-up": "text_input::SelectUp",
+      "shift-down": "text_input::SelectDown",
+      "cmd-up": "text_input::MoveToStart",
+      "cmd-down": "text_input::MoveToEnd",
+      "cmd-shift-up": "text_input::SelectToStart",
+      "cmd-shift-down": "text_input::SelectToEnd"
     }
   }
 ]

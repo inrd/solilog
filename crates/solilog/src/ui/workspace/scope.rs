@@ -120,6 +120,7 @@ impl Workspace {
         let Some(source) = self.report(source, cx) else {
             return;
         };
+        self.close_detail(cx);
         self.scope = Scope::new(source);
         self.showing_archive = false;
         self.selected = None;

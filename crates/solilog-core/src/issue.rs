@@ -69,6 +69,10 @@ impl FromSql for IssueId {
 pub struct Issue {
     pub id: IssueId,
     pub title: String,
+    /// Plain text, possibly several paragraphs; empty when there is none.
+    /// Stored as written (see [`normalize_description`]) so that it can be
+    /// read as Markdown later.
+    pub description: String,
     pub status: Status,
     /// Unix timestamp (seconds).
     pub created_at: i64,
@@ -85,6 +89,7 @@ pub struct Issue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewIssue {
     pub title: String,
+    pub description: String,
     pub status: Status,
     /// Label paths; missing labels are created.
     pub labels: Vec<String>,
@@ -96,10 +101,16 @@ impl NewIssue {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
+            description: String::new(),
             status: Status::Todo,
             labels: Vec::new(),
             projects: Vec::new(),
         }
+    }
+
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
     }
 
     pub fn status(mut self, status: Status) -> Self {
@@ -140,6 +151,8 @@ pub enum IssueChange {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssueEdit {
     pub title: Option<String>,
+    /// Empty to remove the description.
+    pub description: Option<String>,
 }
 
 /// Trims a title and checks that it is not empty.
@@ -147,6 +160,19 @@ pub(crate) fn normalize_title(title: &str) -> anyhow::Result<&str> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "issue title cannot be empty");
     Ok(title)
+}
+
+/// Cleans up a description without changing its meaning as text or as
+/// Markdown: line endings become `\n`, trailing whitespace on each line and
+/// blank lines at both ends are dropped. Indentation is kept.
+pub fn normalize_description(description: &str) -> String {
+    let lines: Vec<&str> = description.lines().map(str::trim_end).collect();
+    let first = lines.iter().position(|l| !l.is_empty());
+    let last = lines.iter().rposition(|l| !l.is_empty());
+    match (first, last) {
+        (Some(first), Some(last)) => lines[first..=last].join("\n"),
+        _ => String::new(),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -263,6 +289,16 @@ mod tests {
         assert!("0".parse::<IssueId>().is_err());
         assert!("FOO-1".parse::<IssueId>().is_err());
         assert_eq!(IssueId(7).to_string(), "SOL-7");
+    }
+
+    #[test]
+    fn description_normalization() {
+        assert_eq!(normalize_description(""), "");
+        assert_eq!(normalize_description(" \n\t\n"), "");
+        assert_eq!(
+            normalize_description("\r\n\n  indented  \r\n\r\n- item\t\n\n"),
+            "  indented\n\n- item"
+        );
     }
 
     #[test]

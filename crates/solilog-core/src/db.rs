@@ -16,7 +16,10 @@ use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, params};
 
 use crate::filter::IssueFilter;
-use crate::issue::{Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status, normalize_title};
+use crate::issue::{
+    Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status, normalize_description,
+    normalize_title,
+};
 use crate::label::normalize_label_name;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
@@ -96,6 +99,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE issues ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1));",
     // 10: labels can have a color (a `LabelColor` key).
     "ALTER TABLE labels ADD COLUMN color TEXT;",
+    // 11: issues have a plain-text description (empty when there is none).
+    "ALTER TABLE issues ADD COLUMN description TEXT NOT NULL DEFAULT '';",
 ];
 
 /// Label names per issue.
@@ -110,7 +115,7 @@ const ISSUE_PROJECTS_SQL: &str =
      WHERE ?1 IS NULL OR ip.issue_id = ?1
      ORDER BY p.name COLLATE NOCASE";
 
-const ISSUE_COLUMNS: &str = "id, title, status, created_at, archived";
+const ISSUE_COLUMNS: &str = "id, title, status, created_at, archived, description";
 
 pub struct Db {
     pub(crate) conn: Connection,
@@ -232,8 +237,8 @@ impl Db {
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
         let id: IssueId = self.conn.query_row(
-            "INSERT INTO issues (title, status) VALUES (?1, ?2) RETURNING id",
-            params![title, new.status],
+            "INSERT INTO issues (title, status, description) VALUES (?1, ?2, ?3) RETURNING id",
+            params![title, new.status, normalize_description(&new.description)],
             |row| row.get(0),
         )?;
         for label in &labels {
@@ -248,12 +253,15 @@ impl Db {
         self.get_issue(id)
     }
 
-    /// Changes the fields of one issue (its title, …) and returns it.
+    /// Changes the fields of one issue (title, description) and returns it.
     pub fn edit_issue(&self, id: IssueId, edit: &IssueEdit) -> Result<Issue> {
         let tx = self.conn.unchecked_transaction()?;
         self.get_issue(id)?;
         if let Some(title) = &edit.title {
             self.set_issue_column(id, "title", &normalize_title(title)?)?;
+        }
+        if let Some(description) = &edit.description {
+            self.set_issue_column(id, "description", &normalize_description(description))?;
         }
         tx.commit()?;
         self.get_issue(id)
@@ -389,6 +397,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         status: row.get(2)?,
         created_at: row.get(3)?,
         archived: row.get(4)?,
+        description: row.get(5)?,
         labels: Vec::new(),
         projects: Vec::new(),
     })
@@ -423,6 +432,7 @@ mod tests {
             .unwrap();
         let edit = |title: &str| IssueEdit {
             title: Some(title.into()),
+            ..Default::default()
         };
         let edited = db.edit_issue(issue.id, &edit("  new  ")).unwrap();
         assert_eq!(edited.title, "new");
@@ -435,6 +445,37 @@ mod tests {
         // Nothing to change: returns the issue as it is.
         let same = db.edit_issue(issue.id, &IssueEdit::default()).unwrap();
         assert_eq!(same, edited);
+    }
+
+    #[test]
+    fn descriptions() {
+        let db = Db::open_in_memory().unwrap();
+        let plain = db.create_issue(&NewIssue::new("plain")).unwrap();
+        assert_eq!(plain.description, "");
+        let issue = db
+            .create_issue(&NewIssue::new("x").description("\nSteps:\r\n  1. play  \n\n"))
+            .unwrap();
+        assert_eq!(issue.description, "Steps:\n  1. play");
+        assert_eq!(
+            db.get_issue(issue.id).unwrap().description,
+            "Steps:\n  1. play"
+        );
+
+        let edit = |description: &str| IssueEdit {
+            description: Some(description.into()),
+            ..Default::default()
+        };
+        let edited = db.edit_issue(issue.id, &edit("new\n\ntext")).unwrap();
+        assert_eq!(edited.description, "new\n\ntext");
+        assert_eq!(edited.title, "x", "the title is left alone");
+        let listed = db.list_issues(&IssueFilter::default()).unwrap();
+        assert_eq!(listed[0].description, "new\n\ntext");
+        assert_eq!(listed[1].description, "");
+        // An empty (or blank) description removes it.
+        assert_eq!(
+            db.edit_issue(issue.id, &edit("  \n")).unwrap().description,
+            ""
+        );
     }
 
     #[test]

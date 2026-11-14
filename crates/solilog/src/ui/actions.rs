@@ -260,8 +260,10 @@ pub mod issue {
     }
 
     /// Edit an issue's fields: the given `id` (`SOL-12`), else the
-    /// highlighted issue. Without a `title`, asks for one, prefilled with the
-    /// current title.
+    /// highlighted issue. Sets the `title` and/or `description` given (an
+    /// empty description removes it); with neither, asks for a title,
+    /// prefilled with the current one. To edit the description by hand, open
+    /// the issue (`issue::Open`).
     ///
     /// Keymap example: `"e": ["issue::Edit", { "title": "Triage me" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
@@ -273,6 +275,20 @@ pub mod issue {
         pub id: Option<IssueId>,
         #[serde(default)]
         pub title: Option<String>,
+        #[serde(default)]
+        pub description: Option<String>,
+    }
+
+    /// Open an issue in place of the list, to read it and edit its title and
+    /// description: the given `id` (`SOL-12`), else the highlighted issue.
+    /// Double-clicking an issue does this.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct Open {
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub id: Option<IssueId>,
     }
 
     /// Set the status of the selected issues. Without a `status`, opens the status picker.
@@ -328,6 +344,25 @@ pub mod issue {
         #[serde(default)]
         pub project: Option<String>,
     }
+}
+
+/// The open issue (see `issue::Open`). Issue commands act on it.
+pub mod issue_detail {
+    use gpui::actions;
+
+    actions!(
+        issue_detail,
+        [
+            /// Back to the list. Edits are saved as you type, and when you leave.
+            Close,
+            /// Put the cursor in the title.
+            EditTitle,
+            /// Put the cursor in the description.
+            EditDescription,
+            /// Leave the title or description field (saving it), staying on the issue.
+            StopEditing,
+        ]
+    );
 }
 
 pub mod view {

@@ -58,7 +58,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, status, labels, projects. An issue can be archived: it
+- **Issue**: title, description, status, labels, projects. The description is
+  plain text, stored as written apart from whitespace cleanup
+  (`normalize_description`), so it can be rendered as Markdown later. An issue can be archived: it
   keeps everything but is left out of listings, views and counts
   (`Db::list_archived_issues` lists them). Deleting an issue is permanent.
 - **Label**: a free-form, hierarchical tag. The name is a `/`-separated path
@@ -129,12 +131,17 @@ One concept, one name, consistent across surfaces:
 - Defaults: `crates/solilog/assets/keymap.json` (compiled in). User overrides:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
-- Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `NewIssue > TextInput`; `Picker` for popups.
+- Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `IssueDetail` | `NewIssue > TextInput`;
+  `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
+  bindings in a context that holds text fields need `&& !TextInput` (see `IssueDetail`).
 - Issue commands act on the selected issues (`issue_list::ToggleSelected`,
   `SelectAll`, `ExtendSelectionDown/Up`; cmd/shift-click), or on the
   highlighted issue when none is selected. GUI handlers get them from
   `Workspace::target_issues` and apply changes in one go with
   `Db::update_issues` / `Db::delete_issues` (all or nothing).
+- An open issue (`issue::Open`, Enter) replaces the issue list: title and
+  description are edited in place and saved as you type (`workspace/detail.rs`).
+  Issue commands then act on it.
 - The archive (`workspace::OpenArchive`, palette only) replaces the issue list
   and lists archived projects and issues, with a context menu to delete them
   or bring them back.

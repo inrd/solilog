@@ -1,0 +1,421 @@
+//! The issue detail: one issue, in place of the issue list (or the archive),
+//! with its title and description editable in place. Opened with
+//! `issue::Open` (Enter or double click in the list), left with
+//! `issue_detail::Close` (Escape).
+//!
+//! Key context: `IssueDetail`. Its pane has the focus while no field is
+//! being edited; issue commands act on the open issue. Edits are saved
+//! shortly after typing stops, when a field loses focus, and when the detail
+//! closes. Changes made elsewhere (e.g. from the CLI) show up in a field
+//! unless it has unsaved edits.
+
+use std::time::Duration;
+
+use gpui::{
+    Action, ClickEvent, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
+    ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
+};
+use solilog_core::{Issue, IssueEdit, IssueId, normalize_description};
+
+use super::{Workspace, chip};
+use crate::ui::actions::{
+    issue::{self, SetStatus},
+    issue_detail,
+};
+use crate::ui::status_icon::status_icon;
+use crate::ui::text_input::{Changed, Submit, TextInput};
+use crate::ui::theme;
+
+pub const CONTEXT: &str = "IssueDetail";
+
+/// How long after the last keystroke edits are saved.
+const AUTOSAVE_DELAY: Duration = Duration::from_millis(800);
+
+pub(super) struct IssueDetail {
+    /// The issue as last read from (or written to) the database.
+    issue: Issue,
+    title: Entity<TextInput>,
+    description: Entity<TextInput>,
+    focus: FocusHandle,
+    scroll: ScrollHandle,
+    autosave: Option<Task<()>>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl IssueDetail {
+    pub(super) fn issue(&self) -> &Issue {
+        &self.issue
+    }
+
+    pub(super) fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
+    }
+}
+
+/// Whether the title field holds something other than `saved`.
+fn title_changed(text: &str, saved: &str) -> bool {
+    text.trim() != saved
+}
+
+fn description_changed(text: &str, saved: &str) -> bool {
+    normalize_description(text) != saved
+}
+
+impl Workspace {
+    fn open_issue(&mut self, id: IssueId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(issue) = self.report(self.db.get_issue(id), cx) else {
+            return;
+        };
+        self.close_detail(cx);
+        let scroll = ScrollHandle::new();
+        let title = cx.new(|cx| {
+            let mut input = TextInput::new("Title", cx);
+            input.reset_text(issue.title.clone(), cx);
+            input
+        });
+        let description = cx.new(|cx| {
+            let mut input = TextInput::new("Add a description…", cx)
+                .multiline()
+                .autoscroll(scroll.clone());
+            input.reset_text(issue.description.clone(), cx);
+            input
+        });
+        // Blur listeners run while the window draws, when changes don't
+        // trigger a redraw: save right after instead.
+        let subscriptions = vec![
+            cx.subscribe_in(&title, window, |this, _, _: &Changed, window, cx| {
+                this.schedule_autosave(window, cx)
+            }),
+            cx.subscribe_in(&description, window, |this, _, _: &Changed, window, cx| {
+                this.schedule_autosave(window, cx)
+            }),
+            // Enter in the title moves on to the description.
+            cx.subscribe_in(&title, window, |this, _, _: &Submit, window, cx| {
+                this.edit_detail_field(false, window, cx)
+            }),
+            cx.on_blur(&title.focus_handle(cx), window, |_, window, cx| {
+                cx.defer_in(window, |this, _, cx| this.save_detail(true, cx))
+            }),
+            cx.on_blur(&description.focus_handle(cx), window, |_, window, cx| {
+                cx.defer_in(window, |this, _, cx| this.save_detail(true, cx))
+            }),
+        ];
+        let focus = cx.focus_handle();
+        window.focus(&focus);
+        self.detail = Some(IssueDetail {
+            issue,
+            title,
+            description,
+            focus,
+            scroll,
+            autosave: None,
+            _subscriptions: subscriptions,
+        });
+        self.error = None;
+        cx.notify();
+    }
+
+    fn schedule_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(detail) = &mut self.detail else {
+            return;
+        };
+        detail.autosave = Some(cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(AUTOSAVE_DELAY).await;
+            this.update(cx, |this, cx| this.save_detail(false, cx)).ok();
+        }));
+    }
+
+    /// Writes the edited title and description, if changed. `leaving`: the
+    /// user is done with the field (it lost focus, the detail closes); an
+    /// empty title then goes back to the saved one, with an error. While
+    /// typing, it's just not saved yet.
+    pub(super) fn save_detail(&mut self, leaving: bool, cx: &mut Context<Self>) {
+        let Some(detail) = &self.detail else {
+            return;
+        };
+        let id = detail.issue.id;
+        let title = detail.title.read(cx).text().to_owned();
+        let description = detail.description.read(cx).text().to_owned();
+        let mut edit = IssueEdit {
+            title: title_changed(&title, &detail.issue.title).then_some(title),
+            description: description_changed(&description, &detail.issue.description)
+                .then_some(description),
+        };
+        if edit.title.as_ref().is_some_and(|t| t.trim().is_empty()) {
+            edit.title = None;
+            if leaving {
+                let saved = detail.issue.title.clone();
+                detail
+                    .title
+                    .update(cx, |input, cx| input.reset_text(saved, cx));
+                self.error = Some("An issue needs a title".into());
+                cx.notify();
+            }
+        }
+        if edit == IssueEdit::default() {
+            return;
+        }
+        let Some(issue) = self.report(self.db.edit_issue(id, &edit), cx) else {
+            return;
+        };
+        if let Some(detail) = &mut self.detail {
+            detail.issue = issue;
+        }
+        self.reload(cx);
+    }
+
+    /// After a reload: shows the issue as it now is. Fields with unsaved
+    /// edits keep them. Closes the detail if the issue is gone.
+    pub(super) fn refresh_detail(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.detail.as_ref().map(|d| d.issue.id) else {
+            return;
+        };
+        let Ok(issue) = self.db.get_issue(id) else {
+            // Deleted. Focus goes back to the list (see `Workspace::new`).
+            self.detail = None;
+            return;
+        };
+        let Some(detail) = &mut self.detail else {
+            return;
+        };
+        let title = detail.title.read(cx).text();
+        if !title_changed(title, &detail.issue.title) && title != issue.title {
+            let text = issue.title.clone();
+            detail
+                .title
+                .update(cx, |input, cx| input.reset_text(text, cx));
+        }
+        let description = detail.description.read(cx).text();
+        if !description_changed(description, &detail.issue.description)
+            && description != issue.description
+        {
+            let text = issue.description.clone();
+            detail
+                .description
+                .update(cx, |input, cx| input.reset_text(text, cx));
+        }
+        detail.issue = issue;
+    }
+
+    /// Saves and closes the detail; the caller moves the focus.
+    pub(super) fn close_detail(&mut self, cx: &mut Context<Self>) {
+        if self.detail.is_some() {
+            self.save_detail(true, cx);
+            self.detail = None;
+            cx.notify();
+        }
+    }
+
+    /// Puts the cursor at the end of the title or the description.
+    fn edit_detail_field(&mut self, title: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(detail) = &self.detail else {
+            return;
+        };
+        let input = if title {
+            &detail.title
+        } else {
+            &detail.description
+        };
+        window.focus(&input.focus_handle(cx));
+        input.update(cx, |input, cx| input.move_to_end(cx));
+    }
+
+    // ---- actions ------------------------------------------------------------
+
+    pub(super) fn on_open_issue(
+        &mut self,
+        action: &issue::Open,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = match action.id {
+            Some(id) => id,
+            None => match self.selected_issue(cx) {
+                Some(issue) => issue.id,
+                None => return,
+            },
+        };
+        self.open_issue(id, window, cx);
+    }
+
+    fn on_close_detail(
+        &mut self,
+        _: &issue_detail::Close,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_detail(cx);
+        window.focus(&self.list_focus);
+    }
+
+    fn on_edit_title(
+        &mut self,
+        _: &issue_detail::EditTitle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_detail_field(true, window, cx);
+    }
+
+    fn on_edit_description(
+        &mut self,
+        _: &issue_detail::EditDescription,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_detail_field(false, window, cx);
+    }
+
+    fn on_stop_editing(
+        &mut self,
+        _: &issue_detail::StopEditing,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        // Saving happens when the field loses focus.
+        if let Some(detail) = &self.detail {
+            window.focus(&detail.focus);
+        }
+    }
+
+    // ---- rendering ------------------------------------------------------------
+
+    /// Takes the place of the new-issue input and the issue list.
+    pub(super) fn render_detail(
+        &self,
+        detail: &IssueDetail,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let issue = &detail.issue;
+        let focus = detail.focus.clone();
+        let back = div()
+            .id("detail-back")
+            .px_2()
+            .rounded_sm()
+            .cursor_pointer()
+            .text_color(rgb(theme::TEXT_MUTED))
+            .hover(|s| s.bg(rgb(theme::HOVER)).text_color(rgb(theme::TEXT)))
+            .child("‹ Issues")
+            .on_click({
+                let focus = focus.clone();
+                move |_: &ClickEvent, window, cx| {
+                    window.focus(&focus);
+                    window.dispatch_action(issue_detail::Close.boxed_clone(), cx);
+                }
+            });
+        let header = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .py_3()
+            .border_b_1()
+            .border_color(rgb(theme::DIVIDER))
+            .child(back)
+            .child(
+                div()
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .child(issue.id.to_string()),
+            )
+            .when(issue.archived, |s| {
+                s.child(chip("archived".into(), theme::TEXT_MUTED))
+            })
+            .child(
+                div()
+                    .ml_auto()
+                    .pr_2()
+                    .flex_none()
+                    .text_size(px(12.))
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .child("Saved as you type"),
+            );
+
+        let status = div()
+            .id("detail-status")
+            .size(px(28.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded_sm()
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+            .child(status_icon(issue.status))
+            .on_click({
+                let focus = focus.clone();
+                move |_: &ClickEvent, window, cx| {
+                    window.focus(&focus);
+                    window.dispatch_action(SetStatus::default().boxed_clone(), cx);
+                }
+            });
+        let chips: Vec<_> =
+            issue
+                .projects
+                .iter()
+                .map(|project| chip(project.clone(), theme::ACCENT).into_any_element())
+                .chain(issue.labels.iter().map(|label| {
+                    chip(label.clone(), self.label_chip_color(label)).into_any_element()
+                }))
+                .collect();
+        let has_chips = !chips.is_empty();
+
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .w_full()
+            .max_w(px(760.))
+            .px_6()
+            .py_5()
+            .child(
+                div().flex().items_center().gap_2().child(status).child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_size(px(20.))
+                        .line_height(px(28.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(detail.title.clone()),
+                ),
+            )
+            .when(has_chips, |s| {
+                s.child(div().flex().flex_wrap().gap_1().children(chips))
+            })
+            .child(
+                div()
+                    .mt_2()
+                    .flex()
+                    .flex_col()
+                    .min_h(px(240.))
+                    .line_height(px(22.))
+                    .child(detail.description.clone()),
+            );
+
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(
+                div()
+                    .id("issue-detail")
+                    .key_context(CONTEXT)
+                    .track_focus(&focus)
+                    .on_action(cx.listener(Self::on_close_detail))
+                    .on_action(cx.listener(Self::on_edit_title))
+                    .on_action(cx.listener(Self::on_edit_description))
+                    .on_action(cx.listener(Self::on_stop_editing))
+                    .on_action(cx.listener(Self::on_archive_issue))
+                    .on_action(cx.listener(Self::on_unarchive_issue))
+                    .on_action(cx.listener(Self::on_delete_issue))
+                    .on_action(cx.listener(Self::on_show_issue_menu))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&detail.scroll)
+                    .child(body),
+            )
+    }
+}

@@ -1,10 +1,11 @@
-//! The main window: sidebar, new-issue input, issue list, modals (command
-//! palette, pickers) and an error bar.
+//! The main window: sidebar, new-issue input, issue list (or the archive, or
+//! an open issue), modals (command palette, pickers) and an error bar.
 //!
 //! Every user-facing behavior here is an action handler (see `actions.rs`);
 //! mouse handlers only select things and dispatch the same actions.
 
 mod archive;
+mod detail;
 mod filter;
 mod manage;
 mod scope;
@@ -35,6 +36,7 @@ use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
 use super::theme;
 use archive::ArchiveItem;
+use detail::IssueDetail;
 use scope::Scope;
 use sidebar::SidebarItem;
 
@@ -184,6 +186,8 @@ pub struct Workspace {
     showing_archive: bool,
     archive_cursor: Option<ArchiveItem>,
     archive_scroll: ScrollHandle,
+    /// The open issue, shown in place of the list (or the archive).
+    detail: Option<IssueDetail>,
     modal: Option<OpenModal>,
     error: Option<String>,
     _poll: Task<()>,
@@ -221,6 +225,16 @@ impl Workspace {
             }
         });
 
+        // When the focused element goes away (e.g. the open issue was
+        // deleted), focus the list.
+        cx.on_focus_lost(window, |this, window, _| window.focus(&this.list_focus))
+            .detach();
+        cx.on_app_quit(|this, cx| {
+            this.save_detail(false, cx);
+            async {}
+        })
+        .detach();
+
         let mut this = Self {
             db,
             issues: Vec::new(),
@@ -244,6 +258,7 @@ impl Workspace {
             showing_archive: false,
             archive_cursor: None,
             archive_scroll: ScrollHandle::new(),
+            detail: None,
             modal: None,
             error: None,
             _poll: poll,
@@ -301,6 +316,7 @@ impl Workspace {
             self.labels = labels;
         }
         self.fix_archive_cursor(prev_archive_ix);
+        self.refresh_detail(cx);
         let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
             return;
@@ -633,9 +649,12 @@ impl Workspace {
 
     // ---- domain actions ---------------------------------------------------
 
-    /// The selected issue; in the archive, the highlighted archived issue.
+    /// The selected issue: the open one, else the highlighted one (in the
+    /// archive, the highlighted archived issue).
     fn selected_issue(&mut self, cx: &mut Context<Self>) -> Option<Issue> {
-        let issue = if self.showing_archive {
+        let issue = if let Some(detail) = &self.detail {
+            Some(detail.issue().clone())
+        } else if self.showing_archive {
             self.archive_selected_issue()
         } else {
             self.selected_index().map(|ix| self.issues[ix].clone())
@@ -647,11 +666,12 @@ impl Workspace {
         issue
     }
 
-    /// What issue commands act on: the selected issues, in list order, or
-    /// else the highlighted one (in the archive, the highlighted archived
-    /// issue). Empty, with an error shown, when there is none.
+    /// What issue commands act on: the open issue, else the selected
+    /// issues, in list order, or else the highlighted one (in the archive,
+    /// the highlighted archived issue). Empty, with an error shown, when
+    /// there is none.
     fn target_issues(&mut self, cx: &mut Context<Self>) -> Vec<Issue> {
-        if !self.showing_archive && !self.selection.is_empty() {
+        if self.detail.is_none() && !self.showing_archive && !self.selection.is_empty() {
             return self
                 .issues
                 .iter()
@@ -774,8 +794,7 @@ impl Workspace {
         let Some(issue) = issue else {
             return;
         };
-        let Some(title) = &action.title else {
-            // For now, editing an issue means editing its title.
+        if action.title.is_none() && action.description.is_none() {
             let id = issue.id;
             let placeholder = format!("Edit title of {id}…");
             let picker = cx.new(|cx| {
@@ -787,6 +806,7 @@ impl Workspace {
                 Box::new(Edit {
                     id: Some(id),
                     title: Some(title),
+                    description: None,
                 })
             });
             return self.open_modal(
@@ -801,7 +821,8 @@ impl Workspace {
             );
         };
         let edit = IssueEdit {
-            title: Some(title.clone()),
+            title: action.title.clone(),
+            description: action.description.clone(),
         };
         if self
             .report(self.db.edit_issue(issue.id, &edit), cx)
@@ -826,11 +847,14 @@ impl Workspace {
         let highlighted = self.selected.unwrap_or(first.id);
         let mut entries: Vec<MenuEntry> = Vec::new();
         if let [issue] = issues.as_slice() {
+            if self.detail.is_none() {
+                entries.push(("Open", Box::new(issue::Open { id: Some(issue.id) })));
+            }
             let edit = Edit {
                 id: Some(issue.id),
-                title: None,
+                ..Default::default()
             };
-            entries.push(("Edit…", Box::new(edit)));
+            entries.push(("Edit Title…", Box::new(edit)));
         }
         entries.push(("Set Status…", Box::new(SetStatus::default())));
         entries.push(("Add Label…", Box::new(AddLabel::default())));
@@ -856,8 +880,12 @@ impl Workspace {
             [issue] => issue.id.to_string(),
             _ => format!("{} issues", issues.len()),
         };
-        // The entries act on the selection from the issue list.
-        window.focus(&self.list_focus);
+        // The entries act on the open issue, or the selection from the issue list.
+        let focus = match &self.detail {
+            Some(detail) => detail.focus_handle().clone(),
+            None => self.list_focus.clone(),
+        };
+        window.focus(&focus);
         self.open_context_menu(
             &title,
             entries,
@@ -879,6 +907,7 @@ impl Workspace {
 
     fn on_new_issue(&mut self, _: &issue::New, window: &mut Window, cx: &mut Context<Self>) {
         self.close_modal(window, cx);
+        self.close_detail(cx);
         if self.showing_archive {
             self.close_archive(window, cx);
         }
@@ -1063,6 +1092,9 @@ impl Workspace {
                 } else {
                     this.select_index(ix, cx);
                     window.dispatch_action(issue_list::ClearSelection.boxed_clone(), cx);
+                    if event.click_count() >= 2 {
+                        window.dispatch_action(issue::Open::default().boxed_clone(), cx);
+                    }
                 }
             }))
             .on_mouse_down(
@@ -1211,6 +1243,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_new_issue))
             .on_action(cx.listener(Self::on_set_status))
             .on_action(cx.listener(Self::on_edit_issue))
+            .on_action(cx.listener(Self::on_open_issue))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))
@@ -1261,7 +1294,9 @@ impl Render for Workspace {
                     .flex()
                     .children(self.render_sidebar(window, cx))
                     .map(|s| {
-                        if self.showing_archive {
+                        if let Some(detail) = &self.detail {
+                            s.child(self.render_detail(detail, cx).into_any_element())
+                        } else if self.showing_archive {
                             s.child(self.render_archive(list_focused, cx).into_any_element())
                         } else {
                             s.child(self.render_main(list_focused, cx).into_any_element())
