@@ -425,6 +425,7 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_show_issue_menu))
                     .on_action(cx.listener(Self::on_toggle_checklist_item))
                     .on_action(cx.listener(Self::on_delete_checklist_item))
+                    .on_action(cx.listener(Self::on_move_item))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()

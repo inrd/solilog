@@ -2,6 +2,7 @@
 //! a checkbox, then a field to add items.
 //!
 //! Key contexts: `Checklist` around it all, `ChecklistItem` around each item.
+//! Items can be dragged by the handle on their left to reorder them.
 //! Enter in an item goes to the next one; Enter in the new-item field adds
 //! the item. Item text is saved like the title and description; an item
 //! whose text is emptied is deleted when it loses focus. A draft left in the
@@ -14,15 +15,15 @@
 use std::collections::HashMap;
 
 use gpui::{
-    Action, ClickEvent, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
-    Subscription, Window, div, prelude::*, px, relative, rgb,
+    Action, ClickEvent, Context, CursorStyle, Entity, FocusHandle, Focusable, FontWeight,
+    IntoElement, SharedString, Subscription, Window, div, prelude::*, px, relative, rgb,
 };
 use solilog_core::{ChecklistItem, ChecklistItemId, Placement};
 
 use super::super::Workspace;
 use super::IssueDetail;
 use crate::ui::actions::checklist::{
-    AddItem, DeleteItem, FocusNext, FocusPrevious, MoveItemDown, MoveItemUp, ToggleItem,
+    AddItem, DeleteItem, FocusNext, FocusPrevious, MoveItem, MoveItemDown, MoveItemUp, ToggleItem,
 };
 use crate::ui::text_input::{Changed, Submit, TextInput};
 use crate::ui::theme;
@@ -47,6 +48,31 @@ struct ItemRow {
 /// Whether an item's input holds something other than `saved`.
 fn item_changed(text: &str, saved: &str) -> bool {
     text.trim() != saved
+}
+
+/// An item being dragged by its handle; also renders what follows the mouse.
+#[derive(Clone)]
+struct DraggedItem {
+    id: ChecklistItemId,
+    text: SharedString,
+    /// Index in the checklist, to tell moving up from moving down.
+    index: usize,
+}
+
+impl Render for DraggedItem {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .max_w(px(480.))
+            .px_2()
+            .rounded_sm()
+            .bg(rgb(theme::HIGHLIGHT))
+            .border_1()
+            .border_color(rgb(theme::BORDER))
+            .line_height(px(24.))
+            .text_color(rgb(theme::TEXT))
+            .truncate()
+            .child(self.text.clone())
+    }
 }
 
 /// A write to make when saving the checklist.
@@ -396,6 +422,20 @@ impl Workspace {
         }
     }
 
+    /// Registered on the detail pane: drops dispatch it from there.
+    pub(super) fn on_move_item(
+        &mut self,
+        action: &MoveItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let moved = Placement::from_options(action.before, action.after)
+            .and_then(|placement| self.db.move_checklist_item(action.id, &placement));
+        if self.report(moved, cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
     fn on_move_item_up(&mut self, _: &MoveItemUp, window: &mut Window, cx: &mut Context<Self>) {
         self.move_checklist_item(-1, window, cx);
     }
@@ -477,65 +517,126 @@ impl Workspace {
                     )
             }));
 
-        let rows = detail.checklist.rows.iter().map(|row| {
-            let id = row.item.id;
-            let done = row.item.done;
-            let checkbox = checkbox(done)
-                .id(("checklist-check", id.0 as u64))
-                .cursor_pointer()
-                .on_click({
-                    let focus = pane_focus.clone();
-                    move |_: &ClickEvent, window, cx| {
-                        window.focus(&focus);
-                        window.dispatch_action(ToggleItem { id: Some(id) }.boxed_clone(), cx);
-                    }
-                });
-            let delete = div()
-                .id(("checklist-delete", id.0 as u64))
-                .flex_none()
-                .px_1()
-                .rounded_sm()
-                .cursor_pointer()
-                .invisible()
-                .group_hover("checklist-item", |s| s.visible())
-                .text_color(rgb(theme::TEXT_MUTED))
-                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
-                .child("×")
-                .on_click({
-                    let focus = pane_focus.clone();
-                    move |_: &ClickEvent, window, cx| {
-                        window.focus(&focus);
-                        window.dispatch_action(DeleteItem { id: Some(id) }.boxed_clone(), cx);
-                    }
-                });
-            div()
-                .key_context(ITEM_CONTEXT)
-                .group("checklist-item")
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_1()
-                .rounded_sm()
-                .hover(|s| s.bg(rgb(theme::HOVER)))
-                .child(checkbox)
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .when(done, |s| {
-                            s.text_color(rgb(theme::TEXT_MUTED)).line_through()
-                        })
-                        .child(row.input.clone()),
-                )
-                .child(delete)
-        });
+        let rows = detail
+            .checklist
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                let id = row.item.id;
+                let dragged = DraggedItem {
+                    id,
+                    text: row.input.read(cx).text().to_owned().into(),
+                    index,
+                };
+                let handle = drag_handle()
+                    .id(("checklist-handle", id.0 as u64))
+                    .invisible()
+                    .group_hover("checklist-item", |s| s.visible())
+                    .cursor(CursorStyle::OpenHand)
+                    .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| dragged.clone()));
+                let done = row.item.done;
+                let checkbox = checkbox(done)
+                    .id(("checklist-check", id.0 as u64))
+                    .cursor_pointer()
+                    .on_click({
+                        let focus = pane_focus.clone();
+                        move |_: &ClickEvent, window, cx| {
+                            window.focus(&focus);
+                            window.dispatch_action(ToggleItem { id: Some(id) }.boxed_clone(), cx);
+                        }
+                    });
+                let delete = div()
+                    .id(("checklist-delete", id.0 as u64))
+                    .flex_none()
+                    .px_1()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .invisible()
+                    .group_hover("checklist-item", |s| s.visible())
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                    .child("×")
+                    .on_click({
+                        let focus = pane_focus.clone();
+                        move |_: &ClickEvent, window, cx| {
+                            window.focus(&focus);
+                            window.dispatch_action(DeleteItem { id: Some(id) }.boxed_clone(), cx);
+                        }
+                    });
+                div()
+                    .id(("checklist-item", id.0 as u64))
+                    .key_context(ITEM_CONTEXT)
+                    .group("checklist-item")
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .pr_1()
+                    .py(px(2.))
+                    .line_height(px(22.))
+                    .rounded_sm()
+                    .hover(|s| s.bg(rgb(theme::HOVER)))
+                    .can_drop(move |value, _, _| {
+                        value
+                            .downcast_ref::<DraggedItem>()
+                            .is_some_and(|d| d.id != id)
+                    })
+                    .drag_over::<DraggedItem>(move |style, dragged, _, _| {
+                        if dragged.id == id {
+                            return style;
+                        }
+                        // A line where the item will land; the padding it
+                        // replaces keeps the row height.
+                        let style = style.rounded_none().border_color(rgb(theme::ACCENT));
+                        if dragged.index < index {
+                            style.border_b_2().pb(px(0.))
+                        } else {
+                            style.border_t_2().pt(px(0.))
+                        }
+                    })
+                    .on_drop({
+                        let focus = pane_focus.clone();
+                        move |dragged: &DraggedItem, window, cx| {
+                            if dragged.id == id {
+                                return;
+                            }
+                            let (before, after) = if dragged.index < index {
+                                (None, Some(id))
+                            } else {
+                                (Some(id), None)
+                            };
+                            let action = MoveItem {
+                                id: dragged.id,
+                                before,
+                                after,
+                            };
+                            focus.dispatch_action(&action, window, cx);
+                        }
+                    })
+                    .child(handle)
+                    .child(div().mr_1().child(checkbox))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .when(done, |s| {
+                                s.text_color(rgb(theme::TEXT_MUTED)).line_through()
+                            })
+                            .child(row.input.clone()),
+                    )
+                    .child(delete)
+            });
 
         let new_item = div()
             .flex()
             .items_center()
-            .gap_2()
-            .px_1()
+            .gap_1()
+            .pr_1()
+            .py(px(2.))
+            .line_height(px(22.))
+            // Where the handles are on items.
+            .child(drag_handle().invisible())
             .child(
                 checkbox(false)
                     .border_dashed()
@@ -565,6 +666,28 @@ impl Workspace {
             .children(rows)
             .child(new_item)
     }
+}
+
+/// Two columns of three dots, to drag an item by.
+fn drag_handle() -> gpui::Div {
+    let column =
+        || {
+            div().flex().flex_col().gap(px(2.)).children(
+                (0..3).map(|_| div().size(px(2.)).rounded_full().bg(rgb(theme::TEXT_MUTED))),
+            )
+        };
+    div()
+        .w(px(14.))
+        .h(px(18.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .gap(px(2.))
+        .rounded_sm()
+        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+        .child(column())
+        .child(column())
 }
 
 fn checkbox(done: bool) -> gpui::Div {

@@ -515,12 +515,19 @@ impl Workspace {
             }));
         }
         entries.sort_by(|a, b| a.0.cmp(&b.0));
+        // Hints are the bindings that would run the action from where the
+        // palette was opened (bindings can be specific to nested contexts).
+        let focused = window.focused(cx);
         let items = entries
             .iter()
             .map(|(label, action)| {
-                let hint = window
-                    .highest_precedence_binding_for_action(action.as_ref())
-                    .map(|b| keystrokes_text(&b));
+                let binding = match &focused {
+                    Some(focus) => {
+                        window.highest_precedence_binding_for_action_in(action.as_ref(), focus)
+                    }
+                    None => window.highest_precedence_binding_for_action(action.as_ref()),
+                };
+                let hint = binding.map(|b| keystrokes_text(&b));
                 PickerItem::new(label.clone()).hint(hint)
             })
             .collect();

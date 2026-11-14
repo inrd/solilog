@@ -409,6 +409,23 @@ pub mod checklist {
         pub id: Option<ChecklistItemId>,
     }
 
+    /// Move a checklist item right before or right after another item of
+    /// the same checklist (give exactly one of `before` and `after`).
+    /// Dragging an item by its handle does this.
+    #[derive(Clone, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = checklist)]
+    #[serde(deny_unknown_fields)]
+    pub struct MoveItem {
+        #[schemars(with = "i64")]
+        pub id: ChecklistItemId,
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub before: Option<ChecklistItemId>,
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub after: Option<ChecklistItemId>,
+    }
+
     /// Delete a checklist item: the given `id`, else the one being edited.
     /// Emptying an item's text and leaving it also deletes it.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
