@@ -10,14 +10,17 @@ mod manage;
 mod scope;
 mod sidebar;
 
+use std::collections::{BTreeSet, HashSet};
 use std::time::Duration;
 
 use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    MouseDownEvent, Pixels, Point, ScrollHandle, Subscription, Task, Window, anchored, deferred, div, prelude::*,
-    px, rgb,
+    MouseDownEvent, Pixels, Point, ScrollHandle, Subscription, Task, Window, anchored, deferred,
+    div, prelude::*, px, rgb,
 };
-use solilog_core::{Db, Issue, IssueFilter, IssueId, Label, NewProject, Project, Status, View};
+use solilog_core::{
+    Db, Issue, IssueChange, IssueFilter, IssueId, Label, NewProject, Project, Status, View,
+};
 
 use super::actions::{
     self, command_palette, humanize_action_name,
@@ -44,11 +47,11 @@ enum Modal {
     },
     StatusPicker {
         picker: Entity<Picker>,
-        issue_id: IssueId,
+        issue_ids: Vec<IssueId>,
     },
     Relation {
         picker: Entity<Picker>,
-        issue_id: IssueId,
+        issue_ids: Vec<IssueId>,
         relation: Relation,
         /// Label or project names, by picker index.
         names: Vec<String>,
@@ -112,6 +115,16 @@ impl Relation {
             Relation::RemoveLabel | Relation::RemoveFromProject => None,
         }
     }
+
+    fn change(self, name: String) -> IssueChange {
+        let names = vec![name];
+        match self {
+            Relation::AddLabel => IssueChange::AddLabels(names),
+            Relation::RemoveLabel => IssueChange::RemoveLabels(names),
+            Relation::AddToProject => IssueChange::AddToProjects(names),
+            Relation::RemoveFromProject => IssueChange::RemoveFromProjects(names),
+        }
+    }
 }
 
 impl Modal {
@@ -149,7 +162,14 @@ pub struct Workspace {
     /// What the issue list shows. Re-read on every reload, so outside
     /// edits (e.g. from the CLI) apply.
     scope: Scope,
+    /// The highlighted issue (the keyboard cursor).
     selected: Option<IssueId>,
+    /// Issues selected for commands, which act on these when there are any
+    /// and on the highlighted issue otherwise. Only ever listed issues:
+    /// reloads drop the others.
+    selection: HashSet<IssueId>,
+    /// Where the range being selected (shift + move or click) started.
+    selection_anchor: Option<IssueId>,
     input: Entity<TextInput>,
     list_focus: FocusHandle,
     list_scroll: ScrollHandle,
@@ -211,6 +231,8 @@ impl Workspace {
             data_version: 0,
             scope: Scope::default(),
             selected: None,
+            selection: HashSet::new(),
+            selection_anchor: None,
             input,
             list_focus: cx.focus_handle(),
             list_scroll: ScrollHandle::new(),
@@ -283,6 +305,9 @@ impl Workspace {
             return;
         };
         self.issues = issues;
+        let listed: HashSet<IssueId> = self.issues.iter().map(|i| i.id).collect();
+        self.selection.retain(|id| listed.contains(id));
+        self.selection_anchor = self.selection_anchor.filter(|id| listed.contains(id));
         if scope_error.is_some() {
             self.error = scope_error;
         }
@@ -304,12 +329,40 @@ impl Workspace {
         self.issues.iter().position(|i| i.id == id)
     }
 
+    /// Highlights the issue at `ix`; a later range selection starts there.
     fn select_index(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.selection_anchor = None;
+        self.highlight_index(ix, cx);
+    }
+
+    fn highlight_index(&mut self, ix: usize, cx: &mut Context<Self>) {
         if let Some(issue) = self.issues.get(ix) {
             self.selected = Some(issue.id);
             self.list_scroll.scroll_to_item(ix);
             cx.notify();
         }
+    }
+
+    /// Moves the highlight to `ix`, selecting the issues from the anchor
+    /// (where the range started) to it, instead of the previous range.
+    fn extend_selection_to(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(cursor) = self.selected_index() else {
+            return self.select_index(ix, cx);
+        };
+        let anchor = self
+            .selection_anchor
+            .and_then(|id| self.issues.iter().position(|i| i.id == id))
+            .unwrap_or(cursor);
+        let ix = ix.min(self.issues.len().saturating_sub(1));
+        let range = |end: usize| anchor.min(end)..=anchor.max(end);
+        for issue in &self.issues[range(cursor)] {
+            self.selection.remove(&issue.id);
+        }
+        for issue in &self.issues[range(ix)] {
+            self.selection.insert(issue.id);
+        }
+        self.selection_anchor = Some(self.issues[anchor].id);
+        self.highlight_index(ix, cx);
     }
 
     // ---- modals ---------------------------------------------------------
@@ -360,23 +413,25 @@ impl Workspace {
                 // handlers it would have reached from a key binding.
                 window.dispatch_action(actions[*ix].boxed_clone(), cx);
             }
-            (Modal::StatusPicker { issue_id, .. }, PickerEvent::Confirmed(ix)) => {
-                self.set_status(issue_id, Status::ALL[*ix], cx);
+            (Modal::StatusPicker { issue_ids, .. }, PickerEvent::Confirmed(ix)) => {
+                self.set_status(&issue_ids, Status::ALL[*ix], cx);
             }
             (
                 Modal::Relation {
-                    issue_id,
+                    issue_ids,
                     relation,
                     names,
                     ..
                 },
                 PickerEvent::Confirmed(ix),
             ) => {
-                self.apply_relation(relation, issue_id, names[*ix].clone(), cx);
+                self.apply_relation(relation, &issue_ids, names[*ix].clone(), cx);
             }
             (
                 Modal::Relation {
-                    issue_id, relation, ..
+                    issue_ids,
+                    relation,
+                    ..
                 },
                 PickerEvent::Create(name),
             ) => {
@@ -387,7 +442,7 @@ impl Workspace {
                 {
                     return;
                 }
-                self.apply_relation(relation, issue_id, name.clone(), cx);
+                self.apply_relation(relation, &issue_ids, name.clone(), cx);
             }
             (
                 Modal::ActionPicker { actions, .. } | Modal::ContextMenu { actions, .. },
@@ -462,17 +517,32 @@ impl Workspace {
         );
     }
 
-    fn open_status_picker(&mut self, issue: &Issue, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_status_picker(
+        &mut self,
+        issues: &[Issue],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let items = Status::ALL
             .into_iter()
             .map(|s| PickerItem::new(s.label()).icon(move || status_icon(s)))
             .collect();
-        let current = Status::ALL.iter().position(|s| *s == issue.status);
-        let picker = cx.new(|cx| Picker::new("Change status…", items, current.unwrap_or(0), cx));
-        let issue_id = issue.id;
+        // The issues' status, if they share one.
+        let current = Status::ALL
+            .iter()
+            .position(|s| issues.iter().all(|i| i.status == *s));
+        let picker = cx.new(|cx| {
+            Picker::new(
+                &format!("Change status{}…", of_issues(issues)),
+                items,
+                current.unwrap_or(0),
+                cx,
+            )
+        });
+        let issue_ids = issues.iter().map(|i| i.id).collect();
         self.open_modal(
             picker,
-            |picker| Modal::StatusPicker { picker, issue_id },
+            |picker| Modal::StatusPicker { picker, issue_ids },
             window,
             cx,
         );
@@ -481,54 +551,77 @@ impl Workspace {
     fn open_relation_picker(
         &mut self,
         relation: Relation,
-        issue: &Issue,
+        issues: &[Issue],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let not_on_issue = |current: &[String], all: Vec<String>| -> Vec<String> {
+        fn labels(issue: &Issue) -> &[String] {
+            &issue.labels
+        }
+        fn projects(issue: &Issue) -> &[String] {
+            &issue.projects
+        }
+        type Names = fn(&Issue) -> &[String];
+        // Names to add: those not every issue has already.
+        let not_on_all = |all: Vec<String>, current: Names| {
             all.into_iter()
-                .filter(|name| !current.iter().any(|c| c.eq_ignore_ascii_case(name)))
-                .collect()
+                .filter(|name| {
+                    !issues
+                        .iter()
+                        .all(|i| current(i).iter().any(|c| c.eq_ignore_ascii_case(name)))
+                })
+                .collect::<Vec<_>>()
+        };
+        // Names to remove: those any issue has.
+        let on_any = |current: Names| {
+            let names: BTreeSet<_> = issues.iter().flat_map(|i| current(i).to_vec()).collect();
+            names.into_iter().collect::<Vec<_>>()
         };
         let names = match relation {
             Relation::AddLabel => {
                 let Some(all) = self.report(self.db.list_labels(), cx) else {
                     return;
                 };
-                not_on_issue(&issue.labels, all.into_iter().map(|l| l.name).collect())
+                not_on_all(all.into_iter().map(|l| l.name).collect(), labels)
             }
             Relation::AddToProject => {
                 let Some(all) = self.report(self.db.list_projects(false), cx) else {
                     return;
                 };
-                not_on_issue(&issue.projects, all.into_iter().map(|p| p.name).collect())
+                not_on_all(all.into_iter().map(|p| p.name).collect(), projects)
             }
-            Relation::RemoveLabel => issue.labels.clone(),
-            Relation::RemoveFromProject => issue.projects.clone(),
+            Relation::RemoveLabel => on_any(labels),
+            Relation::RemoveFromProject => on_any(projects),
         };
         if names.is_empty() && relation.create_label().is_none() {
             let what = match relation {
-                Relation::RemoveLabel => "has no labels",
-                _ => "is in no project",
+                Relation::RemoveLabel => "no labels",
+                _ => "no projects",
             };
-            self.error = Some(format!("{} {what}", issue.id));
+            self.error = Some(match issues {
+                [issue] => format!("{} has {what}", issue.id),
+                _ => format!("The selected issues have {what}"),
+            });
             cx.notify();
             return;
         }
         let items = names.iter().map(|n| PickerItem::new(n.clone())).collect();
+        let placeholder = relation
+            .placeholder()
+            .replace('…', &format!("{}…", of_issues(issues)));
         let picker = cx.new(|cx| {
-            let picker = Picker::new(relation.placeholder(), items, 0, cx);
+            let picker = Picker::new(&placeholder, items, 0, cx);
             match relation.create_label() {
                 Some(label) => picker.creatable(label),
                 None => picker,
             }
         });
-        let issue_id = issue.id;
+        let issue_ids = issues.iter().map(|i| i.id).collect();
         self.open_modal(
             picker,
             |picker| Modal::Relation {
                 picker,
-                issue_id,
+                issue_ids,
                 relation,
                 names,
             },
@@ -553,26 +646,41 @@ impl Workspace {
         issue
     }
 
-    fn apply_relation(
-        &mut self,
-        relation: Relation,
-        id: IssueId,
-        name: String,
-        cx: &mut Context<Self>,
-    ) {
-        let names = [name];
-        let result = match relation {
-            Relation::AddLabel => self.db.add_labels(id, &names),
-            Relation::RemoveLabel => self.db.remove_labels(id, &names),
-            Relation::AddToProject => self.db.add_to_projects(id, &names),
-            Relation::RemoveFromProject => self.db.remove_from_projects(id, &names),
-        };
-        if self.report(result, cx).is_some() {
+    /// What issue commands act on: the selected issues, in list order, or
+    /// else the highlighted one (in the archive, the highlighted archived
+    /// issue). Empty, with an error shown, when there is none.
+    fn target_issues(&mut self, cx: &mut Context<Self>) -> Vec<Issue> {
+        if !self.showing_archive && !self.selection.is_empty() {
+            return self
+                .issues
+                .iter()
+                .filter(|i| self.selection.contains(&i.id))
+                .cloned()
+                .collect();
+        }
+        self.selected_issue(cx).into_iter().collect()
+    }
+
+    fn update_issues(&mut self, ids: &[IssueId], change: IssueChange, cx: &mut Context<Self>) {
+        if self
+            .report(self.db.update_issues(ids, &change), cx)
+            .is_some()
+        {
             self.reload(cx);
         }
     }
 
-    /// Applies `relation` to the selected issue, or opens a picker when no
+    fn apply_relation(
+        &mut self,
+        relation: Relation,
+        ids: &[IssueId],
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_issues(ids, relation.change(name), cx);
+    }
+
+    /// Applies `relation` to the target issues, or opens a picker when no
     /// name is given.
     fn on_relation(
         &mut self,
@@ -581,12 +689,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(issue) = self.selected_issue(cx) else {
+        let issues = self.target_issues(cx);
+        if issues.is_empty() {
             return;
-        };
+        }
         match name {
-            Some(name) => self.apply_relation(relation, issue.id, name.clone(), cx),
-            None => self.open_relation_picker(relation, &issue, window, cx),
+            Some(name) => {
+                let ids: Vec<_> = issues.iter().map(|i| i.id).collect();
+                self.apply_relation(relation, &ids, name.clone(), cx);
+            }
+            None => self.open_relation_picker(relation, &issues, window, cx),
         }
     }
 
@@ -626,23 +738,25 @@ impl Workspace {
         );
     }
 
-    fn set_status(&mut self, id: IssueId, status: Status, cx: &mut Context<Self>) {
-        if self.report(self.db.set_status(id, status), cx).is_some() {
-            self.reload(cx);
-        }
+    fn set_status(&mut self, ids: &[IssueId], status: Status, cx: &mut Context<Self>) {
+        self.update_issues(ids, IssueChange::SetStatus(status), cx);
     }
 
     fn on_set_status(&mut self, action: &SetStatus, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(issue) = self.selected_issue(cx) else {
+        let issues = self.target_issues(cx);
+        if issues.is_empty() {
             return;
-        };
+        }
         match action.status {
-            Some(status) => self.set_status(issue.id, status, cx),
-            None => self.open_status_picker(&issue, window, cx),
+            Some(status) => {
+                let ids: Vec<_> = issues.iter().map(|i| i.id).collect();
+                self.set_status(&ids, status, cx);
+            }
+            None => self.open_status_picker(&issues, window, cx),
         }
     }
 
-    /// Opens the menu of the selected issue, at `position` (window
+    /// Opens the menu of the target issues, at `position` (window
     /// coordinates) when opened with the mouse.
     fn show_issue_menu(
         &mut self,
@@ -650,18 +764,20 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(issue) = self.selected_issue(cx) else {
+        let issues = self.target_issues(cx);
+        let Some(first) = issues.first() else {
             return;
         };
+        let highlighted = self.selected.unwrap_or(first.id);
         let mut entries: Vec<MenuEntry> = vec![
             ("Set Status…", Box::new(SetStatus::default())),
             ("Add Label…", Box::new(AddLabel::default())),
         ];
-        if !issue.labels.is_empty() {
+        if issues.iter().any(|i| !i.labels.is_empty()) {
             entries.push(("Remove Label…", Box::new(RemoveLabel::default())));
         }
         entries.push(("Add to Project…", Box::new(AddToProject::default())));
-        if !issue.projects.is_empty() {
+        if issues.iter().any(|i| !i.projects.is_empty()) {
             entries.push((
                 "Remove from Project…",
                 Box::new(RemoveFromProject::default()),
@@ -671,16 +787,20 @@ impl Workspace {
         entries.push((
             "Delete…",
             Box::new(issue::Delete {
-                id: Some(issue.id),
-                confirmed: false,
+                ids: issues.iter().map(|i| i.id).collect(),
+                ..Default::default()
             }),
         ));
+        let title = match issues.as_slice() {
+            [issue] => issue.id.to_string(),
+            _ => format!("{} issues", issues.len()),
+        };
         // The entries act on the selection from the issue list.
         window.focus(&self.list_focus);
         self.open_context_menu(
-            &issue.id.to_string(),
+            &title,
             entries,
-            MenuTarget::Issue(issue.id),
+            MenuTarget::Issue(highlighted),
             position,
             window,
             cx,
@@ -754,6 +874,64 @@ impl Workspace {
         self.select_index(self.issues.len().saturating_sub(1), cx);
     }
 
+    // ---- multiple selection -------------------------------------------------
+
+    fn toggle_selected(
+        &mut self,
+        _: &issue_list::ToggleSelected,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.selected else {
+            return;
+        };
+        if !self.selection.remove(&id) {
+            self.selection.insert(id);
+        }
+        self.selection_anchor = Some(id);
+        cx.notify();
+    }
+
+    fn select_all(&mut self, _: &issue_list::SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.selection = self.issues.iter().map(|i| i.id).collect();
+        cx.notify();
+    }
+
+    fn clear_selection(
+        &mut self,
+        _: &issue_list::ClearSelection,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selection.is_empty() {
+            // Leave the key to other bindings.
+            return cx.propagate();
+        }
+        self.selection.clear();
+        self.selection_anchor = None;
+        cx.notify();
+    }
+
+    fn extend_selection_down(
+        &mut self,
+        _: &issue_list::ExtendSelectionDown,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ix = self.selected_index().map_or(0, |ix| ix + 1);
+        self.extend_selection_to(ix, cx);
+    }
+
+    fn extend_selection_up(
+        &mut self,
+        _: &issue_list::ExtendSelectionUp,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ix = self.selected_index().map_or(0, |ix| ix.saturating_sub(1));
+        self.extend_selection_to(ix, cx);
+    }
+
     // ---- rendering --------------------------------------------------------
 
     fn render_issue(
@@ -765,6 +943,7 @@ impl Workspace {
     ) -> impl IntoElement + use<> {
         let issue_id = issue.id;
         let selected = self.selected == Some(issue_id);
+        let in_selection = self.selection.contains(&issue_id);
         let menu_open = matches!(
             &self.modal,
             Some(OpenModal {
@@ -788,8 +967,7 @@ impl Workspace {
             .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
             .child(status_icon(issue.status))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.select_index(ix, cx);
-                window.focus(&this.list_focus);
+                this.point_at(ix, window, cx);
                 window.dispatch_action(SetStatus::default().boxed_clone(), cx);
             }));
 
@@ -800,21 +978,36 @@ impl Workspace {
             .gap_3()
             .px_4()
             .py_1()
-            .when(selected, |s| {
-                s.bg(rgb(if list_focused || menu_open {
-                    theme::HIGHLIGHT
-                } else {
-                    theme::HOVER
-                }))
+            .map(|s| {
+                let highlighted = selected && (list_focused || menu_open);
+                let bg = match (in_selection, highlighted) {
+                    (true, true) => Some(theme::SELECTION_HIGHLIGHT),
+                    (true, false) => Some(theme::SELECTION),
+                    (false, true) => Some(theme::HIGHLIGHT),
+                    (false, false) => selected.then_some(theme::HOVER),
+                };
+                match bg {
+                    Some(bg) => s.bg(rgb(bg)),
+                    None => s,
+                }
             })
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.select_index(ix, cx);
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                let modifiers = event.modifiers();
                 window.focus(&this.list_focus);
+                if modifiers.shift {
+                    this.extend_selection_to(ix, cx);
+                } else if modifiers.platform {
+                    this.select_index(ix, cx);
+                    window.dispatch_action(issue_list::ToggleSelected.boxed_clone(), cx);
+                } else {
+                    this.select_index(ix, cx);
+                    window.dispatch_action(issue_list::ClearSelection.boxed_clone(), cx);
+                }
             }))
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    this.select_index(ix, cx);
+                    this.point_at(ix, window, cx);
                     this.show_issue_menu(Some(event.position), window, cx);
                 }),
             )
@@ -847,6 +1040,21 @@ impl Workspace {
                     .iter()
                     .map(|label| chip(label.clone(), theme::TEXT_MUTED)),
             )
+    }
+
+    /// Highlights the issue at `ix` to act on it with the mouse: within the
+    /// selection, the selection stays (and is acted on); elsewhere, it is
+    /// cleared so that only this issue is.
+    fn point_at(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .issues
+            .get(ix)
+            .is_some_and(|i| !self.selection.contains(&i.id))
+        {
+            self.selection.clear();
+        }
+        self.select_index(ix, cx);
+        window.focus(&self.list_focus);
     }
 
     fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
@@ -888,6 +1096,14 @@ impl Workspace {
             None => backdrop.flex().justify_center().pt(px(80.)).child(content),
         };
         Some(deferred(backdrop).with_priority(1))
+    }
+}
+
+/// " (3 issues)" when acting on several issues, to append to a prompt.
+fn of_issues(issues: &[Issue]) -> String {
+    match issues.len() {
+        0 | 1 => String::new(),
+        n => format!(" ({n} issues)"),
     }
 }
 
@@ -1029,6 +1245,11 @@ impl Workspace {
                     .on_action(cx.listener(Self::select_previous))
                     .on_action(cx.listener(Self::select_first))
                     .on_action(cx.listener(Self::select_last))
+                    .on_action(cx.listener(Self::toggle_selected))
+                    .on_action(cx.listener(Self::select_all))
+                    .on_action(cx.listener(Self::clear_selection))
+                    .on_action(cx.listener(Self::extend_selection_down))
+                    .on_action(cx.listener(Self::extend_selection_up))
                     .on_action(cx.listener(Self::on_archive_issue))
                     .on_action(cx.listener(Self::on_delete_issue))
                     .on_action(cx.listener(Self::on_show_issue_menu))

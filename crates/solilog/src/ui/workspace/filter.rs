@@ -330,6 +330,14 @@ impl Workspace {
             })
             .children(chips)
             .child(status_bar(&self.scope.filter, cx))
+            .when(!self.selection.is_empty(), |s| {
+                s.child(
+                    div()
+                        .flex_none()
+                        .text_color(rgb(theme::ACCENT))
+                        .child(format!("{} selected", self.selection.len())),
+                )
+            })
             .child(
                 div()
                     .flex_none()
@@ -391,10 +399,13 @@ fn status_bar(filter: &IssueFilter, cx: &mut Context<Workspace>) -> impl IntoEle
     );
     let statuses = Status::ALL.into_iter().map(|status| {
         let chosen = filter.statuses.contains(&status);
-        let shown = (filter.statuses.is_empty() || chosen)
-            && !(filter.open_only && status.is_closed());
+        let shown =
+            (filter.statuses.is_empty() || chosen) && !(filter.open_only && status.is_closed());
         div()
-            .id(SharedString::from(format!("filter-status-{}", status.key())))
+            .id(SharedString::from(format!(
+                "filter-status-{}",
+                status.key()
+            )))
             .size(px(20.))
             .flex()
             .flex_none()

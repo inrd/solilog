@@ -256,8 +256,19 @@ impl Db {
     /// Adds labels to an issue, creating labels that don't exist yet.
     /// Labels the issue already has are left alone. Returns the issue.
     pub fn add_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<crate::Issue> {
-        self.get_issue(id)?;
-        let tx = self.conn.unchecked_transaction()?;
+        self.update_issue(id, &crate::IssueChange::AddLabels(labels.to_vec()))
+    }
+
+    /// Removes labels from an issue (exact labels, not sublabels). Labels the
+    /// issue doesn't have are ignored; unknown labels are an error.
+    pub fn remove_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<crate::Issue> {
+        self.update_issue(id, &crate::IssueChange::RemoveLabels(labels.to_vec()))
+    }
+
+    // ---- helpers ------------------------------------------------------------
+
+    /// Gives an issue labels, creating missing ones. Call inside a transaction.
+    pub(crate) fn attach_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<()> {
         for label in labels {
             let label_id = self.ensure_label(&normalize_label_name(label)?)?;
             self.conn.execute(
@@ -265,15 +276,11 @@ impl Db {
                 params![id, label_id],
             )?;
         }
-        tx.commit()?;
-        self.get_issue(id)
+        Ok(())
     }
 
-    /// Removes labels from an issue (exact labels, not sublabels). Labels the
-    /// issue doesn't have are ignored; unknown labels are an error.
-    pub fn remove_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<crate::Issue> {
-        self.get_issue(id)?;
-        let tx = self.conn.unchecked_transaction()?;
+    /// Takes labels off an issue. Call inside a transaction.
+    pub(crate) fn detach_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<()> {
         for label in labels {
             let label_id = self.label_id(label)?;
             self.conn.execute(
@@ -281,11 +288,8 @@ impl Db {
                 params![id, label_id],
             )?;
         }
-        tx.commit()?;
-        self.get_issue(id)
+        Ok(())
     }
-
-    // ---- helpers ------------------------------------------------------------
 
     fn find_label(&self, name: &str) -> Result<Option<(i64, String)>> {
         Ok(self

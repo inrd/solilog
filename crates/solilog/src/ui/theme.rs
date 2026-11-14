@@ -7,6 +7,9 @@ pub const BORDER: u32 = 0x3a3a42;
 pub const DIVIDER: u32 = 0x2c2c31;
 pub const HOVER: u32 = 0x2c2c31;
 pub const HIGHLIGHT: u32 = 0x34343b;
+/// Issues selected for a command, and the highlighted one among them.
+pub const SELECTION: u32 = 0x272b40;
+pub const SELECTION_HIGHLIGHT: u32 = 0x32385a;
 pub const TEXT: u32 = 0xe6e6e6;
 pub const TEXT_MUTED: u32 = 0x7a7a85;
 pub const ACCENT: u32 = 0x7c8cff;

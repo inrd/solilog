@@ -18,7 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::Db;
-use crate::issue::{Issue, IssueId};
+use crate::issue::{Issue, IssueChange, IssueId};
 use crate::label::normalize_label_name;
 use crate::order::{Ordered, Placement};
 
@@ -339,17 +339,18 @@ impl Db {
 
     /// Adds an issue to projects, giving it their default labels. Returns the issue.
     pub fn add_to_projects(&self, id: IssueId, projects: &[String]) -> Result<Issue> {
-        self.get_issue(id)?;
-        let tx = self.conn.unchecked_transaction()?;
-        self.join_projects(id, projects)?;
-        tx.commit()?;
-        self.get_issue(id)
+        self.update_issue(id, &IssueChange::AddToProjects(projects.to_vec()))
     }
 
     /// Removes an issue from projects. It keeps its labels. Returns the issue.
     pub fn remove_from_projects(&self, id: IssueId, projects: &[String]) -> Result<Issue> {
-        self.get_issue(id)?;
-        let tx = self.conn.unchecked_transaction()?;
+        self.update_issue(id, &IssueChange::RemoveFromProjects(projects.to_vec()))
+    }
+
+    // ---- helpers ------------------------------------------------------------
+
+    /// Takes an issue out of projects. Call inside a transaction.
+    pub(crate) fn leave_projects(&self, id: IssueId, projects: &[String]) -> Result<()> {
         for project in projects {
             let project_id = self.project_id(project)?;
             self.conn.execute(
@@ -357,11 +358,8 @@ impl Db {
                 params![id, project_id],
             )?;
         }
-        tx.commit()?;
-        self.get_issue(id)
+        Ok(())
     }
-
-    // ---- helpers ------------------------------------------------------------
 
     /// Adds the issue to the projects and applies their default labels. Call
     /// inside a transaction.

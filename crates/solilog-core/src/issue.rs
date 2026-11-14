@@ -118,6 +118,23 @@ impl NewIssue {
     }
 }
 
+/// A change to apply to issues with
+/// [`Db::update_issues`](crate::Db::update_issues).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueChange {
+    SetStatus(Status),
+    /// Archive (`true`) or unarchive.
+    SetArchived(bool),
+    /// Label paths; missing labels are created.
+    AddLabels(Vec<String>),
+    /// Exact labels (not sublabels); unknown labels are an error.
+    RemoveLabels(Vec<String>),
+    /// Project names; adds the projects' default labels.
+    AddToProjects(Vec<String>),
+    /// Project names; issues keep their labels.
+    RemoveFromProjects(Vec<String>),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {

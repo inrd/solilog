@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use rusqlite::{Connection, OptionalExtension as _, Row, params};
+use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, params};
 
 use crate::filter::IssueFilter;
-use crate::issue::{Issue, IssueId, NewIssue, Status};
+use crate::issue::{Issue, IssueChange, IssueId, NewIssue, Status};
 use crate::label::normalize_label_name;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
@@ -247,33 +247,88 @@ impl Db {
         self.get_issue(id)
     }
 
-    /// Returns the updated issue.
-    pub fn set_status(&self, id: IssueId, status: Status) -> Result<Issue> {
+    /// Applies a change to every given issue, all or nothing: if one fails
+    /// (unknown issue, label or project), none is changed. Returns the
+    /// updated issues, in the order given.
+    pub fn update_issues(&self, ids: &[IssueId], change: &IssueChange) -> Result<Vec<Issue>> {
+        let tx = self.conn.unchecked_transaction()?;
+        for &id in ids {
+            self.apply_change(id, change)?;
+        }
+        tx.commit()?;
+        ids.iter().map(|&id| self.get_issue(id)).collect()
+    }
+
+    /// [`Db::update_issues`] for one issue.
+    pub fn update_issue(&self, id: IssueId, change: &IssueChange) -> Result<Issue> {
+        let mut issues = self.update_issues(&[id], change)?;
+        Ok(issues.remove(0))
+    }
+
+    /// Applies a change to one issue. Call inside a transaction.
+    fn apply_change(&self, id: IssueId, change: &IssueChange) -> Result<()> {
+        match change {
+            IssueChange::SetStatus(status) => self.set_issue_column(id, "status", status),
+            IssueChange::SetArchived(archived) => self.set_issue_column(id, "archived", archived),
+            IssueChange::AddLabels(labels) => {
+                self.get_issue(id)?;
+                self.attach_labels(id, labels)
+            }
+            IssueChange::RemoveLabels(labels) => {
+                self.get_issue(id)?;
+                self.detach_labels(id, labels)
+            }
+            IssueChange::AddToProjects(projects) => {
+                self.get_issue(id)?;
+                self.join_projects(id, projects)
+            }
+            IssueChange::RemoveFromProjects(projects) => {
+                self.get_issue(id)?;
+                self.leave_projects(id, projects)
+            }
+        }
+    }
+
+    fn set_issue_column(&self, id: IssueId, column: &str, value: &dyn ToSql) -> Result<()> {
         let updated = self.conn.execute(
-            "UPDATE issues SET status = ?2 WHERE id = ?1",
-            params![id, status],
+            &format!("UPDATE issues SET {column} = ?2 WHERE id = ?1"),
+            params![id, value],
         )?;
         anyhow::ensure!(updated == 1, "no issue {id}");
-        self.get_issue(id)
+        Ok(())
+    }
+
+    /// Returns the updated issue.
+    pub fn set_status(&self, id: IssueId, status: Status) -> Result<Issue> {
+        self.update_issue(id, &IssueChange::SetStatus(status))
     }
 
     /// Archives an issue (or unarchives it): archived issues are left out of
     /// listings, views and counts, but keep everything else. Returns the issue.
     pub fn set_archived(&self, id: IssueId, archived: bool) -> Result<Issue> {
-        let updated = self.conn.execute(
-            "UPDATE issues SET archived = ?2 WHERE id = ?1",
-            params![id, archived],
-        )?;
-        anyhow::ensure!(updated == 1, "no issue {id}");
-        self.get_issue(id)
+        self.update_issue(id, &IssueChange::SetArchived(archived))
     }
 
     /// Deletes an issue for good. Returns it as it was.
     pub fn delete_issue(&self, id: IssueId) -> Result<Issue> {
-        let issue = self.get_issue(id)?;
-        self.conn
-            .execute("DELETE FROM issues WHERE id = ?1", [id])?;
-        Ok(issue)
+        let mut issues = self.delete_issues(&[id])?;
+        Ok(issues.remove(0))
+    }
+
+    /// Deletes issues for good, all or nothing. Returns them as they were.
+    pub fn delete_issues(&self, ids: &[IssueId]) -> Result<Vec<Issue>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut deleted = Vec::with_capacity(ids.len());
+        for &id in ids {
+            if deleted.iter().any(|i: &Issue| i.id == id) {
+                continue;
+            }
+            deleted.push(self.get_issue(id)?);
+            self.conn
+                .execute("DELETE FROM issues WHERE id = ?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(deleted)
     }
 
     /// Related names per issue (`ISSUE_*_SQL`), for one issue or all of them.
@@ -416,6 +471,62 @@ mod tests {
         assert!(db.get_issue(a.id).is_err());
         assert!(db.delete_issue(a.id).is_err());
         assert_eq!(titles(&db, &IssueFilter::default()), ["b"]);
+    }
+
+    #[test]
+    fn update_many() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_project(&crate::NewProject {
+            labels: vec!["from-p".into()],
+            ..crate::NewProject::new("p")
+        })
+        .unwrap();
+        let a = db.create_issue(&NewIssue::new("a")).unwrap().id;
+        let b = db.create_issue(&NewIssue::new("b")).unwrap().id;
+        let c = db.create_issue(&NewIssue::new("c")).unwrap().id;
+
+        let updated = db
+            .update_issues(&[b, a], &IssueChange::SetStatus(Status::Done))
+            .unwrap();
+        assert_eq!(
+            updated.iter().map(|i| (i.id, i.status)).collect::<Vec<_>>(),
+            [(b, Status::Done), (a, Status::Done)]
+        );
+        assert_eq!(db.get_issue(c).unwrap().status, Status::Todo);
+
+        db.update_issues(&[a, b], &IssueChange::AddLabels(vec!["x/y".into()]))
+            .unwrap();
+        db.update_issues(&[a, b], &IssueChange::AddToProjects(vec!["p".into()]))
+            .unwrap();
+        assert_eq!(db.get_issue(a).unwrap().labels, ["from-p", "x/y"]);
+        db.update_issues(&[a], &IssueChange::RemoveLabels(vec!["x/y".into()]))
+            .unwrap();
+        db.update_issues(&[a, b], &IssueChange::RemoveFromProjects(vec!["p".into()]))
+            .unwrap();
+        assert_eq!(db.get_issue(a).unwrap().labels, ["from-p"]);
+        assert!(db.get_issue(b).unwrap().projects.is_empty());
+
+        db.update_issues(&[a, c], &IssueChange::SetArchived(true))
+            .unwrap();
+        assert_eq!(titles(&db, &IssueFilter::default()), ["b"]);
+    }
+
+    #[test]
+    fn update_many_is_all_or_nothing() {
+        let db = Db::open_in_memory().unwrap();
+        let a = db.create_issue(&NewIssue::new("a")).unwrap().id;
+        let change = IssueChange::SetStatus(Status::Done);
+        assert!(db.update_issues(&[a, IssueId(999)], &change).is_err());
+        assert_eq!(db.get_issue(a).unwrap().status, Status::Todo);
+        let change = IssueChange::AddToProjects(vec!["nope".into()]);
+        assert!(db.update_issues(&[a], &change).is_err());
+
+        assert!(db.delete_issues(&[a, IssueId(999)]).is_err());
+        assert!(db.get_issue(a).is_ok());
+        let b = db.create_issue(&NewIssue::new("b")).unwrap().id;
+        let deleted = db.delete_issues(&[a, b, a]).unwrap();
+        assert_eq!(deleted.len(), 2);
+        assert!(titles(&db, &IssueFilter::default()).is_empty());
     }
 
     #[test]

@@ -218,7 +218,7 @@ pub mod issue {
         [
             /// Focus the new-issue input.
             New,
-            /// Archive the selected issue: it keeps everything but is left
+            /// Archive the selected issues: they keep everything but are left
             /// out of listings, views and counts (see `workspace::OpenArchive`).
             Archive,
             /// Bring the selected archived issue back from the archive.
@@ -226,8 +226,8 @@ pub mod issue {
         ]
     );
 
-    /// Delete an issue for good: the given `id` (`SOL-12`), or the selected
-    /// one. Asks for confirmation unless `confirmed` is true.
+    /// Delete issues for good: the given `id` (`SOL-12`) or `ids`, else the
+    /// selected ones. Asks for confirmation unless `confirmed` is true.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = issue)]
     #[serde(deny_unknown_fields)]
@@ -236,10 +236,13 @@ pub mod issue {
         #[schemars(with = "Option<String>")]
         pub id: Option<IssueId>,
         #[serde(default)]
+        #[schemars(with = "Vec<String>")]
+        pub ids: Vec<IssueId>,
+        #[serde(default)]
         pub confirmed: bool,
     }
 
-    /// Set the status of the selected issue. Without a `status`, opens the status picker.
+    /// Set the status of the selected issues. Without a `status`, opens the status picker.
     ///
     /// Keymap example: `"d": ["issue::SetStatus", { "status": "done" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
@@ -250,7 +253,7 @@ pub mod issue {
         pub status: Option<Status>,
     }
 
-    /// Add a label to the selected issue, creating it if needed. Without a
+    /// Add a label to the selected issues, creating it if needed. Without a
     /// `label`, opens the label picker.
     ///
     /// Keymap example: `"b": ["issue::AddLabel", { "label": "bug" }]`
@@ -262,8 +265,8 @@ pub mod issue {
         pub label: Option<String>,
     }
 
-    /// Remove a label from the selected issue. Without a `label`, opens a
-    /// picker of the issue's labels.
+    /// Remove a label from the selected issues. Without a `label`, opens a
+    /// picker of their labels.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = issue)]
     #[serde(deny_unknown_fields)]
@@ -272,7 +275,7 @@ pub mod issue {
         pub label: Option<String>,
     }
 
-    /// Add the selected issue to a project, giving it the project's default
+    /// Add the selected issues to a project, giving them the project's default
     /// labels. Without a `project`, opens the project picker (which can also
     /// create one).
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
@@ -283,8 +286,8 @@ pub mod issue {
         pub project: Option<String>,
     }
 
-    /// Remove the selected issue from a project; it keeps its labels. Without
-    /// a `project`, opens a picker of the issue's projects.
+    /// Remove the selected issues from a project; they keep their labels.
+    /// Without a `project`, opens a picker of their projects.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = issue)]
     #[serde(deny_unknown_fields)]
@@ -452,9 +455,24 @@ pub mod issue_list {
             SelectPrevious,
             SelectFirst,
             SelectLast,
-            /// Show the menu of the selected issue (set status, labels,
+            /// Show the menu of the selected issues (set status, labels,
             /// archive…). Right-clicking an issue does this.
             ShowContextMenu,
+            /// Add the highlighted issue to the selection, or take it out.
+            /// Issue commands act on every selected issue, or on the
+            /// highlighted one when none is selected. Cmd-clicking an issue
+            /// does this.
+            ToggleSelected,
+            /// Select every issue in the list.
+            SelectAll,
+            /// Deselect every issue.
+            ClearSelection,
+            /// Move the highlight down, selecting the issues between where
+            /// the move started and the highlight. Shift-clicking an issue
+            /// selects up to it the same way.
+            ExtendSelectionDown,
+            /// Move the highlight up, selecting like `ExtendSelectionDown`.
+            ExtendSelectionUp,
         ]
     );
 }

@@ -128,6 +128,11 @@ One concept, one name, consistent across surfaces:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
 - Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `NewIssue > TextInput`; `Picker` for popups.
+- Issue commands act on the selected issues (`issue_list::ToggleSelected`,
+  `SelectAll`, `ExtendSelectionDown/Up`; cmd/shift-click), or on the
+  highlighted issue when none is selected. GUI handlers get them from
+  `Workspace::target_issues` and apply changes in one go with
+  `Db::update_issues` / `Db::delete_issues` (all or nothing).
 - The archive (`workspace::OpenArchive`, palette only) replaces the issue list
   and lists archived projects and issues, with a context menu to delete them
   or bring them back.

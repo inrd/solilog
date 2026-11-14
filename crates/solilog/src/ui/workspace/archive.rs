@@ -11,7 +11,7 @@ use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent, Pixels,
     Point, Window, div, prelude::*, px, rgb,
 };
-use solilog_core::{Issue, IssueId, Project, ProjectStatus};
+use solilog_core::{Issue, IssueChange, IssueId, Project, ProjectStatus};
 
 use super::{MenuEntry, MenuTarget, Modal, OpenModal, Workspace, chip};
 use crate::ui::actions::{archive, issue, project, workspace};
@@ -210,7 +210,7 @@ impl Workspace {
                         "Delete…",
                         Box::new(issue::Delete {
                             id: Some(*id),
-                            confirmed: false,
+                            ..Default::default()
                         }),
                     ),
                 ],
@@ -236,14 +236,9 @@ impl Workspace {
     }
 
     fn set_archived(&mut self, archived: bool, cx: &mut Context<Self>) {
-        let Some(issue) = self.selected_issue(cx) else {
-            return;
-        };
-        if self
-            .report(self.db.set_archived(issue.id, archived), cx)
-            .is_some()
-        {
-            self.reload(cx);
+        let ids: Vec<_> = self.target_issues(cx).iter().map(|i| i.id).collect();
+        if !ids.is_empty() {
+            self.update_issues(&ids, IssueChange::SetArchived(archived), cx);
         }
     }
 
@@ -266,32 +261,38 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let id = match action.id {
-            Some(id) => id,
-            None => match self.selected_issue(cx) {
-                Some(issue) => issue.id,
-                None => return,
-            },
-        };
-        if !action.confirmed {
-            let Some(issue) = self.report(self.db.get_issue(id), cx) else {
+        let mut ids: Vec<IssueId> = action.id.into_iter().chain(action.ids.clone()).collect();
+        if ids.is_empty() {
+            ids = self.target_issues(cx).iter().map(|i| i.id).collect();
+            if ids.is_empty() {
                 return;
+            }
+        }
+        if !action.confirmed {
+            let (prompt, item) = match ids.as_slice() {
+                [id] => {
+                    let Some(issue) = self.report(self.db.get_issue(*id), cx) else {
+                        return;
+                    };
+                    (
+                        format!("Delete issue {id}?"),
+                        format!("Delete issue {id} “{}”", issue.title),
+                    )
+                }
+                _ => (
+                    format!("Delete {} issues?", ids.len()),
+                    format!("Delete {} issues", ids.len()),
+                ),
             };
-            let item = PickerItem::new(format!("Delete issue {id} “{}”", issue.title))
-                .hint(Some("can't be undone"));
+            let item = PickerItem::new(item).hint(Some("can't be undone"));
             let delete = issue::Delete {
-                id: Some(id),
+                id: None,
+                ids,
                 confirmed: true,
             };
-            return self.open_action_picker(
-                &format!("Delete issue {id}?"),
-                vec![(item, Box::new(delete))],
-                0,
-                window,
-                cx,
-            );
+            return self.open_action_picker(&prompt, vec![(item, Box::new(delete))], 0, window, cx);
         }
-        if self.report(self.db.delete_issue(id), cx).is_some() {
+        if self.report(self.db.delete_issues(&ids), cx).is_some() {
             self.reload(cx);
         }
     }

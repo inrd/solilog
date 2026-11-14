@@ -123,6 +123,7 @@ impl Workspace {
         self.scope = Scope::new(source);
         self.showing_archive = false;
         self.selected = None;
+        self.selection.clear();
         self.reload(cx);
         self.select_index(0, cx);
         self.sidebar_cursor = self.active_sidebar_item();
