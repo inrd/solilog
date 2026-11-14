@@ -16,6 +16,8 @@ cargo run -- label ls
 cargo run -- project create "Reverb v1.1" -l acme/reverb -t 2027-02-01
 cargo run -- issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
 cargo run -- issue ls -l acme --no-project                 # work outside any project
+cargo run -- view save "Acme bugs" --open -l acme -l bug   # saved filter
+cargo run -- issue ls --view "acme bugs"
 ```
 
 ## Keyboard

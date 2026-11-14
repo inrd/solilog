@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
     Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Project, ProjectStatus,
-    ProjectUpdate, Status,
+    ProjectUpdate, Status, View,
 };
 
 #[derive(Parser)]
@@ -56,6 +56,11 @@ pub enum Command {
     /// A project's default labels are added to issues when they join it.
     #[command(subcommand, visible_alias = "p")]
     Project(ProjectCommand),
+    /// Manage views: named, saved issue filters.
+    ///
+    /// List a view's issues with `solilog issue list --view <name>`.
+    #[command(subcommand, visible_alias = "v")]
+    View(ViewCommand),
     /// List the valid issue statuses.
     Statuses,
     /// Show keymap information.
@@ -69,24 +74,11 @@ pub enum IssueCommand {
     /// List issues, newest first.
     #[command(visible_alias = "ls")]
     List {
-        /// Only issues with this status (repeatable).
-        #[arg(long, short)]
-        status: Vec<Status>,
-        /// Hide done and cancelled issues.
-        #[arg(long)]
-        open: bool,
-        /// Only issues with this label or one of its sublabels (repeatable: all must match).
-        #[arg(long, short, value_name = "LABEL")]
-        label: Vec<String>,
-        /// Exclude issues with this label or one of its sublabels (repeatable).
-        #[arg(long, value_name = "LABEL")]
-        without_label: Vec<String>,
-        /// Only issues in this project (repeatable: any may match).
-        #[arg(long, short, value_name = "PROJECT", conflicts_with = "no_project")]
-        project: Vec<String>,
-        /// Only issues that are in no project.
-        #[arg(long)]
-        no_project: bool,
+        /// Use a saved view's filter (see `solilog view`).
+        #[arg(long, short, value_name = "VIEW", conflicts_with = "FilterArgs")]
+        view: Option<String>,
+        #[command(flatten)]
+        filter: FilterArgs,
     },
     /// Show one issue.
     Show { id: IssueId },
@@ -197,6 +189,66 @@ pub enum ProjectCommand {
     },
 }
 
+/// Issue filter flags, shared by `issue list` and `view save`.
+#[derive(Args)]
+pub struct FilterArgs {
+    /// Only issues with this status (repeatable).
+    #[arg(long, short)]
+    status: Vec<Status>,
+    /// Hide done and cancelled issues.
+    #[arg(long)]
+    open: bool,
+    /// Only issues with this label or one of its sublabels (repeatable: all must match).
+    #[arg(long, short, value_name = "LABEL")]
+    label: Vec<String>,
+    /// Exclude issues with this label or one of its sublabels (repeatable).
+    #[arg(long, value_name = "LABEL")]
+    without_label: Vec<String>,
+    /// Only issues in this project (repeatable: any may match).
+    #[arg(long, short, value_name = "PROJECT", conflicts_with = "no_project")]
+    project: Vec<String>,
+    /// Only issues that are in no project.
+    #[arg(long)]
+    no_project: bool,
+}
+
+impl From<FilterArgs> for IssueFilter {
+    fn from(args: FilterArgs) -> Self {
+        IssueFilter {
+            statuses: args.status,
+            open_only: args.open,
+            labels: args.label,
+            without_labels: args.without_label,
+            projects: args.project,
+            no_project: args.no_project,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum ViewCommand {
+    /// List saved views.
+    #[command(visible_alias = "ls")]
+    List,
+    /// Show one view.
+    Show { name: String },
+    /// Save a view: create it, or replace the filter of an existing one, and print it.
+    ///
+    /// Takes the same filter flags as `issue list`, e.g.
+    /// `solilog view save "Acme bugs" --open -l acme -l bug`.
+    Save {
+        name: String,
+        #[command(flatten)]
+        filter: FilterArgs,
+    },
+    /// Rename a view and print it.
+    #[command(visible_alias = "mv")]
+    Rename { name: String, new_name: String },
+    /// Delete a view and print it.
+    #[command(visible_alias = "rm")]
+    Delete { name: String },
+}
+
 #[derive(Subcommand)]
 pub enum LabelCommand {
     /// List labels as a tree, with the number of issues under each.
@@ -241,21 +293,10 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
         Command::Issue(cmd) => {
             let db = Db::open_default()?;
             match cmd {
-                IssueCommand::List {
-                    status,
-                    open,
-                    label,
-                    without_label,
-                    project,
-                    no_project,
-                } => {
-                    let filter = IssueFilter {
-                        statuses: status,
-                        open_only: open,
-                        labels: label,
-                        without_labels: without_label,
-                        projects: project,
-                        no_project,
+                IssueCommand::List { view, filter } => {
+                    let filter = match view {
+                        Some(name) => db.get_view(&name)?.filter,
+                        None => filter.into(),
                     };
                     out.issues(&db.list_issues(&filter)?)
                 }
@@ -283,6 +324,20 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                 IssueCommand::RemoveFromProject { id, projects } => {
                     out.issue(&db.remove_from_projects(id, &projects)?)
                 }
+            }
+        }
+        Command::View(cmd) => {
+            let db = Db::open_default()?;
+            match cmd {
+                ViewCommand::List => out.views(&db.list_views()?),
+                ViewCommand::Show { name } => out.view(&db.get_view(&name)?),
+                ViewCommand::Save { name, filter } => {
+                    out.view(&db.save_view(&name, &filter.into())?)
+                }
+                ViewCommand::Rename { name, new_name } => {
+                    out.view(&db.rename_view(&name, &new_name)?)
+                }
+                ViewCommand::Delete { name } => out.view(&db.delete_view(&name)?),
             }
         }
         Command::Project(cmd) => {
@@ -439,6 +494,16 @@ impl Output {
         self.print(issue, || issue_line(issue))
     }
 
+    fn view(&self, view: &View) -> Result<()> {
+        self.print(view, || view_line(view))
+    }
+
+    fn views(&self, views: &[View]) -> Result<()> {
+        self.print(views, || {
+            views.iter().map(view_line).collect::<Vec<_>>().join("\n")
+        })
+    }
+
     fn project(&self, project: &Project) -> Result<()> {
         self.print(project, || {
             let mut text = project_line(project);
@@ -488,6 +553,37 @@ fn issue_line(issue: &Issue) -> String {
         line.push_str(&format!("  in: {}", issue.projects.join(", ")));
     }
     line
+}
+
+fn view_line(view: &View) -> String {
+    format!("{:<24} {}", view.name, filter_summary(&view.filter))
+}
+
+/// `open, status: todo|blocked, label: acme & bug, not: x, project: a|b`.
+fn filter_summary(filter: &IssueFilter) -> String {
+    let mut parts = Vec::new();
+    if filter.open_only {
+        parts.push("open".to_string());
+    }
+    let keys: Vec<_> = filter.statuses.iter().map(|s| s.key()).collect();
+    for (name, values, sep) in [
+        ("status", keys.iter().map(|s| s.to_string()).collect(), "|"),
+        ("label", filter.labels.clone(), " & "),
+        ("not", filter.without_labels.clone(), ", "),
+        ("project", filter.projects.clone(), "|"),
+    ] {
+        if !values.is_empty() {
+            parts.push(format!("{name}: {}", values.join(sep)));
+        }
+    }
+    if filter.no_project {
+        parts.push("no project".to_string());
+    }
+    if parts.is_empty() {
+        "all issues".to_string()
+    } else {
+        parts.join(", ")
+    }
 }
 
 /// Name, status, progress, target date, default labels.
