@@ -42,4 +42,62 @@ cargo run -- issue ls --view "acme bugs"
 
 ## Keyboard
 
-Everything is a command. Press `cmd-k` to open the command palette (`cmd` here is `ctrl` on Linux). The sidebar (`cmd-b`, `h` to focus it) lists saved views, projects and labels; right-click a row (or press `m`) for its menu: rename, delete, set status. Issues have one too (status, labels, projects, archive, delete); Enter (or a double click) opens an issue to edit its title, description and checklist, saved as you type, and Escape goes back (in the checklist: `a` adds an item, Enter goes to the next one, `cmd-enter` checks it, `alt-up`/`alt-down` (or dragging its handle) move it, and emptying an item deletes it; drop files on an open issue, or paste them (`cmd-v`, also screenshots), to attach them; click an image to preview it (left/right for the issue's other images, `r` to show it in the file manager) or another file to show it in the file manager); done and cancelled issues are hidden at first: the buttons at the top right of the list toggle "Open" and each status, and "All" (`f a`) shows every status; `f` then a key edits the current filter (`f l` label, `f p` project, `f s` status, `f o` open only, `f c` clear), and `cmd-s` saves it as a view. Key bindings are customizable in `~/.config/solilog/keymap.json` (run the "Workspace: Open Keymap" command); `solilog keymap defaults` prints the defaults.
+Everything is a command: press `cmd-k` to open the command palette and search for it. Most commands also have a key. Below, `cmd` means `ctrl` on Linux.
+
+### Getting around
+
+| Key | Action |
+|---|---|
+| `cmd-k` | Command palette |
+| `cmd-n` / `c` | New issue |
+| `j` / `k` (or arrows) | Move down / up |
+| `h` / `l` | Focus the sidebar / the issue list |
+| `cmd-b` | Show or hide the sidebar |
+| `m` (or right-click) | Context menu of the highlighted row |
+
+### Issues
+
+Commands act on the selected issues, or on the highlighted one when none is selected.
+
+| Key | Action |
+|---|---|
+| `Enter` (or double-click) | Open the issue |
+| `x` | Select or deselect it (also `cmd`/`shift`-click) |
+| `shift-j` / `shift-k` | Extend the selection down / up |
+| `cmd-a` | Select all |
+| `s` | Set status |
+| `l` / `shift-l` | Add / remove a label |
+| `p` / `shift-p` | Add to / remove from a project |
+| `alt-up` / `alt-down` | Reorder |
+
+### An open issue
+
+Title, description and checklist are edited in place and saved as you type. `Escape` goes back.
+
+| Key | Action |
+|---|---|
+| `e` / `d` | Edit the title / the description |
+| `a` | Add a checklist item (`Enter` goes to the next one) |
+| `cmd-enter` | Check the item being edited |
+| `alt-up` / `alt-down` | Move the item (or drag its handle) |
+| `shift-a` | Attach a file |
+
+To delete a checklist item, empty it. Files dropped on the issue, or pasted with `cmd-v` (screenshots too), become attachments. Click an image to preview it (`←` / `→` for the issue's other images, `r` to show it in the file manager); other files open in the file manager.
+
+### Filters and views
+
+Done and cancelled issues are hidden at first; the buttons at the top right of the list toggle "Open" and each status. Press `f`, then:
+
+| Key | Filter |
+|---|---|
+| `l` / `x` | By label / excluding a label |
+| `p` / `n` | By project / issues in no project |
+| `s` | By status |
+| `o` / `a` | Open issues only / all statuses |
+| `c` / `r` | Clear / revert to the saved view |
+
+`cmd-s` saves the filter as a view; `v` opens one. Saved views, projects and labels are in the sidebar.
+
+### Your own bindings
+
+Every command can be bound. Run "Workspace: Open Keymap" from the palette to edit `~/.config/solilog/keymap.json` (changes apply when you save). `solilog keymap defaults` prints the default bindings and `solilog keymap actions` lists every command.

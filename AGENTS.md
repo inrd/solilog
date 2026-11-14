@@ -61,6 +61,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
    the actions available from the focused element, so placement decides when it shows.
 5. **Default binding** (optional) in `assets/keymap.json`. The
    `default_keymap_is_valid` test checks that every name/argument/keystroke there is valid.
+   If a binding is added, changed or removed, update the key tables in the
+   README's "Keyboard" section to match (they list the main bindings, not all of them).
 6. Mouse interactions must go through the same actions (e.g. click → select →
    `window.dispatch_action(...)`), never through separate logic.
 
