@@ -10,6 +10,7 @@
 
 /// Namespaces whose actions never appear in the command palette.
 pub const PALETTE_HIDDEN_NAMESPACES: &[&str] = &[
+    "archive",
     "command_palette",
     "issue_list",
     "picker",
@@ -34,6 +35,27 @@ pub mod workspace {
             ToggleSidebar,
             /// Move focus to the sidebar (showing it if hidden).
             FocusSidebar,
+            /// Show the archive: archived projects and issues, which can be
+            /// deleted or brought back from there.
+            OpenArchive,
+        ]
+    );
+}
+
+/// The archive's list.
+pub mod archive {
+    use gpui::actions;
+
+    actions!(
+        archive,
+        [
+            SelectNext,
+            SelectPrevious,
+            /// Show the menu of the highlighted archived item (delete…).
+            /// Right-clicking an item does this.
+            ShowContextMenu,
+            /// Leave the archive, back to the issues shown before.
+            Close,
         ]
     );
 }
@@ -49,7 +71,7 @@ pub mod sidebar {
             SelectPrevious,
             /// Open the highlighted sidebar row.
             Open,
-            /// Show or hide done and archived projects in the sidebar.
+            /// Show or hide done projects in the sidebar.
             ToggleClosedProjects,
             /// Move the highlighted project or label above the previous one
             /// (projects within their section, labels among their siblings).
@@ -83,7 +105,8 @@ pub mod project {
     }
 
     /// Set a project's status. Done and archived projects are hidden from
-    /// pickers. Without a `status`, opens the status picker.
+    /// pickers; archived ones are only listed in the archive. Without a
+    /// `status`, opens the status picker.
     ///
     /// Keymap example: `"cmd-d": ["project::SetStatus", { "status": "done" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
@@ -188,15 +211,33 @@ pub mod issue {
     use gpui::{Action, actions};
     use schemars::JsonSchema;
     use serde::Deserialize;
-    use solilog_core::Status;
+    use solilog_core::{IssueId, Status};
 
     actions!(
         issue,
         [
             /// Focus the new-issue input.
             New,
+            /// Archive the selected issue: it keeps everything but is left
+            /// out of listings, views and counts (see `workspace::OpenArchive`).
+            Archive,
+            /// Bring the selected archived issue back from the archive.
+            Unarchive,
         ]
     );
+
+    /// Delete an issue for good: the given `id` (`SOL-12`), or the selected
+    /// one. Asks for confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct Delete {
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub id: Option<IssueId>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
 
     /// Set the status of the selected issue. Without a `status`, opens the status picker.
     ///

@@ -1,6 +1,6 @@
 //! The sidebar: everything the issue list can show (all issues, saved views,
-//! projects, labels), with the number of open issues in each. Done and
-//! archived projects sit in a collapsed section.
+//! projects, labels), with the number of open issues in each. Done projects
+//! sit in a collapsed section; archived ones are only in the archive.
 //!
 //! Key context: `Sidebar`. Each row stands for an action (e.g. `view::Open`);
 //! confirming a row, by key or click, dispatches it. Projects and labels can
@@ -15,7 +15,7 @@ use gpui::{
 use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement, ProjectStatus};
 
 use super::scope::Source;
-use super::{Modal, OpenModal, Workspace};
+use super::{MenuTarget, Modal, OpenModal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view, workspace};
 use crate::ui::status_icon::project_status_icon;
 use crate::ui::theme;
@@ -29,7 +29,7 @@ pub enum SidebarItem {
     AllIssues,
     View(String),
     Project(String),
-    /// Expands or collapses the done and archived projects.
+    /// Expands or collapses the done projects.
     ClosedProjects,
     Label(String),
 }
@@ -56,7 +56,7 @@ impl SidebarItem {
 /// Rows can only be reordered among rows of the same group.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Group {
-    /// The open or the closed projects.
+    /// The open or the done projects.
     Projects { closed: bool },
     /// The children of a label (lowercase), or the top-level labels.
     Labels { parent: Option<String> },
@@ -158,7 +158,7 @@ impl Workspace {
             }));
         }
 
-        if !self.projects.is_empty() {
+        if self.sidebar_projects().next().is_some() {
             rows.push(Row::Heading("Projects"));
             let project_row = |p: &solilog_core::Project| Row::Item {
                 item: SidebarItem::Project(p.name.clone()),
@@ -169,12 +169,12 @@ impl Workspace {
                 status: Some(p.status),
             };
             let (closed, open): (Vec<_>, Vec<_>) =
-                self.projects.iter().partition(|p| p.status.is_closed());
+                self.sidebar_projects().partition(|p| p.status.is_closed());
             rows.extend(open.into_iter().map(project_row));
             if !closed.is_empty() {
                 rows.push(Row::Item {
                     item: SidebarItem::ClosedProjects,
-                    label: format!("Closed ({})", closed.len()).into(),
+                    label: format!("Done ({})", closed.len()).into(),
                     depth: 0,
                     count: 0,
                     trailing: Some(if self.show_closed_projects {
@@ -303,12 +303,24 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The projects the sidebar lists: all but archived ones.
+    fn sidebar_projects(&self) -> impl Iterator<Item = &solilog_core::Project> {
+        self.projects
+            .iter()
+            .filter(|p| p.status != ProjectStatus::Archived)
+    }
+
     /// The reorderable row for a sidebar item, if it is a project or label.
     fn reorderable(&self, item: &SidebarItem) -> Option<DraggedRow> {
         match item {
             SidebarItem::Project(name) => {
-                let index = self.projects.iter().position(|p| p.name == *name)?;
-                let closed = self.projects[index].status.is_closed();
+                let index = self.sidebar_projects().position(|p| p.name == *name)?;
+                let closed = self
+                    .projects
+                    .iter()
+                    .find(|p| p.name == *name)?
+                    .status
+                    .is_closed();
                 Some(DraggedRow {
                     name: name.clone(),
                     title: name.clone().into(),
@@ -337,8 +349,7 @@ impl Workspace {
     fn group_members(&self, group: &Group) -> Vec<&str> {
         match group {
             Group::Projects { closed } => self
-                .projects
-                .iter()
+                .sidebar_projects()
                 .filter(|p| p.status.is_closed() == *closed)
                 .map(|p| p.name.as_str())
                 .collect(),
@@ -473,10 +484,15 @@ impl Workspace {
             return None;
         }
         let focused = self.sidebar_focus.is_focused(window);
-        let active = self.active_sidebar_item();
+        // Nothing in the sidebar is being shown while the archive is.
+        let active = (!self.showing_archive).then(|| self.active_sidebar_item());
         let menu_item = match &self.modal {
             Some(OpenModal {
-                modal: Modal::ContextMenu { item, .. },
+                modal:
+                    Modal::ContextMenu {
+                        target: MenuTarget::Sidebar(item),
+                        ..
+                    },
                 ..
             }) => Some(item.clone()),
             _ => None,
@@ -507,7 +523,7 @@ impl Workspace {
                         || menu_item.as_ref() == Some(&item)
                     {
                         Some(theme::HIGHLIGHT)
-                    } else if item == active {
+                    } else if active.as_ref() == Some(&item) {
                         Some(theme::HOVER)
                     } else {
                         None

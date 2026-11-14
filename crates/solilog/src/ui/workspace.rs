@@ -4,6 +4,7 @@
 //! Every user-facing behavior here is an action handler (see `actions.rs`);
 //! mouse handlers only select things and dispatch the same actions.
 
+mod archive;
 mod filter;
 mod manage;
 mod scope;
@@ -29,6 +30,7 @@ use super::picker::{Picker, PickerEvent, PickerItem};
 use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
 use super::theme;
+use archive::ArchiveItem;
 use scope::Scope;
 use sidebar::SidebarItem;
 
@@ -58,11 +60,11 @@ enum Modal {
         /// Builds the action for the "Create …" row from the typed text.
         create: Option<CreateAction>,
     },
-    /// The actions of a sidebar row.
+    /// The actions of a sidebar row or archived item.
     ContextMenu {
         picker: Entity<Picker>,
         actions: Vec<Box<dyn Action>>,
-        item: SidebarItem,
+        target: MenuTarget,
         /// Where it was opened with the mouse (window coordinates); centered
         /// like other pickers otherwise.
         position: Option<Point<Pixels>>,
@@ -70,6 +72,16 @@ enum Modal {
 }
 
 type CreateAction = Box<dyn Fn(String) -> Box<dyn Action>>;
+
+/// A context menu entry: its label and the action it dispatches.
+type MenuEntry = (&'static str, Box<dyn Action>);
+
+/// What a context menu is about (highlighted while the menu is open).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum MenuTarget {
+    Sidebar(SidebarItem),
+    Archive(ArchiveItem),
+}
 
 /// A change to an issue's labels or projects, each an action that picks the
 /// label or project interactively when not given one.
@@ -124,8 +136,10 @@ pub struct Workspace {
     db: Db,
     /// Cache of the database; reloaded whenever it changes. Newest first.
     issues: Vec<Issue>,
-    /// Every issue, for the sidebar's counts.
+    /// Every issue but archived ones, for the sidebar's counts.
     all_issues: Vec<Issue>,
+    /// Newest first.
+    archived_issues: Vec<Issue>,
     views: Vec<View>,
     /// Including done and archived ones.
     projects: Vec<Project>,
@@ -143,6 +157,11 @@ pub struct Workspace {
     /// Keyboard cursor in the sidebar.
     sidebar_cursor: SidebarItem,
     show_closed_projects: bool,
+    /// The archive is shown in place of the issue list; `scope` is kept for
+    /// when it closes.
+    showing_archive: bool,
+    archive_cursor: Option<ArchiveItem>,
+    archive_scroll: ScrollHandle,
     modal: Option<OpenModal>,
     error: Option<String>,
     _poll: Task<()>,
@@ -184,6 +203,7 @@ impl Workspace {
             db,
             issues: Vec::new(),
             all_issues: Vec::new(),
+            archived_issues: Vec::new(),
             views: Vec::new(),
             projects: Vec::new(),
             labels: Vec::new(),
@@ -197,6 +217,9 @@ impl Workspace {
             sidebar_focus: cx.focus_handle(),
             sidebar_cursor: SidebarItem::AllIssues,
             show_closed_projects: false,
+            showing_archive: false,
+            archive_cursor: None,
+            archive_scroll: ScrollHandle::new(),
             modal: None,
             error: None,
             _poll: poll,
@@ -229,6 +252,7 @@ impl Workspace {
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.data_version = self.db.data_version().unwrap_or_default();
         let prev_ix = self.selected_index();
+        let prev_archive_ix = self.archive_index();
         let scope_error = self.refresh_scope();
         let filter = self.scope.filter.clone();
         let sidebar_data = self
@@ -237,17 +261,22 @@ impl Workspace {
             .and_then(|issues| {
                 Ok((
                     issues,
+                    self.db.list_archived_issues(&IssueFilter::default())?,
                     self.db.list_views()?,
                     self.db.list_projects(true)?,
                     self.db.list_labels()?,
                 ))
             });
-        if let Some((all_issues, views, projects, labels)) = self.report(sidebar_data, cx) {
+        if let Some((all_issues, archived_issues, views, projects, labels)) =
+            self.report(sidebar_data, cx)
+        {
             self.all_issues = all_issues;
+            self.archived_issues = archived_issues;
             self.views = views;
             self.projects = projects;
             self.labels = labels;
         }
+        self.fix_archive_cursor(prev_archive_ix);
         let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
             return;
@@ -509,8 +538,13 @@ impl Workspace {
 
     // ---- domain actions ---------------------------------------------------
 
+    /// The selected issue; in the archive, the highlighted archived issue.
     fn selected_issue(&mut self, cx: &mut Context<Self>) -> Option<Issue> {
-        let issue = self.selected_index().map(|ix| self.issues[ix].clone());
+        let issue = if self.showing_archive {
+            self.archive_selected_issue()
+        } else {
+            self.selected_index().map(|ix| self.issues[ix].clone())
+        };
         if issue.is_none() {
             self.error = Some("No issue selected".into());
             cx.notify();
@@ -609,6 +643,9 @@ impl Workspace {
 
     fn on_new_issue(&mut self, _: &issue::New, window: &mut Window, cx: &mut Context<Self>) {
         self.close_modal(window, cx);
+        if self.showing_archive {
+            self.close_archive(window, cx);
+        }
         window.focus(&self.input.focus_handle(cx));
     }
 
@@ -847,6 +884,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_reload_keymap))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_focus_sidebar))
+            .on_action(cx.listener(Self::on_open_archive))
             .size_full()
             .flex()
             .flex_col()
@@ -860,7 +898,13 @@ impl Render for Workspace {
                     .min_h_0()
                     .flex()
                     .children(self.render_sidebar(window, cx))
-                    .child(self.render_main(list_focused, cx)),
+                    .map(|s| {
+                        if self.showing_archive {
+                            s.child(self.render_archive(list_focused, cx).into_any_element())
+                        } else {
+                            s.child(self.render_main(list_focused, cx).into_any_element())
+                        }
+                    }),
             )
             .children(self.error.clone().map(|err| {
                 div()
@@ -912,6 +956,7 @@ impl Workspace {
                     .on_action(cx.listener(Self::select_previous))
                     .on_action(cx.listener(Self::select_first))
                     .on_action(cx.listener(Self::select_last))
+                    .on_action(cx.listener(Self::on_archive_issue))
                     .flex_1()
                     .flex()
                     .flex_col()

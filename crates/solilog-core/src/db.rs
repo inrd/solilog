@@ -92,6 +92,8 @@ const MIGRATIONS: &[&str] = &[
         SELECT id, row_number() OVER (ORDER BY name COLLATE NOCASE) AS position FROM labels
     ) AS ranked
     WHERE ranked.id = labels.id;",
+    // 9: archived issues are out of the way: hidden from listings and counts.
+    "ALTER TABLE issues ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1));",
 ];
 
 /// Label names per issue.
@@ -106,7 +108,7 @@ const ISSUE_PROJECTS_SQL: &str =
      WHERE ?1 IS NULL OR ip.issue_id = ?1
      ORDER BY p.name COLLATE NOCASE";
 
-const ISSUE_COLUMNS: &str = "id, title, status, created_at";
+const ISSUE_COLUMNS: &str = "id, title, status, created_at, archived";
 
 pub struct Db {
     pub(crate) conn: Connection,
@@ -166,16 +168,25 @@ impl Db {
             .pragma_query_value(None, "data_version", |row| row.get(0))?)
     }
 
-    /// Newest first. Fails if the filter names a label or project that
-    /// doesn't exist.
+    /// Issues that are not archived, newest first. Fails if the filter names
+    /// a label or project that doesn't exist.
     pub fn list_issues(&self, filter: &IssueFilter) -> Result<Vec<Issue>> {
+        self.list_issues_where(filter, false)
+    }
+
+    /// Archived issues, newest first; otherwise like [`Db::list_issues`].
+    pub fn list_archived_issues(&self, filter: &IssueFilter) -> Result<Vec<Issue>> {
+        self.list_issues_where(filter, true)
+    }
+
+    fn list_issues_where(&self, filter: &IssueFilter, archived: bool) -> Result<Vec<Issue>> {
         let filter = self.resolve_filter(filter)?;
         let mut issues: Vec<Issue> = self
             .conn
             .prepare_cached(&format!(
-                "SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id DESC"
+                "SELECT {ISSUE_COLUMNS} FROM issues WHERE archived = ?1 ORDER BY id DESC"
             ))?
-            .query_map([], issue_from_row)?
+            .query_map([archived], issue_from_row)?
             .collect::<rusqlite::Result<_>>()?;
         let mut labels = self.names_per_issue(ISSUE_LABELS_SQL, None)?;
         let mut projects = self.names_per_issue(ISSUE_PROJECTS_SQL, None)?;
@@ -246,6 +257,25 @@ impl Db {
         self.get_issue(id)
     }
 
+    /// Archives an issue (or unarchives it): archived issues are left out of
+    /// listings, views and counts, but keep everything else. Returns the issue.
+    pub fn set_archived(&self, id: IssueId, archived: bool) -> Result<Issue> {
+        let updated = self.conn.execute(
+            "UPDATE issues SET archived = ?2 WHERE id = ?1",
+            params![id, archived],
+        )?;
+        anyhow::ensure!(updated == 1, "no issue {id}");
+        self.get_issue(id)
+    }
+
+    /// Deletes an issue for good. Returns it as it was.
+    pub fn delete_issue(&self, id: IssueId) -> Result<Issue> {
+        let issue = self.get_issue(id)?;
+        self.conn
+            .execute("DELETE FROM issues WHERE id = ?1", [id])?;
+        Ok(issue)
+    }
+
     /// Related names per issue (`ISSUE_*_SQL`), for one issue or all of them.
     fn names_per_issue(
         &self,
@@ -291,6 +321,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         title: row.get(1)?,
         status: row.get(2)?,
         created_at: row.get(3)?,
+        archived: row.get(4)?,
         labels: Vec::new(),
         projects: Vec::new(),
     })
@@ -356,6 +387,35 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(titles(&db, &done), ["b"]);
+    }
+
+    #[test]
+    fn archive_and_delete() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_project(&crate::NewProject::new("p")).unwrap();
+        let a = db
+            .create_issue(&NewIssue::new("a").labels(["x"]).projects(["p"]))
+            .unwrap();
+        db.create_issue(&NewIssue::new("b")).unwrap();
+        assert!(!a.archived);
+        assert!(db.set_archived(a.id, true).unwrap().archived);
+        // Out of counts, but keeps its labels and projects.
+        assert_eq!(db.get_project("p").unwrap().issue_count, 0);
+        assert_eq!(db.get_label("x").unwrap().issue_count, 0);
+        assert_eq!(db.get_issue(a.id).unwrap().projects, ["p"]);
+        assert!(db.get_issue(a.id).unwrap().archived);
+        assert_eq!(titles(&db, &IssueFilter::default()), ["b"]);
+        let archived = db.list_archived_issues(&IssueFilter::default()).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].title, "a");
+        assert!(!db.set_archived(a.id, false).unwrap().archived);
+        assert_eq!(titles(&db, &IssueFilter::default()), ["b", "a"]);
+        assert!(db.set_archived(IssueId(999), true).is_err());
+
+        assert_eq!(db.delete_issue(a.id).unwrap().title, "a");
+        assert!(db.get_issue(a.id).is_err());
+        assert!(db.delete_issue(a.id).is_err());
+        assert_eq!(titles(&db, &IssueFilter::default()), ["b"]);
     }
 
     #[test]

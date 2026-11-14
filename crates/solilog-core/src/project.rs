@@ -110,8 +110,9 @@ pub struct Project {
     pub description: String,
     /// Default labels, given to issues when they join the project.
     pub labels: Vec<String>,
+    /// Issues in the project, archived ones excepted.
     pub issue_count: i64,
-    /// Done or cancelled issues.
+    /// Done or cancelled issues (archived ones excepted).
     pub closed_issue_count: i64,
     /// Unix timestamp (seconds).
     pub created_at: i64,
@@ -157,9 +158,10 @@ fn normalize_project_name(name: &str) -> Result<String> {
 }
 
 const PROJECT_COLUMNS: &str = "p.id, p.name, p.status, p.description, p.created_at,
-    (SELECT count(*) FROM issue_projects ip WHERE ip.project_id = p.id),
     (SELECT count(*) FROM issue_projects ip JOIN issues i ON i.id = ip.issue_id
-        WHERE ip.project_id = p.id AND i.status IN ('done', 'cancelled'))";
+        WHERE ip.project_id = p.id AND NOT i.archived),
+    (SELECT count(*) FROM issue_projects ip JOIN issues i ON i.id = ip.issue_id
+        WHERE ip.project_id = p.id AND NOT i.archived AND i.status IN ('done', 'cancelled'))";
 
 fn project_from_row(row: &Row) -> rusqlite::Result<(i64, Project)> {
     Ok((

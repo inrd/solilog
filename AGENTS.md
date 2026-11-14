@@ -58,7 +58,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, status, labels, projects.
+- **Issue**: title, status, labels, projects. An issue can be archived: it
+  keeps everything but is left out of listings, views and counts
+  (`Db::list_archived_issues` lists them). Deleting an issue is permanent.
 - **Label**: a free-form, hierarchical tag. The name is a `/`-separated path
   (`acme/reverb`). Every ancestor exists as a label of its own and is created
   on demand. An issue may carry any number of labels. Filtering by a label
@@ -71,7 +73,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
   (`planned`, `active`, `done`, `archived`), description. Issues can be in any number of projects, or none; being outside a
   project is normal. A project's default labels are added to issues when they
   join it and kept when they leave. Done/archived projects are hidden from
-  pickers and default listings. Projects have a user-defined order (new ones
+  pickers and default listings; archived ones are also left out of the
+  sidebar (they are in the archive). Projects have a user-defined order (new ones
   go last; `Db::move_project`, drag and drop in the sidebar); listings show
   open projects first, each section in that order.
 - **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
@@ -124,7 +127,10 @@ One concept, one name, consistent across surfaces:
 - Defaults: `crates/solilog/assets/keymap.json` (compiled in). User overrides:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
-- Contexts: `Workspace` > `Sidebar` | `IssueList` | `NewIssue > TextInput`; `Picker` for popups.
+- Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `NewIssue > TextInput`; `Picker` for popups.
+- The archive (`workspace::OpenArchive`, palette only) replaces the issue list
+  and lists archived projects and issues, with a context menu to delete them
+  or bring them back.
 
 ## Commands
 

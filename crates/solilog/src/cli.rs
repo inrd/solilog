@@ -71,12 +71,16 @@ pub enum Command {
 
 #[derive(Subcommand)]
 pub enum IssueCommand {
-    /// List issues, newest first.
+    /// List issues, newest first. Archived issues are left out unless
+    /// `--archived` is given.
     #[command(visible_alias = "ls")]
     List {
         /// Use a saved view's filter (see `solilog view`).
         #[arg(long, short, value_name = "VIEW", conflicts_with = "FilterArgs")]
         view: Option<String>,
+        /// List archived issues instead (the filter still applies).
+        #[arg(long)]
+        archived: bool,
         #[command(flatten)]
         filter: FilterArgs,
     },
@@ -98,6 +102,14 @@ pub enum IssueCommand {
     },
     /// Change an issue's status and print it.
     SetStatus { id: IssueId, status: Status },
+    /// Archive an issue and print it. Archived issues keep their status,
+    /// labels and projects, but are left out of listings, views and counts.
+    Archive { id: IssueId },
+    /// Bring an archived issue back and print it.
+    Unarchive { id: IssueId },
+    /// Delete an issue for good and print it as it was.
+    #[command(visible_alias = "rm")]
+    Delete { id: IssueId },
     /// Add labels to an issue (creating missing ones) and print it.
     AddLabel {
         id: IssueId,
@@ -312,12 +324,20 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
         Command::Issue(cmd) => {
             let db = Db::open_default()?;
             match cmd {
-                IssueCommand::List { view, filter } => {
+                IssueCommand::List {
+                    view,
+                    archived,
+                    filter,
+                } => {
                     let filter = match view {
                         Some(name) => db.get_view(&name)?.filter,
                         None => filter.into(),
                     };
-                    out.issues(&db.list_issues(&filter)?)
+                    out.issues(&if archived {
+                        db.list_archived_issues(&filter)?
+                    } else {
+                        db.list_issues(&filter)?
+                    })
                 }
                 IssueCommand::Show { id } => out.issue(&db.get_issue(id)?),
                 IssueCommand::Create {
@@ -333,6 +353,9 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     out.issue(&db.create_issue(&new)?)
                 }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
+                IssueCommand::Archive { id } => out.issue(&db.set_archived(id, true)?),
+                IssueCommand::Unarchive { id } => out.issue(&db.set_archived(id, false)?),
+                IssueCommand::Delete { id } => out.issue(&db.delete_issue(id)?),
                 IssueCommand::AddLabel { id, labels } => out.issue(&db.add_labels(id, &labels)?),
                 IssueCommand::RemoveLabel { id, labels } => {
                     out.issue(&db.remove_labels(id, &labels)?)
@@ -577,6 +600,9 @@ fn issue_line(issue: &Issue) -> String {
     }
     if !issue.projects.is_empty() {
         line.push_str(&format!("  in: {}", issue.projects.join(", ")));
+    }
+    if issue.archived {
+        line.push_str("  (archived)");
     }
     line
 }

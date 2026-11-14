@@ -72,6 +72,8 @@ pub struct Issue {
     pub status: Status,
     /// Unix timestamp (seconds).
     pub created_at: i64,
+    /// Archived issues are left out of listings, views and counts.
+    pub archived: bool,
     /// Label paths (`acme/reverb`), sorted. Only the labels given to the
     /// issue; their ancestors are implied, not listed.
     pub labels: Vec<String>,

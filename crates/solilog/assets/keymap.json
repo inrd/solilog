@@ -4,6 +4,7 @@
 //   Workspace            the whole window
 //   Sidebar              the sidebar has focus
 //   IssueList            the issue list has focus
+//   Archive              the archive has focus (it replaces the issue list)
 //   NewIssue > TextInput the new-issue input has focus
 //   Picker               any popup list (command palette, status picker)
 //   TextInput            any single-line text field
@@ -74,6 +75,20 @@
       "l": "issue_list::Focus",
       "right": "issue_list::Focus",
       "escape": "issue_list::Focus"
+    }
+  },
+  {
+    "context": "Archive",
+    "bindings": {
+      "j": "archive::SelectNext",
+      "k": "archive::SelectPrevious",
+      "down": "archive::SelectNext",
+      "up": "archive::SelectPrevious",
+      "m": "archive::ShowContextMenu",
+      "shift-f10": "archive::ShowContextMenu",
+      "escape": "archive::Close",
+      "h": "workspace::FocusSidebar",
+      "left": "workspace::FocusSidebar"
     }
   },
   {

@@ -24,7 +24,8 @@ pub const LABEL_SEPARATOR: char = '/';
 pub struct Label {
     /// Full path, e.g. `acme/reverb`.
     pub name: String,
-    /// Open and closed issues carrying this label or one of its sublabels.
+    /// Open and closed issues carrying this label or one of its sublabels
+    /// (archived ones excepted).
     pub issue_count: i64,
 }
 
@@ -100,7 +101,10 @@ impl Db {
         let assigned: Vec<(i64, String)> = self
             .conn
             .prepare_cached(
-                "SELECT il.issue_id, l.name FROM issue_labels il JOIN labels l ON l.id = il.label_id",
+                "SELECT il.issue_id, l.name FROM issue_labels il
+                 JOIN labels l ON l.id = il.label_id
+                 JOIN issues i ON i.id = il.issue_id
+                 WHERE NOT i.archived",
             )?
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;

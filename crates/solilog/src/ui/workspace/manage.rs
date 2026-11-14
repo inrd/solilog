@@ -1,5 +1,6 @@
 //! Renaming, deleting and changing the status of what the sidebar lists
-//! (views, projects, labels), and the sidebar's context menu that offers it.
+//! (views, projects, labels), and the sidebar's context menu that offers it
+//! (context menus in general: see also the archive's).
 //!
 //! Each action names its target, or acts on what the issue list shows. The
 //! scope and the sidebar cursor follow renames, so the list keeps showing
@@ -10,7 +11,7 @@ use solilog_core::{IssueFilter, ProjectStatus, ProjectUpdate, label_matches, ren
 
 use super::scope::Source;
 use super::sidebar::SidebarItem;
-use super::{CreateAction, Modal, Workspace};
+use super::{CreateAction, MenuEntry, MenuTarget, Modal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view};
 use crate::ui::picker::{Picker, PickerItem};
 use crate::ui::status_icon::project_status_icon;
@@ -76,8 +77,8 @@ fn item_name(kind: Kind, item: &mut SidebarItem) -> Option<&mut String> {
 }
 
 /// The context menu of a sidebar row; empty for rows without one.
-fn menu_entries(item: &SidebarItem) -> Vec<(&'static str, Box<dyn Action>)> {
-    let open: (&str, Box<dyn Action>) = ("Open", item.action());
+fn menu_entries(item: &SidebarItem) -> Vec<MenuEntry> {
+    let open: MenuEntry = ("Open", item.action());
     match item {
         SidebarItem::View(name) => {
             let name = Some(name.clone());
@@ -115,6 +116,13 @@ fn menu_entries(item: &SidebarItem) -> Vec<(&'static str, Box<dyn Action>)> {
                     Box::new(project::SetStatus {
                         name: name.clone(),
                         status: None,
+                    }),
+                ),
+                (
+                    "Archive",
+                    Box::new(project::SetStatus {
+                        name: name.clone(),
+                        status: Some(ProjectStatus::Archived),
                     }),
                 ),
                 (
@@ -162,24 +170,46 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let item = self.sidebar_cursor.clone();
-        let (labels, actions): (Vec<_>, Vec<_>) = menu_entries(&item).into_iter().unzip();
-        if actions.is_empty() {
-            return;
-        }
         let title = match &item {
             SidebarItem::View(name) | SidebarItem::Project(name) | SidebarItem::Label(name) => {
                 name.clone()
             }
             SidebarItem::AllIssues | SidebarItem::ClosedProjects => String::new(),
         };
+        let entries = menu_entries(&item);
+        self.open_context_menu(
+            &title,
+            entries,
+            MenuTarget::Sidebar(item),
+            position,
+            window,
+            cx,
+        );
+    }
+
+    /// Opens a menu whose entries each dispatch an action; does nothing
+    /// without entries.
+    pub(super) fn open_context_menu(
+        &mut self,
+        title: &str,
+        entries: Vec<MenuEntry>,
+        target: MenuTarget,
+        position: Option<Point<Pixels>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (labels, actions): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+        if actions.is_empty() {
+            return;
+        }
         let items = labels.into_iter().map(PickerItem::new).collect();
-        let picker = cx.new(|cx| Picker::new(&title, items, 0, cx).width(px(240.)));
+        let picker = cx.new(|cx| Picker::new(title, items, 0, cx).width(px(240.)));
         self.open_modal(
             picker,
             |picker| Modal::ContextMenu {
                 picker,
                 actions,
-                item,
+                target,
                 position,
             },
             window,
@@ -292,12 +322,15 @@ impl Workspace {
         );
     }
 
-    /// Leaves what was deleted: shows all issues if it was being shown, and
-    /// drops it from the filter otherwise.
+    /// Leaves what was deleted: shows all issues if it was being shown (the
+    /// archive stays open if it is), and drops it from the filter otherwise.
     fn follow_delete(&mut self, kind: Kind, name: &str, cx: &mut Context<Self>) {
         let shown =
             source_name(kind, &mut self.scope.source).is_some_and(|n| kind.deletes(n, name));
-        if shown {
+        if shown && self.showing_archive {
+            // Deleted from the archive: stay there.
+            self.scope = Default::default();
+        } else if shown {
             return self.show(Ok(Source::All), cx);
         }
         match kind {

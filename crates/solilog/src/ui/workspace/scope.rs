@@ -2,7 +2,7 @@
 //! and the filter in effect.
 
 use gpui::{Action, AppContext as _, Context, Window};
-use solilog_core::{IssueFilter, NewIssue, View};
+use solilog_core::{IssueFilter, NewIssue, ProjectStatus, View};
 
 use super::{CreateAction, Modal, Workspace};
 use crate::ui::actions::view;
@@ -109,6 +109,7 @@ impl Workspace {
             return;
         };
         self.scope = Scope::new(source);
+        self.showing_archive = false;
         self.selected = None;
         self.reload(cx);
         self.select_index(0, cx);
@@ -270,9 +271,11 @@ impl Workspace {
             let project = self.db.get_project(name).map(|p| Source::Project(p.name));
             return self.show(project, cx);
         }
+        // Archived projects are only listed in the archive.
         let entries = self
             .projects
             .iter()
+            .filter(|p| p.status != ProjectStatus::Archived)
             .map(|p| {
                 let hint = p.status.is_closed().then(|| p.status.label());
                 let action = view::OpenProject {
