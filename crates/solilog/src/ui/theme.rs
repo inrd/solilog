@@ -1,6 +1,7 @@
 //! Colors, shared by every view.
 
 pub const BACKGROUND: u32 = 0x1c1c1f;
+pub const SIDEBAR: u32 = 0x19191c;
 pub const SURFACE: u32 = 0x26262b;
 pub const BORDER: u32 = 0x3a3a42;
 pub const DIVIDER: u32 = 0x2c2c31;

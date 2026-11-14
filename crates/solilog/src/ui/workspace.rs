@@ -1,8 +1,10 @@
-//! The main window: new-issue input, issue list, modals (command palette,
-//! status picker) and an error bar.
+//! The main window: sidebar, new-issue input, issue list, modals (command
+//! palette, pickers) and an error bar.
 //!
 //! Every user-facing behavior here is an action handler (see `actions.rs`);
 //! mouse handlers only select things and dispatch the same actions.
+
+mod sidebar;
 
 use std::time::Duration;
 
@@ -23,6 +25,7 @@ use super::picker::{Picker, PickerEvent, PickerItem};
 use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
 use super::theme;
+use sidebar::SidebarItem;
 
 /// How often to check the database (and keymap file) for outside changes.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -102,6 +105,9 @@ pub struct Workspace {
     db: Db,
     /// Cache of the database; reloaded whenever it changes. Newest first.
     issues: Vec<Issue>,
+    /// Every issue, for the sidebar's counts.
+    all_issues: Vec<Issue>,
+    views: Vec<View>,
     data_version: i64,
     /// The view being shown; `None` shows all issues. Its filter is re-read
     /// on every reload, so outside edits apply.
@@ -110,6 +116,10 @@ pub struct Workspace {
     input: Entity<TextInput>,
     list_focus: FocusHandle,
     list_scroll: ScrollHandle,
+    sidebar_visible: bool,
+    sidebar_focus: FocusHandle,
+    /// Keyboard cursor in the sidebar.
+    sidebar_cursor: SidebarItem,
     modal: Option<OpenModal>,
     error: Option<String>,
     _poll: Task<()>,
@@ -150,12 +160,17 @@ impl Workspace {
         let mut this = Self {
             db,
             issues: Vec::new(),
+            all_issues: Vec::new(),
+            views: Vec::new(),
             data_version: 0,
             view: None,
             selected: None,
             input,
             list_focus: cx.focus_handle(),
             list_scroll: ScrollHandle::new(),
+            sidebar_visible: true,
+            sidebar_focus: cx.focus_handle(),
+            sidebar_cursor: SidebarItem::AllIssues,
             modal: None,
             error: None,
             _poll: poll,
@@ -203,6 +218,14 @@ impl Workspace {
             .view
             .as_ref()
             .map_or_else(IssueFilter::default, |v| v.filter.clone());
+        let sidebar_data = self
+            .db
+            .list_issues(&IssueFilter::default())
+            .and_then(|issues| Ok((issues, self.db.list_views()?)));
+        if let Some((all_issues, views)) = self.report(sidebar_data, cx) {
+            self.all_issues = all_issues;
+            self.views = views;
+        }
         let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
             return;
@@ -249,6 +272,7 @@ impl Workspace {
         self.selected = None;
         self.reload(cx);
         self.select_index(0, cx);
+        self.sidebar_cursor = self.active_sidebar_item();
     }
 
     fn selected_index(&self) -> Option<usize> {
@@ -832,17 +856,6 @@ fn keystrokes_text(binding: &KeyBinding) -> String {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list_focused = self.list_focus.is_focused(window);
-        let rows: Vec<_> = self
-            .issues
-            .iter()
-            .enumerate()
-            .map(|(ix, issue)| {
-                self.render_issue(ix, issue, list_focused, cx)
-                    .into_any_element()
-            })
-            .collect();
-        let empty = self.issues.is_empty();
-
         div()
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_command_palette))
@@ -857,6 +870,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))
+            .on_action(cx.listener(Self::on_toggle_sidebar))
+            .on_action(cx.listener(Self::on_focus_sidebar))
             .size_full()
             .flex()
             .flex_col()
@@ -864,6 +879,45 @@ impl Render for Workspace {
             .text_color(rgb(theme::TEXT))
             .text_size(px(14.))
             .line_height(px(20.))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .children(self.render_sidebar(window, cx))
+                    .child(self.render_main(list_focused, cx)),
+            )
+            .children(self.error.clone().map(|err| {
+                div()
+                    .px_4()
+                    .py_1()
+                    .border_t_1()
+                    .border_color(rgb(theme::DIVIDER))
+                    .text_color(rgb(theme::ERROR))
+                    .child(err)
+            }))
+            .children(self.render_modal(cx))
+    }
+}
+
+impl Workspace {
+    /// New-issue input, view header and issue list.
+    fn render_main(&self, list_focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let rows: Vec<_> = self
+            .issues
+            .iter()
+            .enumerate()
+            .map(|(ix, issue)| {
+                self.render_issue(ix, issue, list_focused, cx)
+                    .into_any_element()
+            })
+            .collect();
+        let empty = self.issues.is_empty();
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
             .child(
                 div()
                     .key_context("NewIssue")
@@ -904,16 +958,6 @@ impl Render for Workspace {
                         )
                     }),
             )
-            .children(self.error.clone().map(|err| {
-                div()
-                    .px_4()
-                    .py_1()
-                    .border_t_1()
-                    .border_color(rgb(theme::DIVIDER))
-                    .text_color(rgb(theme::ERROR))
-                    .child(err)
-            }))
-            .children(self.render_modal(cx))
     }
 }
 

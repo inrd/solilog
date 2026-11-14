@@ -2,6 +2,7 @@
 //
 // Contexts, outermost first:
 //   Workspace            the whole window
+//   Sidebar              the sidebar has focus
 //   IssueList            the issue list has focus
 //   NewIssue > TextInput the new-issue input has focus
 //   Picker               any popup list (command palette, status picker)
@@ -17,7 +18,8 @@
     "bindings": {
       "cmd-k": "command_palette::Toggle",
       "cmd-shift-p": "command_palette::Toggle",
-      "cmd-n": "issue::New"
+      "cmd-n": "issue::New",
+      "cmd-b": "workspace::ToggleSidebar"
     }
   },
   {
@@ -31,6 +33,8 @@
       "shift-p": "issue::RemoveFromProject",
       "v": "view::Open",
       "shift-v": "view::ShowAll",
+      "h": "workspace::FocusSidebar",
+      "left": "workspace::FocusSidebar",
       "j": "issue_list::SelectNext",
       "k": "issue_list::SelectPrevious",
       "down": "issue_list::SelectNext",
@@ -39,6 +43,19 @@
       "shift-g": "issue_list::SelectLast",
       "home": "issue_list::SelectFirst",
       "end": "issue_list::SelectLast"
+    }
+  },
+  {
+    "context": "Sidebar",
+    "bindings": {
+      "j": "sidebar::SelectNext",
+      "k": "sidebar::SelectPrevious",
+      "down": "sidebar::SelectNext",
+      "up": "sidebar::SelectPrevious",
+      "enter": "sidebar::Open",
+      "l": "issue_list::Focus",
+      "right": "issue_list::Focus",
+      "escape": "issue_list::Focus"
     }
   },
   {

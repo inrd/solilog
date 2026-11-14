@@ -13,6 +13,7 @@ pub const PALETTE_HIDDEN_NAMESPACES: &[&str] = &[
     "command_palette",
     "issue_list",
     "picker",
+    "sidebar",
     "text_input",
     "zed",
 ];
@@ -29,6 +30,25 @@ pub mod workspace {
             OpenKeymap,
             /// Reload the default and user keymaps.
             ReloadKeymap,
+            /// Show or hide the sidebar.
+            ToggleSidebar,
+            /// Move focus to the sidebar (showing it if hidden).
+            FocusSidebar,
+        ]
+    );
+}
+
+/// Sidebar navigation.
+pub mod sidebar {
+    use gpui::actions;
+
+    actions!(
+        sidebar,
+        [
+            SelectNext,
+            SelectPrevious,
+            /// Open the highlighted sidebar row.
+            Open,
         ]
     );
 }

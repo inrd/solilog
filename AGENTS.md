@@ -15,6 +15,7 @@ crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   src/ui/keymap.rs     keymap loading (defaults + user file, hot reload)
   src/ui/picker.rs     reusable filter-list popup (command palette, status picker…)
   src/ui/workspace.rs  main view; action handlers
+  src/ui/workspace/    parts of the main view (sidebar, …)
 ```
 
 `solilog` with no args opens the GUI; `solilog <command>` runs the CLI.
@@ -120,7 +121,7 @@ One concept, one name, consistent across surfaces:
 - Defaults: `crates/solilog/assets/keymap.json` (compiled in). User overrides:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
-- Contexts: `Workspace` > `IssueList` | `NewIssue > TextInput`; `Picker` for popups.
+- Contexts: `Workspace` > `Sidebar` | `IssueList` | `NewIssue > TextInput`; `Picker` for popups.
 
 ## Commands
 
