@@ -4,6 +4,7 @@
 //! Every user-facing behavior here is an action handler (see `actions.rs`);
 //! mouse handlers only select things and dispatch the same actions.
 
+mod filter;
 mod scope;
 mod sidebar;
 
@@ -708,37 +709,6 @@ impl Workspace {
             )
     }
 
-    /// Current view name, its filter, and the issue count.
-    fn render_view_header(&self) -> impl IntoElement + use<> {
-        let name = self.scope.source.title().to_string();
-        let summary = matches!(self.scope.source, scope::Source::View(_))
-            .then(|| self.scope.filter.to_string());
-        div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .px_4()
-            .py_1()
-            .border_b_1()
-            .border_color(rgb(theme::DIVIDER))
-            .text_size(px(12.))
-            .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(name))
-            .children(summary.map(|s| {
-                div()
-                    .flex_1()
-                    .truncate()
-                    .text_color(rgb(theme::TEXT_MUTED))
-                    .child(s)
-            }))
-            .child(
-                div()
-                    .ml_auto()
-                    .flex_none()
-                    .text_color(rgb(theme::TEXT_MUTED))
-                    .child(self.issues.len().to_string()),
-            )
-    }
-
     fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let picker = self.modal.as_ref()?.modal.picker().clone();
         let dismiss = cx.listener(|this, _, window, cx| {
@@ -808,6 +778,13 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_open_project))
             .on_action(cx.listener(Self::on_open_label))
             .on_action(cx.listener(Self::on_toggle_closed_projects))
+            .on_action(cx.listener(Self::on_toggle_label_filter))
+            .on_action(cx.listener(Self::on_exclude_label_filter))
+            .on_action(cx.listener(Self::on_toggle_project_filter))
+            .on_action(cx.listener(Self::on_toggle_status_filter))
+            .on_action(cx.listener(Self::on_toggle_open_only))
+            .on_action(cx.listener(Self::on_toggle_no_project))
+            .on_action(cx.listener(Self::on_clear_filter))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))
@@ -868,7 +845,7 @@ impl Workspace {
                     .border_color(rgb(theme::DIVIDER))
                     .child(self.input.clone()),
             )
-            .child(self.render_view_header())
+            .child(self.render_filter_header(cx))
             .child(
                 div()
                     .id("issues")

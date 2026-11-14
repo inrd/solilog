@@ -62,8 +62,9 @@ impl Scope {
 }
 
 impl Workspace {
-    /// Re-reads the scope's source from the database. Returns an error
-    /// message if it no longer exists, after falling back to all issues.
+    /// Re-reads the scope's source from the database; an edited filter is
+    /// kept. Returns an error message if the source no longer exists, after
+    /// falling back to all issues.
     pub(super) fn refresh_scope(&mut self) -> Option<String> {
         let found = match &self.scope.source {
             Source::All => return None,
@@ -73,7 +74,15 @@ impl Workspace {
         };
         match found {
             Ok(source) => {
-                self.scope = Scope::new(source);
+                let edited = self.scope.filter != self.scope.source.filter();
+                self.scope = Scope {
+                    filter: if edited {
+                        self.scope.filter.clone()
+                    } else {
+                        source.filter()
+                    },
+                    source,
+                };
                 None
             }
             Err(err) => {
@@ -107,7 +116,7 @@ impl Workspace {
     }
 
     /// Opens a picker whose items each dispatch an action.
-    fn open_action_picker(
+    pub(super) fn open_action_picker(
         &mut self,
         placeholder: &str,
         entries: Vec<(PickerItem, Box<dyn Action>)>,

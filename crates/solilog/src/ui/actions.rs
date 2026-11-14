@@ -181,6 +181,64 @@ pub mod view {
     }
 }
 
+/// Editing the filter of the issue list. Without an argument, each opens a
+/// picker.
+pub mod filter {
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::Status;
+
+    actions!(
+        filter,
+        [
+            /// Show only open issues, or all of them again.
+            ToggleOpenOnly,
+            /// Show only issues in no project, or drop that criterion.
+            ToggleNoProject,
+            /// Remove every filter criterion.
+            Clear,
+        ]
+    );
+
+    /// Require a label (or one of its sublabels), or drop that requirement.
+    /// All required labels must match.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = filter)]
+    #[serde(deny_unknown_fields)]
+    pub struct ToggleLabel {
+        #[serde(default)]
+        pub label: Option<String>,
+    }
+
+    /// Hide issues with a label (or one of its sublabels), or show them again.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = filter)]
+    #[serde(deny_unknown_fields)]
+    pub struct ExcludeLabel {
+        #[serde(default)]
+        pub label: Option<String>,
+    }
+
+    /// Add or remove a project; issues in any of the chosen projects match.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = filter)]
+    #[serde(deny_unknown_fields)]
+    pub struct ToggleProject {
+        #[serde(default)]
+        pub project: Option<String>,
+    }
+
+    /// Add or remove a status; issues with any of the chosen statuses match.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = filter)]
+    #[serde(deny_unknown_fields)]
+    pub struct ToggleStatus {
+        #[serde(default)]
+        pub status: Option<Status>,
+    }
+}
+
 pub mod issue_list {
     use gpui::actions;
 
