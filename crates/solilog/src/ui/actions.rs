@@ -44,6 +44,52 @@ pub mod workspace {
     );
 }
 
+/// Backups of the database and its attachments (see `solilog backup --help`).
+pub mod backup {
+    use std::path::PathBuf;
+
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+
+    actions!(
+        backup,
+        [
+            /// Back up the database and its attachments now. Backups are
+            /// also made automatically after changes, at most once an hour.
+            Create,
+            /// Open the backup folder in the file manager.
+            OpenDirectory,
+            /// Make backups go to the default folder, next to the database,
+            /// moving the existing ones there.
+            UseDefaultDirectory,
+        ]
+    );
+
+    /// Choose the folder backups go to (e.g. a synced folder): the given
+    /// `path`, else one chosen in a dialog. Existing backups are moved there.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = backup)]
+    #[serde(deny_unknown_fields)]
+    pub struct ChooseDirectory {
+        #[serde(default)]
+        pub path: Option<PathBuf>,
+    }
+
+    /// Replace all data with a backup's: the given `name` (a file in the
+    /// backup folder), else one picked from the list. The current data is
+    /// backed up first. Asks for confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = backup)]
+    #[serde(deny_unknown_fields)]
+    pub struct Restore {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
+}
+
 /// The archive's list.
 pub mod archive {
     use gpui::actions;

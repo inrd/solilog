@@ -8,15 +8,16 @@
 //! - labels are `/`-separated paths (`acme/reverb`), matched case-insensitively.
 
 use std::io::{Read as _, Write as _};
+use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Attachment, AttachmentId, ChecklistItemId, Db, Issue, IssueEdit, IssueFilter, IssueId, Label,
-    LabelColor, NewIssue, NewProject, Placement, Project, ProjectStatus, ProjectUpdate, Status,
-    View,
+    Attachment, AttachmentId, Backup, BackupDir, BackupReason, ChecklistItemId, Db, Issue,
+    IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue, NewProject, Placement, Project,
+    ProjectStatus, ProjectUpdate, Status, View, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -87,6 +88,52 @@ pub enum Command {
     Keymap(KeymapArgs),
     /// Print the database path.
     DbPath,
+    /// Back up the database and its attachments, or restore a backup.
+    ///
+    /// A backup is a zip archive in the backup directory, which can be
+    /// opened without Solilog: `manifest.json` (what it is), `solilog.db`
+    /// (the database) and `attachments/SOL-12/<file>`. The backup directory
+    /// is next to the database by default (`solilog-backups/`); `backup
+    /// set-dir` changes it, e.g. to a synced folder.
+    ///
+    /// Backups are made automatically after changes (from the CLI or the
+    /// app), at most once an hour. Older ones are thinned out: every backup
+    /// of the last day is kept, then one per day for two weeks, one per week
+    /// for three months and one per month for a year. Only this database's
+    /// backups are thinned out or moved; the directory can be shared.
+    #[command(subcommand)]
+    Backup(BackupCommand),
+}
+
+#[derive(Subcommand)]
+pub enum BackupCommand {
+    /// Back up now and print the backup.
+    Create,
+    /// List the backups in the backup directory, newest first, including
+    /// those of other databases (`"own": false` in the JSON).
+    #[command(visible_alias = "ls")]
+    List,
+    /// Replace all data (issues, labels, projects, views, attachments) with
+    /// a backup's. The current data is backed up first (`before_restore` in
+    /// the JSON): restoring that backup undoes the restore. The backup
+    /// directory stays as it is.
+    Restore {
+        /// File name in the backup directory (see `backup list`), or the
+        /// path of a backup file.
+        backup: String,
+    },
+    /// Print the backup directory.
+    Dir,
+    /// Change the backup directory (creating it if needed), move this
+    /// database's backups there, and print it.
+    #[command(group = clap::ArgGroup::new("target").required(true))]
+    SetDir {
+        #[arg(group = "target")]
+        dir: Option<PathBuf>,
+        /// Go back to the default directory, next to the database.
+        #[arg(long, group = "target")]
+        default: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -444,9 +491,23 @@ enum KeymapCommand {
 
 pub fn run(cli: Cli, command: Command) -> Result<()> {
     let out = Output { json: cli.json };
+    let mut opened = None;
+    let result = run_command(&out, command, &mut opened);
+    // Changes made from the CLI (e.g. by agents) are backed up too.
+    if let Some(db) = opened
+        && result.is_ok()
+        && db.has_written()
+        && let Err(err) = db.auto_backup()
+    {
+        eprintln!("warning: automatic backup failed: {err:#}");
+    }
+    result
+}
+
+fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Result<()> {
     match command {
         Command::Issue(cmd) => {
-            let db = Db::open_default()?;
+            let db = &*opened.insert(Db::open_default()?);
             match cmd {
                 IssueCommand::List {
                     view,
@@ -515,7 +576,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
             }
         }
         Command::Checklist(cmd) => {
-            let db = Db::open_default()?;
+            let db = &*opened.insert(Db::open_default()?);
             let issue = match cmd {
                 ChecklistCommand::Add { id, texts } => {
                     let texts = if texts == ["-"] {
@@ -544,7 +605,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
             out.issue(&issue)
         }
         Command::Attachment(cmd) => {
-            let db = Db::open_default()?;
+            let db = &*opened.insert(Db::open_default()?);
             match cmd {
                 AttachmentCommand::Add { id, files } => {
                     out.attachments(&db.add_attachments(id, &files)?)
@@ -556,7 +617,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
             }
         }
         Command::View(cmd) => {
-            let db = Db::open_default()?;
+            let db = &*opened.insert(Db::open_default()?);
             match cmd {
                 ViewCommand::List => out.views(&db.list_views()?),
                 ViewCommand::Show { name } => out.view(&db.get_view(&name)?),
@@ -570,7 +631,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
             }
         }
         Command::Project(cmd) => {
-            let db = Db::open_default()?;
+            let db = &*opened.insert(Db::open_default()?);
             match cmd {
                 ProjectCommand::List { all } => out.projects(&db.list_projects(all)?),
                 ProjectCommand::Show { name } => out.project(&db.get_project(&name)?),
@@ -621,7 +682,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
             }
         }
         Command::Label(cmd) => {
-            let db = Db::open_default()?;
+            let db = &*opened.insert(Db::open_default()?);
             match cmd {
                 LabelCommand::List => out.labels(&db.list_labels()?),
                 LabelCommand::Show { name } => out.label(&db.get_label(&name)?),
@@ -694,6 +755,42 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
         Command::DbPath => {
             let path = solilog_core::default_path()?.display().to_string();
             out.print(&json!({ "path": path }), || path.clone())
+        }
+        Command::Backup(cmd) => {
+            let db = opened.insert(Db::open_default()?);
+            match cmd {
+                BackupCommand::Create => out.backup(&db.create_backup(BackupReason::Manual)?),
+                BackupCommand::List => out.backups(&db.list_backups()?),
+                BackupCommand::Restore { backup } => {
+                    let restored = db.restore_backup(&backup)?;
+                    out.print(&restored, || {
+                        format!(
+                            "Restored {} ({}).\nThe data as it was before is in {}.",
+                            restored.restored.name,
+                            format_utc(restored.restored.created_at),
+                            restored.before_restore.name
+                        )
+                    })
+                }
+                BackupCommand::Dir => {
+                    let dir = db.backup_dir()?;
+                    out.print(&dir, || backup_dir_line(&dir))
+                }
+                BackupCommand::SetDir { dir, .. } => {
+                    let change = db.set_backup_dir(dir.as_deref())?;
+                    out.print(&change, || {
+                        let mut text = backup_dir_line(&change.dir);
+                        text.push_str(&format!("\nMoved {} backups.", change.moved));
+                        if change.not_moved > 0 {
+                            text.push_str(&format!(
+                                "\n{} not moved: a file by that name is already there.",
+                                change.not_moved
+                            ));
+                        }
+                        text
+                    })
+                }
+            }
         }
     }
 }
@@ -772,6 +869,20 @@ impl Output {
             attachments
                 .iter()
                 .map(attachment_line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
+    fn backup(&self, backup: &Backup) -> Result<()> {
+        self.print(backup, || backup_line(backup))
+    }
+
+    fn backups(&self, backups: &[Backup]) -> Result<()> {
+        self.print(backups, || {
+            backups
+                .iter()
+                .map(backup_line)
                 .collect::<Vec<_>>()
                 .join("\n")
         })
@@ -856,6 +967,28 @@ fn attachment_line(attachment: &Attachment) -> String {
         line.push_str(&format!("  {}", path.display()));
     }
     line
+}
+
+fn backup_line(backup: &Backup) -> String {
+    let other = if backup.own {
+        ""
+    } else {
+        "  (another database)"
+    };
+    format!(
+        "{}  {}  {:<14}  {} issues, {} attachments  {}{other}",
+        backup.name,
+        format_utc(backup.created_at),
+        backup.reason.label(),
+        backup.issue_count,
+        backup.attachment_count,
+        format_size(backup.size),
+    )
+}
+
+fn backup_dir_line(dir: &BackupDir) -> String {
+    let default = if dir.is_default { " (default)" } else { "" };
+    format!("{}{default}", dir.path.display())
 }
 
 fn view_line(view: &View) -> String {

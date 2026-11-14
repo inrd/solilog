@@ -40,6 +40,18 @@ cargo run -- view save "Acme bugs" --open -l acme -l bug   # saved filter
 cargo run -- issue ls --view "acme bugs"
 ```
 
+## Backups
+
+The database and its attachments are backed up automatically after changes, at most once an hour, as zip archives you can open without Solilog. Older ones are thinned out: everything from the last day, then one per day for two weeks, one per week for three months, one per month for a year. They go next to the database (`solilog-backups/`) unless you choose another folder, such as a synced one: "Backup: Choose Directory" in the palette, or `solilog backup set-dir ~/Dropbox/solilog`. The existing backups move with it.
+
+```sh
+solilog backup ls                    # newest first
+solilog backup create                # now
+solilog backup restore solilog-2026-11-14-153012-a1b2c3d4.zip
+```
+
+Restoring (also "Backup: Restore" in the palette) backs up the current data first, so it can be undone.
+
 ## Keyboard
 
 Everything is a command: press `cmd-k` to open the command palette and search for it. Most commands also have a key. Below, `cmd` means `ctrl` on Linux.

@@ -129,7 +129,17 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         UNIQUE (issue_id, name COLLATE NOCASE)
     );",
+    // 15: settings stored with the data (see `backup.rs`), and an id that
+    // tells this database's backups from others in the same directory.
+    "CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    ) WITHOUT ROWID;
+    INSERT INTO settings (key, value) VALUES ('database_id', lower(hex(randomblob(4))));",
 ];
+
+/// The schema version of a database with every migration applied.
+pub(crate) const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
 /// Label names per issue.
 const ISSUE_LABELS_SQL: &str =
@@ -182,7 +192,7 @@ impl Db {
         Ok(db)
     }
 
-    fn migrate(&mut self) -> Result<()> {
+    pub(crate) fn migrate(&mut self) -> Result<()> {
         let version: i64 = self
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -191,6 +201,10 @@ impl Db {
             "database schema version {version} is newer than this build supports ({}); update solilog",
             MIGRATIONS.len()
         );
+        if version == SCHEMA_VERSION {
+            // Nothing to write: other connections see no change.
+            return Ok(());
+        }
         let tx = self.conn.transaction()?;
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
             tx.execute_batch(sql)
@@ -201,8 +215,6 @@ impl Db {
         Ok(())
     }
 
-    /// Changes whenever *another* connection commits to the database.
-    /// Poll it to detect external modifications (e.g. from the CLI).
     /// The database file, or `None` for an in-memory database.
     pub fn path(&self) -> Option<PathBuf> {
         self.conn
@@ -211,6 +223,13 @@ impl Db {
             .map(PathBuf::from)
     }
 
+    /// Whether this connection has changed any data since it was opened.
+    pub fn has_written(&self) -> bool {
+        self.conn.total_changes() > 0
+    }
+
+    /// Changes whenever *another* connection commits to the database.
+    /// Poll it to detect external modifications (e.g. from the CLI).
     pub fn data_version(&self) -> Result<i64> {
         Ok(self
             .conn

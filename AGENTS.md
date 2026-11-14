@@ -108,6 +108,15 @@ writing SQL or validation in `crates/solilog`, move it to core.
   sidebar (they are in the archive). Projects have a user-defined order (new ones
   go last; `Db::move_project`, drag and drop in the sidebar); listings show
   open projects first, each section in that order.
+- **Backup**: a zip of the database (a `VACUUM INTO` snapshot) and its
+  attachments, with a `manifest.json` (`backup.rs`). Made automatically
+  (`Db::auto_backup`: after CLI writes, and every few minutes in the GUI)
+  when the last one is an hour old and the data changed; each new backup
+  thins out the older ones (`to_prune`). The backup directory and the
+  database id are stored in the database (`settings` table; a restore keeps
+  the current ones). The id is in backup file names: a shared directory
+  (a synced folder) can hold other databases' backups, which are listed and
+  restorable but never thinned out or moved. Restoring backs up first.
 - **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
   must match), labels to exclude, projects (any may match) or no project).
   Renaming a label or project updates views; deleting one makes the views

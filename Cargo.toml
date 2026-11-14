@@ -17,9 +17,10 @@ gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 objc2 = "0.6.5"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSPasteboard", "NSPasteboardItem", "NSResponder"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSString", "NSURL"] }
-rusqlite = { version = "0.42.0", features = ["bundled"] }
+rusqlite = { version = "0.42.0", features = ["backup", "bundled"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_json_lenient = "0.2"
 unicode-segmentation = "1.13.3"
+zip = { version = "9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }

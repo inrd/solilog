@@ -183,7 +183,7 @@ impl Db {
         Ok(self.require_attachments_dir()?.join(issue.to_string()))
     }
 
-    fn require_attachments_dir(&self) -> Result<&Path> {
+    pub(crate) fn require_attachments_dir(&self) -> Result<&Path> {
         self.attachments_dir()
             .context("attachments need a database file (this one is in memory)")
     }

@@ -6,6 +6,7 @@
 //! mouse handlers only select things and dispatch the same actions.
 
 mod archive;
+mod backup;
 mod detail;
 mod filter;
 mod manage;
@@ -193,7 +194,11 @@ pub struct Workspace {
     detail: Option<IssueDetail>,
     modal: Option<OpenModal>,
     error: Option<String>,
+    /// News about the last command (e.g. a backup made), shown in the
+    /// footer until the next error or successful operation.
+    notice: Option<String>,
     _poll: Task<()>,
+    _auto_backups: Task<()>,
 }
 
 impl Workspace {
@@ -265,7 +270,9 @@ impl Workspace {
             detail: None,
             modal: None,
             error: None,
+            notice: None,
             _poll: poll,
+            _auto_backups: Self::auto_backups(cx),
         };
         this.reload(cx);
         if this.issues.is_empty() {
@@ -281,6 +288,7 @@ impl Workspace {
         match result {
             Ok(value) => {
                 self.error = None;
+                self.notice = None;
                 Some(value)
             }
             Err(err) => {
@@ -1557,6 +1565,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_open_database_directory))
+            .on_action(cx.listener(Self::on_create_backup))
+            .on_action(cx.listener(Self::on_restore_backup))
+            .on_action(cx.listener(Self::on_choose_backup_directory))
+            .on_action(cx.listener(Self::on_use_default_backup_directory))
+            .on_action(cx.listener(Self::on_open_backup_directory))
             .on_action(cx.listener(Self::on_reload_keymap))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_focus_sidebar))
@@ -1594,9 +1607,10 @@ impl Workspace {
     /// Status bar at the bottom: the last error, else context about the
     /// list (selected issues); the command palette shortcut on the right.
     fn render_footer(&self, window: &Window, cx: &App) -> impl IntoElement + use<> {
-        let (text, color) = match &self.error {
-            Some(err) => (Some(err.clone()), theme::ERROR),
-            None => {
+        let (text, color) = match (&self.error, &self.notice) {
+            (Some(err), _) => (Some(err.clone()), theme::ERROR),
+            (None, Some(notice)) => (Some(notice.clone()), theme::TEXT_MUTED),
+            (None, None) => {
                 let n = self.selection.len();
                 let text = (n > 0 && self.detail.is_none() && !self.showing_archive)
                     .then(|| format!("{n} selected"));
@@ -1654,7 +1668,10 @@ impl Workspace {
             (Box::new(picker::Dismiss), "Cancel"),
             (Box::new(image_preview::Previous), "Previous"),
             (Box::new(image_preview::Next), "Next"),
-            (Box::new(attachment::Reveal::default()), SHOW_IN_FILE_MANAGER),
+            (
+                Box::new(attachment::Reveal::default()),
+                SHOW_IN_FILE_MANAGER,
+            ),
             (Box::new(image_preview::Close), "Close"),
             (Box::new(issue::Open::default()), "Open"),
             (Box::new(sidebar::Open), "Open"),
