@@ -802,30 +802,7 @@ impl Workspace {
             return;
         };
         if action.title.is_none() && action.description.is_none() {
-            let id = issue.id;
-            let placeholder = format!("Edit title of {id}…");
-            let picker = cx.new(|cx| {
-                Picker::new(&placeholder, Vec::new(), 0, cx)
-                    .creatable("Set title to")
-                    .query(&issue.title, cx)
-            });
-            let create: CreateAction = Box::new(move |title| {
-                Box::new(Edit {
-                    id: Some(id),
-                    title: Some(title),
-                    description: None,
-                })
-            });
-            return self.open_modal(
-                picker,
-                |picker| Modal::ActionPicker {
-                    picker,
-                    actions: Vec::new(),
-                    create: Some(create),
-                },
-                window,
-                cx,
-            );
+            return self.show_issue(issue.id, window, cx);
         };
         let edit = IssueEdit {
             title: action.title.clone(),
@@ -861,7 +838,7 @@ impl Workspace {
                 id: Some(issue.id),
                 ..Default::default()
             };
-            entries.push(("Edit Title…", Box::new(edit)));
+            entries.push(("Edit", Box::new(edit)));
         }
         entries.push(("Set Status…", Box::new(SetStatus::default())));
         entries.push(("Add Label…", Box::new(AddLabel::default())));
@@ -1128,6 +1105,9 @@ impl Workspace {
                     })
                     .child(issue.title.clone()),
             )
+            .when(!issue.description.is_empty(), |row| {
+                row.child(description_icon())
+            })
             .children(
                 issue
                     .checklist_progress()
@@ -1224,6 +1204,27 @@ fn of_issues(issues: &[Issue]) -> String {
 
 /// A small rounded tag, used for projects and labels.
 /// Checklist progress of an issue in the list: done/total items.
+/// Shown in the list for issues with a description: a few lines of text.
+fn description_icon() -> impl IntoElement {
+    let line = |width: f32| {
+        div()
+            .w(px(width))
+            .h(px(1.5))
+            .rounded_full()
+            .bg(rgb(theme::TEXT_MUTED))
+    };
+    div()
+        .flex_none()
+        .flex()
+        .flex_col()
+        .justify_center()
+        .gap(px(2.5))
+        .size(px(12.))
+        .child(line(12.))
+        .child(line(12.))
+        .child(line(8.))
+}
+
 fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
     div()
         .flex_none()

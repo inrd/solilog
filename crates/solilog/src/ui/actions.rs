@@ -261,9 +261,8 @@ pub mod issue {
 
     /// Edit an issue's fields: the given `id` (`SOL-12`), else the
     /// highlighted issue. Sets the `title` and/or `description` given (an
-    /// empty description removes it); with neither, asks for a title,
-    /// prefilled with the current one. To edit the description by hand, open
-    /// the issue (`issue::Open`).
+    /// empty description removes it); with neither, opens the issue, like
+    /// `issue::Open`.
     ///
     /// Keymap example: `"e": ["issue::Edit", { "title": "Triage me" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]

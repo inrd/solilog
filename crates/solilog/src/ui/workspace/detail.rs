@@ -217,6 +217,13 @@ impl Workspace {
         }
     }
 
+    /// Opens the issue, unless it is open already.
+    pub(super) fn show_issue(&mut self, id: IssueId, window: &mut Window, cx: &mut Context<Self>) {
+        if self.detail.as_ref().is_none_or(|d| d.issue.id != id) {
+            self.open_issue(id, window, cx);
+        }
+    }
+
     /// Puts the cursor at the end of the title or the description.
     fn edit_detail_field(&mut self, title: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(detail) = &self.detail else {
