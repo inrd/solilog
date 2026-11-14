@@ -8,12 +8,14 @@
 //! timeout make that safe, and [`Db::data_version`] lets long-lived processes
 //! notice changes made by others.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
 
+use crate::filter::IssueFilter;
 use crate::issue::{Issue, IssueId, Status};
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
@@ -28,28 +30,24 @@ const MIGRATIONS: &[&str] = &[
     // 2: status
     "ALTER TABLE issues ADD COLUMN status TEXT NOT NULL DEFAULT 'todo'
         CHECK (status IN ('backlog', 'todo', 'in_progress', 'done', 'blocked', 'cancelled'));",
+    // 3: labels. `name` is the full path (`acme/reverb`); every ancestor has its own row.
+    "CREATE TABLE labels (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE TABLE issue_labels (
+        issue_id INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        label_id INTEGER NOT NULL REFERENCES labels (id) ON DELETE CASCADE,
+        PRIMARY KEY (issue_id, label_id)
+    ) WITHOUT ROWID;
+    CREATE INDEX issue_labels_by_label ON issue_labels (label_id);",
 ];
 
 const ISSUE_COLUMNS: &str = "id, title, status, created_at";
 
-/// Which issues [`Db::list_issues`] returns. The default matches everything.
-#[derive(Debug, Clone, Default)]
-pub struct IssueFilter {
-    /// Only these statuses (any status if empty).
-    pub statuses: Vec<Status>,
-    /// Exclude done and cancelled issues.
-    pub open_only: bool,
-}
-
-impl IssueFilter {
-    pub fn matches(&self, issue: &Issue) -> bool {
-        (self.statuses.is_empty() || self.statuses.contains(&issue.status))
-            && !(self.open_only && issue.status.is_closed())
-    }
-}
-
 pub struct Db {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Db {
@@ -106,51 +104,85 @@ impl Db {
             .pragma_query_value(None, "data_version", |row| row.get(0))?)
     }
 
-    /// Newest first.
+    /// Newest first. Fails if the filter names a label that doesn't exist.
     pub fn list_issues(&self, filter: &IssueFilter) -> Result<Vec<Issue>> {
-        let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id DESC"
-        ))?;
-        let issues = stmt
+        let filter = self.resolve_filter(filter)?;
+        let mut issues: Vec<Issue> = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id DESC"
+            ))?
             .query_map([], issue_from_row)?
-            .filter(|r| r.as_ref().map_or(true, |i| filter.matches(i)))
             .collect::<rusqlite::Result<_>>()?;
+        let mut labels = self.issue_labels(None)?;
+        for issue in &mut issues {
+            issue.labels = labels.remove(&issue.id).unwrap_or_default();
+        }
+        issues.retain(|i| filter.matches(i));
         Ok(issues)
     }
 
     pub fn get_issue(&self, id: IssueId) -> Result<Issue> {
-        self.conn
+        let mut issue = self
+            .conn
             .query_row(
                 &format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE id = ?1"),
                 [id],
                 issue_from_row,
             )
             .optional()?
-            .with_context(|| format!("no issue {id}"))
+            .with_context(|| format!("no issue {id}"))?;
+        issue.labels = self.issue_labels(Some(id))?.remove(&id).unwrap_or_default();
+        Ok(issue)
     }
 
     pub fn create_issue(&self, title: &str, status: Status) -> Result<Issue> {
         let title = title.trim();
         anyhow::ensure!(!title.is_empty(), "issue title cannot be empty");
-        Ok(self.conn.query_row(
-            &format!(
-                "INSERT INTO issues (title, status) VALUES (?1, ?2) RETURNING {ISSUE_COLUMNS}"
-            ),
+        let id = self.conn.query_row(
+            "INSERT INTO issues (title, status) VALUES (?1, ?2) RETURNING id",
             params![title, status],
-            issue_from_row,
-        )?)
+            |row| row.get(0),
+        )?;
+        self.get_issue(id)
     }
 
     /// Returns the updated issue.
     pub fn set_status(&self, id: IssueId, status: Status) -> Result<Issue> {
-        self.conn
-            .query_row(
-                &format!("UPDATE issues SET status = ?2 WHERE id = ?1 RETURNING {ISSUE_COLUMNS}"),
-                params![id, status],
-                issue_from_row,
-            )
-            .optional()?
-            .with_context(|| format!("no issue {id}"))
+        let updated = self.conn.execute(
+            "UPDATE issues SET status = ?2 WHERE id = ?1",
+            params![id, status],
+        )?;
+        anyhow::ensure!(updated == 1, "no issue {id}");
+        self.get_issue(id)
+    }
+
+    /// Label names per issue (sorted), for one issue or all of them.
+    fn issue_labels(&self, only: Option<IssueId>) -> Result<HashMap<IssueId, Vec<String>>> {
+        let mut map: HashMap<IssueId, Vec<String>> = HashMap::new();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT il.issue_id, l.name FROM issue_labels il JOIN labels l ON l.id = il.label_id
+             WHERE ?1 IS NULL OR il.issue_id = ?1
+             ORDER BY l.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([only], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        for row in rows {
+            let (id, name) = row?;
+            map.entry(id).or_default().push(name);
+        }
+        Ok(map)
+    }
+
+    /// Checks that every name in the filter exists, using stored spellings.
+    fn resolve_filter(&self, filter: &IssueFilter) -> Result<IssueFilter> {
+        let names = |names: &[String]| -> Result<Vec<String>> {
+            names.iter().map(|n| self.label_name(n)).collect()
+        };
+        Ok(IssueFilter {
+            labels: names(&filter.labels)?,
+            without_labels: names(&filter.without_labels)?,
+            ..filter.clone()
+        })
     }
 }
 
@@ -160,6 +192,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         title: row.get(1)?,
         status: row.get(2)?,
         created_at: row.get(3)?,
+        labels: Vec::new(),
     })
 }
 

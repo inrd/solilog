@@ -4,7 +4,11 @@
 //! business logic of their own. This crate must never depend on GPUI.
 
 mod db;
+mod filter;
 mod issue;
+mod label;
 
-pub use db::{Db, IssueFilter, default_path};
+pub use db::{Db, default_path};
+pub use filter::IssueFilter;
 pub use issue::{ISSUE_PREFIX, Issue, IssueId, Status};
+pub use label::{LABEL_SEPARATOR, Label, label_matches, normalize_label_name};

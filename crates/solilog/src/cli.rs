@@ -98,6 +98,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     let filter = IssueFilter {
                         statuses: status,
                         open_only: open,
+                        ..Default::default()
                     };
                     out.issues(&db.list_issues(&filter)?)
                 }

@@ -72,6 +72,9 @@ pub struct Issue {
     pub status: Status,
     /// Unix timestamp (seconds).
     pub created_at: i64,
+    /// Label paths (`acme/reverb`), sorted. Only the labels given to the
+    /// issue; their ancestors are implied, not listed.
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
