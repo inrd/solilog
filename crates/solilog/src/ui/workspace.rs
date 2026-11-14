@@ -326,6 +326,8 @@ impl Workspace {
             return;
         };
         self.issues = issues;
+        // Grouped by status (stable: newest first within a group).
+        self.issues.sort_by_key(|i| i.status.list_rank());
         let listed: HashSet<IssueId> = self.issues.iter().map(|i| i.id).collect();
         self.selection.retain(|id| listed.contains(id));
         self.selection_anchor = self.selection_anchor.filter(|id| listed.contains(id));
@@ -350,6 +352,15 @@ impl Workspace {
         self.issues.iter().position(|i| i.id == id)
     }
 
+    /// The issue list's child element showing the issue at `ix`: rows are
+    /// preceded by one header per status group, up to and including theirs.
+    fn list_child_index(&self, ix: usize) -> usize {
+        let headers = self.issues[..=ix.min(self.issues.len().saturating_sub(1))]
+            .chunk_by(|a, b| a.status == b.status)
+            .count();
+        ix + headers
+    }
+
     /// Highlights the issue at `ix`; a later range selection starts there.
     fn select_index(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.selection_anchor = None;
@@ -359,7 +370,7 @@ impl Workspace {
     fn highlight_index(&mut self, ix: usize, cx: &mut Context<Self>) {
         if let Some(issue) = self.issues.get(ix) {
             self.selected = Some(issue.id);
-            self.list_scroll.scroll_to_item(ix);
+            self.list_scroll.scroll_to_item(self.list_child_index(ix));
             cx.notify();
         }
     }
@@ -1249,6 +1260,22 @@ fn chip(text: String, color: u32) -> impl IntoElement {
         .child(text)
 }
 
+/// Header of an issue list section: the status and how many issues it has.
+fn status_header(status: Status, count: usize) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .px_4()
+        .pt_3()
+        .pb_1()
+        .text_size(px(12.))
+        .text_color(rgb(theme::TEXT_MUTED))
+        .child(status_icon(status))
+        .child(div().text_color(rgb(theme::TEXT)).child(status.label()))
+        .child(count.to_string())
+}
+
 /// A footer hint: the keystrokes running `action`, then what it does.
 /// Clicking it runs the action from the focused element too.
 fn footer_hint(
@@ -1496,15 +1523,20 @@ impl Workspace {
 
     /// New-issue input, view header and issue list.
     fn render_main(&self, list_focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let rows: Vec<_> = self
-            .issues
-            .iter()
-            .enumerate()
-            .map(|(ix, issue)| {
-                self.render_issue(ix, issue, list_focused, cx)
-                    .into_any_element()
-            })
-            .collect();
+        // One section per status, each a header then its issues; the list's
+        // children stay flat so `list_child_index` can find a row.
+        let mut rows = Vec::new();
+        let mut ix = 0;
+        for group in self.issues.chunk_by(|a, b| a.status == b.status) {
+            rows.push(status_header(group[0].status, group.len()).into_any_element());
+            for issue in group {
+                rows.push(
+                    self.render_issue(ix, issue, list_focused, cx)
+                        .into_any_element(),
+                );
+                ix += 1;
+            }
+        }
         let empty = self.issues.is_empty();
         div()
             .flex_1()

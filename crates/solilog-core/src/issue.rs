@@ -216,6 +216,22 @@ impl Status {
         Status::Cancelled,
     ];
 
+    /// All statuses, in the order the issue list groups them: work under way
+    /// first, finished work last.
+    pub const LIST_ORDER: [Status; 6] = [
+        Status::InProgress,
+        Status::Todo,
+        Status::Blocked,
+        Status::Backlog,
+        Status::Done,
+        Status::Cancelled,
+    ];
+
+    /// Position of this status in [`Status::LIST_ORDER`].
+    pub fn list_rank(self) -> usize {
+        Self::LIST_ORDER.iter().position(|&s| s == self).unwrap_or(usize::MAX)
+    }
+
     /// Stable identifier, used in the database, JSON and on the command line.
     pub fn key(self) -> &'static str {
         match self {
@@ -298,6 +314,14 @@ impl FromSql for Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_order_has_every_status_once() {
+        let mut ranks: Vec<_> = Status::ALL.iter().map(|s| s.list_rank()).collect();
+        ranks.sort();
+        assert_eq!(ranks, (0..Status::ALL.len()).collect::<Vec<_>>());
+        assert_eq!(Status::InProgress.list_rank(), 0);
+    }
 
     #[test]
     fn issue_id_parsing() {
