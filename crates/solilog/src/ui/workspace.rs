@@ -1178,7 +1178,7 @@ impl Workspace {
                 window.focus(&this.list_focus);
                 if modifiers.shift {
                     this.extend_selection_to(ix, cx);
-                } else if modifiers.platform {
+                } else if modifiers.secondary() {
                     this.select_index(ix, cx);
                     window.dispatch_action(issue_list::ToggleSelected.boxed_clone(), cx);
                 } else {

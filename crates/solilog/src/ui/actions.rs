@@ -108,7 +108,7 @@ pub mod project {
     /// pickers; archived ones are only listed in the archive. Without a
     /// `status`, opens the status picker.
     ///
-    /// Keymap example: `"cmd-d": ["project::SetStatus", { "status": "done" }]`
+    /// Keymap example: `"secondary-d": ["project::SetStatus", { "status": "done" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = project)]
     #[serde(deny_unknown_fields)]
@@ -134,7 +134,7 @@ pub mod project {
     /// Move a project right before or right after another one (give exactly
     /// one of `before` and `after`). Dragging a project in the sidebar does this.
     ///
-    /// Keymap example: `"cmd-t": ["project::Move", { "name": "Triage", "before": "Website" }]`
+    /// Keymap example: `"secondary-t": ["project::Move", { "name": "Triage", "before": "Website" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = project)]
     #[serde(deny_unknown_fields)]
@@ -170,7 +170,7 @@ pub mod label {
     /// a `color` (and without `reset`), opens the color picker; `reset`
     /// goes back to the default color.
     ///
-    /// Keymap example: `"cmd-b": ["label::SetColor", { "color": "blue" }]`
+    /// Keymap example: `"secondary-b": ["label::SetColor", { "color": "blue" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = label)]
     #[serde(deny_unknown_fields)]
@@ -199,7 +199,7 @@ pub mod label {
     /// sibling (give exactly one of `before` and `after`). Dragging a label
     /// in the sidebar does this.
     ///
-    /// Keymap example: `"cmd-t": ["label::Move", { "name": "acme/bug", "before": "acme/feature" }]`
+    /// Keymap example: `"secondary-t": ["label::Move", { "name": "acme/bug", "before": "acme/feature" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = label)]
     #[serde(deny_unknown_fields)]
@@ -705,7 +705,7 @@ pub mod issue_list {
             /// Add the highlighted issue to the selection, or take it out.
             /// Issue commands act on every selected issue, or on the
             /// highlighted one when none is selected. Cmd-clicking an issue
-            /// does this.
+            /// (ctrl-clicking off macOS) does this.
             ToggleSelected,
             /// Select every issue in the list.
             SelectAll,

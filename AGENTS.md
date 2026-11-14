@@ -146,8 +146,13 @@ One concept, one name, consistent across surfaces:
 
 ## Keymap
 
-- Format: a JSON array of `{ "context"?, "bindings": { keystrokes: action } }`
-  sections. Comments and trailing commas are allowed. An action is
+- Format: a JSON array of `{ "context"?, "os"?, "bindings": { keystrokes: action } }`
+  sections. Comments and trailing commas are allowed. A section with `"os"`
+  (`macos`, `linux`, `windows`) only applies on that system.
+- Use `secondary-` (cmd on macOS, ctrl elsewhere) for shortcuts shared by
+  every system; `cmd-` (the Super key off macOS) only in `"os": "macos"`
+  sections, where platform conventions differ (text navigation). The
+  `default_keymap_is_valid` test enforces it. An action is
   `"ns::Name"`, `["ns::Name", { args }]`, or `null` to unbind.
 - Defaults: `crates/solilog/assets/keymap.json` (compiled in). User overrides:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
@@ -159,7 +164,7 @@ One concept, one name, consistent across surfaces:
   `IssueDetail`, so the issue's single-key bindings don't apply); `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
   bindings in a context that holds text fields need `&& !TextInput` (see `IssueDetail`).
 - Issue commands act on the selected issues (`issue_list::ToggleSelected`,
-  `SelectAll`, `ExtendSelectionDown/Up`; cmd/shift-click), or on the
+  `SelectAll`, `ExtendSelectionDown/Up`; cmd/ctrl/shift-click, via `Modifiers::secondary`), or on the
   highlighted issue when none is selected. GUI handlers get them from
   `Workspace::target_issues` and apply changes in one go with
   `Db::update_issues` / `Db::delete_issues` (all or nothing).

@@ -13,21 +13,24 @@
 //   ImagePreview         an image attachment shown over the window
 //   Picker               any popup list (command palette, status picker)
 //   TextInput            any text field; multi-line ones are also `multiline`
+//
+// `secondary` is cmd on macOS and ctrl elsewhere. A section with "os"
+// ("macos", "linux" or "windows") only applies on that system.
 [
   {
     "bindings": {
-      "cmd-q": "workspace::Quit"
+      "secondary-q": "workspace::Quit"
     }
   },
   {
     "context": "Workspace",
     "bindings": {
-      "cmd-k": "command_palette::Toggle",
-      "cmd-shift-p": "command_palette::Toggle",
-      "cmd-n": "issue::New",
-      "cmd-b": "workspace::ToggleSidebar",
-      "cmd-s": "view::Save",
-      "cmd-shift-s": "view::SaveAs"
+      "secondary-k": "command_palette::Toggle",
+      "secondary-shift-p": "command_palette::Toggle",
+      "secondary-n": "issue::New",
+      "secondary-b": "workspace::ToggleSidebar",
+      "secondary-s": "view::Save",
+      "secondary-shift-s": "view::SaveAs"
     }
   },
   {
@@ -65,7 +68,7 @@
       "home": "issue_list::SelectFirst",
       "end": "issue_list::SelectLast",
       "x": "issue_list::ToggleSelected",
-      "cmd-a": "issue_list::SelectAll",
+      "secondary-a": "issue_list::SelectAll",
       "escape": "issue_list::ClearSelection",
       "shift-j": "issue_list::ExtendSelectionDown",
       "shift-k": "issue_list::ExtendSelectionUp",
@@ -121,7 +124,7 @@
       "d": "issue_detail::EditDescription",
       "a": "checklist::AddItem",
       "shift-a": "attachment::Add",
-      "cmd-v": "attachment::Paste",
+      "secondary-v": "attachment::Paste",
       "s": "issue::SetStatus",
       "l": "issue::AddLabel",
       "shift-l": "issue::RemoveLabel",
@@ -137,7 +140,7 @@
     "context": "IssueDetail > TextInput",
     "bindings": {
       "escape": "issue_detail::StopEditing",
-      "cmd-enter": "issue_detail::StopEditing"
+      "secondary-enter": "issue_detail::StopEditing"
     }
   },
   {
@@ -179,6 +182,21 @@
       "right": "text_input::Right",
       "shift-left": "text_input::SelectLeft",
       "shift-right": "text_input::SelectRight",
+      "home": "text_input::Home",
+      "end": "text_input::End",
+      "shift-home": "text_input::SelectHome",
+      "shift-end": "text_input::SelectEnd",
+      "secondary-a": "text_input::SelectAll",
+      "secondary-v": "text_input::Paste",
+      "secondary-c": "text_input::Copy",
+      "secondary-x": "text_input::Cut",
+      "enter": "text_input::Enter"
+    }
+  },
+  {
+    "context": "TextInput",
+    "os": "macos",
+    "bindings": {
       "alt-left": "text_input::WordLeft",
       "alt-right": "text_input::WordRight",
       "alt-shift-left": "text_input::SelectWordLeft",
@@ -188,16 +206,18 @@
       "cmd-right": "text_input::End",
       "cmd-shift-left": "text_input::SelectHome",
       "cmd-shift-right": "text_input::SelectEnd",
-      "home": "text_input::Home",
-      "end": "text_input::End",
-      "shift-home": "text_input::SelectHome",
-      "shift-end": "text_input::SelectEnd",
-      "cmd-a": "text_input::SelectAll",
-      "cmd-v": "text_input::Paste",
-      "cmd-c": "text_input::Copy",
-      "cmd-x": "text_input::Cut",
-      "enter": "text_input::Enter",
       "ctrl-cmd-space": "text_input::ShowCharacterPalette"
+    }
+  },
+  {
+    "context": "TextInput",
+    "os": "linux",
+    "bindings": {
+      "ctrl-left": "text_input::WordLeft",
+      "ctrl-right": "text_input::WordRight",
+      "ctrl-shift-left": "text_input::SelectWordLeft",
+      "ctrl-shift-right": "text_input::SelectWordRight",
+      "ctrl-backspace": "text_input::DeleteWordLeft"
     }
   },
   {
@@ -206,11 +226,27 @@
       "up": "text_input::Up",
       "down": "text_input::Down",
       "shift-up": "text_input::SelectUp",
-      "shift-down": "text_input::SelectDown",
+      "shift-down": "text_input::SelectDown"
+    }
+  },
+  {
+    "context": "TextInput && multiline",
+    "os": "macos",
+    "bindings": {
       "cmd-up": "text_input::MoveToStart",
       "cmd-down": "text_input::MoveToEnd",
       "cmd-shift-up": "text_input::SelectToStart",
       "cmd-shift-down": "text_input::SelectToEnd"
+    }
+  },
+  {
+    "context": "TextInput && multiline",
+    "os": "linux",
+    "bindings": {
+      "ctrl-home": "text_input::MoveToStart",
+      "ctrl-end": "text_input::MoveToEnd",
+      "ctrl-shift-home": "text_input::SelectToStart",
+      "ctrl-shift-end": "text_input::SelectToEnd"
     }
   },
   // After the TextInput sections, to take precedence over them.
@@ -224,10 +260,10 @@
   {
     "context": "ChecklistItem > TextInput",
     "bindings": {
-      "cmd-enter": "checklist::ToggleItem",
+      "secondary-enter": "checklist::ToggleItem",
       "alt-up": "checklist::MoveItemUp",
       "alt-down": "checklist::MoveItemDown",
-      "cmd-shift-backspace": "checklist::DeleteItem"
+      "secondary-shift-backspace": "checklist::DeleteItem"
     }
   }
 ]

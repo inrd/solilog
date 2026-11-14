@@ -7,6 +7,7 @@
 //! [
 //!   {
 //!     "context": "IssueList",                         // optional; omitted = everywhere
+//!     "os": "linux",                                  // optional: "macos", "linux" or "windows"
 //!     "bindings": {
 //!       "s": "issue::SetStatus",                      // action by name
 //!       "d": ["issue::SetStatus", { "status": "done" }], // action with arguments
@@ -15,6 +16,9 @@
 //!   }
 //! ]
 //! ```
+//!
+//! `secondary-` in keystrokes is cmd on macOS and ctrl elsewhere. A section
+//! with `os` only applies on that system.
 //!
 //! User bindings are loaded after the defaults, so they win.
 
@@ -33,7 +37,9 @@ pub const DEFAULT_KEYMAP: &str = include_str!("../../assets/keymap.json");
 
 const USER_KEYMAP_TEMPLATE: &str = r#"// Solilog keymap. Overrides the defaults; saved changes apply immediately.
 // Same format as the defaults (`solilog keymap --defaults` prints them).
-// Open the command palette (cmd-k) to discover action names.
+// Open the command palette (cmd-k on macOS, ctrl-k elsewhere) to discover
+// action names. `secondary-` is cmd on macOS and ctrl elsewhere; a section
+// with "os": "macos" | "linux" | "windows" only applies on that system.
 [
   // {
   //   "context": "IssueList",
@@ -53,6 +59,8 @@ struct Section {
     #[serde(default)]
     context: Option<String>,
     #[serde(default)]
+    os: Option<String>,
+    #[serde(default)]
     bindings: serde_json::Map<String, Value>,
 }
 
@@ -60,9 +68,21 @@ struct Section {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingSpec {
     pub context: Option<String>,
+    /// Only applies on this system (`std::env::consts::OS`), if set.
+    pub os: Option<String>,
     pub keystrokes: String,
     /// `None` unbinds the keystrokes.
     pub action: Option<(String, Option<Value>)>,
+}
+
+/// Values of a section's `os`, as in `std::env::consts::OS`.
+const OS_NAMES: [&str; 3] = ["macos", "linux", "windows"];
+
+impl BindingSpec {
+    /// Whether the binding applies on the system the app runs on.
+    fn applies_here(&self) -> bool {
+        self.os.as_deref().is_none_or(|os| os == std::env::consts::OS)
+    }
 }
 
 pub fn parse(source: &str) -> Result<Vec<BindingSpec>> {
@@ -70,6 +90,11 @@ pub fn parse(source: &str) -> Result<Vec<BindingSpec>> {
         serde_json_lenient::from_str_lenient(source).context("invalid keymap JSON")?;
     let mut specs = Vec::new();
     for section in sections {
+        if let Some(os) = &section.os
+            && !OS_NAMES.contains(&os.as_str())
+        {
+            anyhow::bail!("unknown os {os:?}: expected one of {}", OS_NAMES.join(", "));
+        }
         for (keystrokes, value) in section.bindings {
             let action = match value {
                 Value::Null => None,
@@ -84,6 +109,7 @@ pub fn parse(source: &str) -> Result<Vec<BindingSpec>> {
             };
             specs.push(BindingSpec {
                 context: section.context.clone(),
+                os: section.os.clone(),
                 keystrokes,
                 action,
             });
@@ -122,7 +148,7 @@ fn load_bindings(
     let build = |name: &str, args| Ok(cx.build_action(name, args)?);
     let mut bindings = Vec::new();
     let mut errors = Vec::new();
-    for spec in &specs {
+    for spec in specs.iter().filter(|spec| spec.applies_here()) {
         let result = resolve(spec, &build).and_then(|(action, predicate)| {
             KeyBinding::load(
                 &spec.keystrokes,
@@ -246,8 +272,37 @@ mod tests {
             resolve(spec, &build).unwrap_or_else(|e| panic!("{spec:?}: {e:#}"));
             for ks in spec.keystrokes.split_whitespace() {
                 gpui::Keystroke::parse(ks).unwrap_or_else(|e| panic!("{ks:?}: {e:?}"));
+                // cmd is the Super key off macOS: use `secondary`, or an os section.
+                assert!(
+                    spec.os.as_deref() == Some("macos") || !ks.split('-').any(|m| m == "cmd"),
+                    "{ks:?} outside a macOS section"
+                );
             }
         }
+    }
+
+    #[test]
+    fn os_sections() {
+        let specs = parse(
+            r#"[
+                { "os": "macos", "bindings": { "a": "issue::New" } },
+                { "os": "linux", "bindings": { "b": "issue::New" } },
+                { "bindings": { "c": "issue::New" } },
+            ]"#,
+        )
+        .unwrap();
+        let here: Vec<_> = specs
+            .iter()
+            .filter(|s| s.applies_here())
+            .map(|s| s.keystrokes.as_str())
+            .collect();
+        let expected = match std::env::consts::OS {
+            "macos" => vec!["a", "c"],
+            "linux" => vec!["b", "c"],
+            _ => vec!["c"],
+        };
+        assert_eq!(here, expected);
+        assert!(parse(r#"[{ "os": "mac", "bindings": {} }]"#).is_err());
     }
 
     #[test]
@@ -273,6 +328,7 @@ mod tests {
             resolve(
                 &BindingSpec {
                     context: None,
+                    os: None,
                     keystrokes: "x".into(),
                     action: Some((
                         "issue::SetStatus".into(),
