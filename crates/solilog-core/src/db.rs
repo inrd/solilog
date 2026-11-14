@@ -22,6 +22,7 @@ use crate::issue::{
     normalize_title,
 };
 use crate::label::normalize_label_name;
+use crate::order::{Ordered, Placement};
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
 /// Never edit an existing entry; append a new one.
@@ -112,6 +113,12 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
     CREATE INDEX checklist_items_by_issue ON checklist_items (issue_id, position);",
+    // 13: issues are listed in a user-defined order: `position` ascending
+    // (within a status group in the GUI). Existing issues start out newest first.
+    "ALTER TABLE issues ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    UPDATE issues SET position = ranked.position
+    FROM (SELECT id, row_number() OVER (ORDER BY id DESC) AS position FROM issues) AS ranked
+    WHERE ranked.id = issues.id;",
 ];
 
 /// Label names per issue.
@@ -186,8 +193,9 @@ impl Db {
             .pragma_query_value(None, "data_version", |row| row.get(0))?)
     }
 
-    /// Issues that are not archived, newest first. Fails if the filter names
-    /// a label or project that doesn't exist.
+    /// Issues that are not archived, in the user-defined order (new issues
+    /// and issues whose status changed come first; see [`Db::move_issue`]).
+    /// Fails if the filter names a label or project that doesn't exist.
     pub fn list_issues(&self, filter: &IssueFilter) -> Result<Vec<Issue>> {
         self.list_issues_where(filter, false)
     }
@@ -199,10 +207,15 @@ impl Db {
 
     fn list_issues_where(&self, filter: &IssueFilter, archived: bool) -> Result<Vec<Issue>> {
         let filter = self.resolve_filter(filter)?;
+        let order = if archived {
+            "id DESC"
+        } else {
+            "position, id DESC"
+        };
         let mut issues: Vec<Issue> = self
             .conn
             .prepare_cached(&format!(
-                "SELECT {ISSUE_COLUMNS} FROM issues WHERE archived = ?1 ORDER BY id DESC"
+                "SELECT {ISSUE_COLUMNS} FROM issues WHERE archived = ?1 ORDER BY {order}"
             ))?
             .query_map([archived], issue_from_row)?
             .collect::<rusqlite::Result<_>>()?;
@@ -260,8 +273,14 @@ impl Db {
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
         let id: IssueId = self.conn.query_row(
-            "INSERT INTO issues (title, status, description) VALUES (?1, ?2, ?3) RETURNING id",
-            params![title, new.status, normalize_description(&new.description)],
+            "INSERT INTO issues (title, status, description, position)
+             VALUES (?1, ?2, ?3, ?4) RETURNING id",
+            params![
+                title,
+                new.status,
+                normalize_description(&new.description),
+                self.first_position(Ordered::Issues)?
+            ],
             |row| row.get(0),
         )?;
         for label in &labels {
@@ -294,9 +313,13 @@ impl Db {
     /// Applies a change to every given issue, all or nothing: if one fails
     /// (unknown issue, label or project), none is changed. Returns the
     /// updated issues, in the order given.
+    ///
+    /// Issues whose status changes go first in the order (keeping the order
+    /// of `ids`), so they show at the top of their new status group.
     pub fn update_issues(&self, ids: &[IssueId], change: &IssueChange) -> Result<Vec<Issue>> {
         let tx = self.conn.unchecked_transaction()?;
-        for &id in ids {
+        // Last first, so that the first one ends up on top.
+        for &id in ids.iter().rev() {
             self.apply_change(id, change)?;
         }
         tx.commit()?;
@@ -312,7 +335,14 @@ impl Db {
     /// Applies a change to one issue. Call inside a transaction.
     fn apply_change(&self, id: IssueId, change: &IssueChange) -> Result<()> {
         match change {
-            IssueChange::SetStatus(status) => self.set_issue_column(id, "status", status),
+            IssueChange::SetStatus(status) => {
+                if self.get_issue(id)?.status != *status {
+                    self.set_issue_column(id, "status", status)?;
+                    let top = self.first_position(Ordered::Issues)?;
+                    self.set_issue_column(id, "position", &top)?;
+                }
+                Ok(())
+            }
             IssueChange::SetArchived(archived) => self.set_issue_column(id, "archived", archived),
             IssueChange::AddLabels(labels) => {
                 self.get_issue(id)?;
@@ -345,6 +375,27 @@ impl Db {
     /// Returns the updated issue.
     pub fn set_status(&self, id: IssueId, status: Status) -> Result<Issue> {
         self.update_issue(id, &IssueChange::SetStatus(status))
+    }
+
+    /// Moves an issue before or after another issue with the same status in
+    /// the user-defined order. Returns the moved issue.
+    pub fn move_issue(&self, id: IssueId, placement: &Placement<IssueId>) -> Result<Issue> {
+        let issue = self.get_issue(id)?;
+        let anchor = self.get_issue(*placement.anchor())?;
+        anyhow::ensure!(
+            issue.status == anchor.status,
+            "issues {id} and {} don't have the same status",
+            anchor.id
+        );
+        let tx = self.conn.unchecked_transaction()?;
+        let order: Vec<i64> = self
+            .conn
+            .prepare_cached("SELECT id FROM issues ORDER BY position, id DESC")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        self.place(Ordered::Issues, order, id.0, anchor.id.0, placement)?;
+        tx.commit()?;
+        self.get_issue(id)
     }
 
     /// Archives an issue (or unarchives it): archived issues are left out of
@@ -447,6 +498,35 @@ mod tests {
             .into_iter()
             .map(|i| i.title)
             .collect()
+    }
+
+    #[test]
+    fn issue_order() {
+        let db = Db::open_in_memory().unwrap();
+        let all = IssueFilter::default();
+        let id = |title: &str| db.create_issue(&NewIssue::new(title)).unwrap().id;
+        let (a, b, c) = (id("a"), id("b"), id("c"));
+        // New issues go first.
+        assert_eq!(titles(&db, &all), ["c", "b", "a"]);
+
+        db.move_issue(c, &Placement::After(a)).unwrap();
+        assert_eq!(titles(&db, &all), ["b", "a", "c"]);
+        db.move_issue(a, &Placement::Before(b)).unwrap();
+        assert_eq!(titles(&db, &all), ["a", "b", "c"]);
+
+        // Only among issues with the same status.
+        db.set_status(c, Status::InProgress).unwrap();
+        assert!(db.move_issue(c, &Placement::Before(a)).is_err());
+        assert!(db.move_issue(a, &Placement::Before(IssueId(999))).is_err());
+
+        // A status change puts the issues first, in the order given.
+        assert_eq!(titles(&db, &all), ["c", "a", "b"]);
+        db.update_issues(&[b, a], &IssueChange::SetStatus(Status::Done))
+            .unwrap();
+        assert_eq!(titles(&db, &all), ["b", "a", "c"]);
+        // Setting the status an issue already has doesn't move it.
+        db.set_status(c, Status::InProgress).unwrap();
+        assert_eq!(titles(&db, &all), ["b", "a", "c"]);
     }
 
     #[test]

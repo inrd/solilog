@@ -17,12 +17,12 @@ use std::time::Duration;
 
 use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    MouseDownEvent, Pixels, Point, ScrollHandle, Subscription, Task, Window, anchored, deferred,
-    div, prelude::*, px, rgb,
+    MouseDownEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task, Window,
+    anchored, deferred, div, prelude::*, px, rgb,
 };
 use solilog_core::{
-    Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Project, Status,
-    View,
+    Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement, Project,
+    Status, View,
 };
 
 use super::actions::{
@@ -326,7 +326,7 @@ impl Workspace {
             return;
         };
         self.issues = issues;
-        // Grouped by status (stable: newest first within a group).
+        // Grouped by status, keeping the saved order within a group.
         self.issues.sort_by_key(|i| i.status.list_rank());
         let listed: HashSet<IssueId> = self.issues.iter().map(|i| i.id).collect();
         self.selection.retain(|id| listed.contains(id));
@@ -935,6 +935,59 @@ impl Workspace {
         self.select_index(ix.min(self.issues.len().saturating_sub(1)), cx);
     }
 
+    /// Moves the highlighted issue past its neighbor with the same status:
+    /// the previous one (`down` false) or the next one.
+    fn move_highlighted_issue(&mut self, down: bool, cx: &mut Context<Self>) {
+        let Some(ix) = self.selected_index() else {
+            return;
+        };
+        let neighbor = if down {
+            ix.checked_add(1)
+        } else {
+            ix.checked_sub(1)
+        };
+        let (issue, Some(neighbor)) = (&self.issues[ix], neighbor.and_then(|n| self.issues.get(n)))
+        else {
+            return;
+        };
+        if neighbor.status != issue.status {
+            return;
+        }
+        let placement = if down {
+            Placement::After(neighbor.id)
+        } else {
+            Placement::Before(neighbor.id)
+        };
+        let moved = self.db.move_issue(issue.id, &placement);
+        if self.report(moved, cx).is_some() {
+            self.reload(cx);
+            if let Some(ix) = self.selected_index() {
+                self.list_scroll.scroll_to_item(self.list_child_index(ix));
+            }
+        }
+    }
+
+    fn on_move_issue_up(&mut self, _: &issue_list::MoveUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_highlighted_issue(false, cx);
+    }
+
+    fn on_move_issue_down(
+        &mut self,
+        _: &issue_list::MoveDown,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_highlighted_issue(true, cx);
+    }
+
+    fn on_move_issue(&mut self, action: &issue::Move, _: &mut Window, cx: &mut Context<Self>) {
+        let moved = Placement::from_options(action.before, action.after)
+            .and_then(|placement| self.db.move_issue(action.id, &placement));
+        if self.report(moved, cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
     fn select_previous(
         &mut self,
         _: &issue_list::SelectPrevious,
@@ -1055,6 +1108,13 @@ impl Workspace {
                 window.dispatch_action(SetStatus::default().boxed_clone(), cx);
             }));
 
+        let dragged = DraggedIssue {
+            id: issue_id,
+            status: issue.status,
+            title: issue.title.clone().into(),
+            index: ix,
+        };
+        let accepts = move |d: &DraggedIssue| d.status == dragged.status && d.id != issue_id;
         div()
             .id(("issue", issue_id.0 as u64))
             .flex()
@@ -1062,6 +1122,44 @@ impl Workspace {
             .gap_3()
             .px_4()
             .py_1()
+            .on_drag(dragged.clone(), |dragged, _, _, cx| {
+                cx.new(|_| dragged.clone())
+            })
+            .can_drop(move |value, _, _| value.downcast_ref::<DraggedIssue>().is_some_and(accepts))
+            .drag_over::<DraggedIssue>(move |style, d, _, _| {
+                if !accepts(d) {
+                    return style;
+                }
+                // A line where the issue will land; the padding it replaces
+                // keeps the row height.
+                let style = style.border_color(rgb(theme::ACCENT));
+                if d.index < ix {
+                    style.border_b_2().pb(px(2.))
+                } else {
+                    style.border_t_2().pt(px(2.))
+                }
+            })
+            // Not a `cx.listener`: the action is handled by this workspace,
+            // which can't be updated while it already is.
+            .on_drop({
+                let list_focus = self.list_focus.clone();
+                move |d: &DraggedIssue, window, cx| {
+                    if !accepts(d) {
+                        return;
+                    }
+                    let (before, after) = if d.index < ix {
+                        (None, Some(issue_id))
+                    } else {
+                        (Some(issue_id), None)
+                    };
+                    let action = issue::Move {
+                        id: d.id,
+                        before,
+                        after,
+                    };
+                    list_focus.dispatch_action(&action, window, cx);
+                }
+            })
             .map(|s| {
                 let highlighted = selected && (list_focused || menu_open);
                 let bg = match (in_selection, highlighted) {
@@ -1258,6 +1356,36 @@ fn chip(text: String, color: u32) -> impl IntoElement {
         .line_height(px(18.))
         .text_color(rgb(color))
         .child(text)
+}
+
+/// An issue being dragged to reorder it; also renders what follows the mouse.
+#[derive(Clone)]
+struct DraggedIssue {
+    id: IssueId,
+    /// Issues only move among those with the same status.
+    status: Status,
+    title: SharedString,
+    /// Index in the list, to tell moving up from moving down.
+    index: usize,
+}
+
+impl Render for DraggedIssue {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .max_w(px(480.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .bg(rgb(theme::HIGHLIGHT))
+            .border_1()
+            .border_color(rgb(theme::BORDER))
+            .text_color(rgb(theme::TEXT))
+            .child(status_icon(self.status))
+            .child(div().truncate().child(self.title.clone()))
+    }
 }
 
 /// Header of an issue list section: the status and how many issues it has.
@@ -1570,6 +1698,9 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_archive_issue))
                     .on_action(cx.listener(Self::on_delete_issue))
                     .on_action(cx.listener(Self::on_show_issue_menu))
+                    .on_action(cx.listener(Self::on_move_issue))
+                    .on_action(cx.listener(Self::on_move_issue_up))
+                    .on_action(cx.listener(Self::on_move_issue_down))
                     .flex_1()
                     .flex()
                     .flex_col()

@@ -63,6 +63,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
   (`normalize_description`), so it can be rendered as Markdown later. An issue can be archived: it
   keeps everything but is left out of listings, views and counts
   (`Db::list_archived_issues` lists them). Deleting an issue is permanent.
+  Issues have a user-defined order (`Db::move_issue`, among issues with the
+  same status); new issues, and issues whose status changes, go first. The
+  GUI list groups issues by status (`Status::LIST_ORDER`), each in that order.
 - **Checklist**: an issue's ordered list of one-line items (`ChecklistItem`:
   text, done), each with a global id (`ChecklistItemId`, shown as a plain
   number). It only tracks progress (`Issue::checklist_progress`, shown as

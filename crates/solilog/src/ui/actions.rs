@@ -301,6 +301,24 @@ pub mod issue {
         pub status: Option<Status>,
     }
 
+    /// Move an issue right before or right after another issue with the
+    /// same status (give exactly one of `before` and `after`; ids like
+    /// `SOL-12`). The list keeps this order within each status group.
+    /// Dragging an issue does this.
+    #[derive(Clone, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct Move {
+        #[schemars(with = "String")]
+        pub id: IssueId,
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub before: Option<IssueId>,
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub after: Option<IssueId>,
+    }
+
     /// Add a label to the selected issues, creating it if needed. Without a
     /// `label`, opens the label picker.
     ///
@@ -613,6 +631,12 @@ pub mod issue_list {
             ExtendSelectionDown,
             /// Move the highlight up, selecting like `ExtendSelectionDown`.
             ExtendSelectionUp,
+            /// Move the highlighted issue above the previous one with the
+            /// same status (the order is saved).
+            MoveUp,
+            /// Move the highlighted issue below the next one with the same
+            /// status.
+            MoveDown,
         ]
     );
 }

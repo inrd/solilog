@@ -39,6 +39,7 @@ pub(crate) enum Ordered {
     Projects,
     Labels,
     ChecklistItems,
+    Issues,
 }
 
 impl Ordered {
@@ -47,6 +48,7 @@ impl Ordered {
             Ordered::Projects => "projects",
             Ordered::Labels => "labels",
             Ordered::ChecklistItems => "checklist_items",
+            Ordered::Issues => "issues",
         }
     }
 }
@@ -57,6 +59,18 @@ impl Db {
         Ok(self.conn.query_row(
             &format!(
                 "SELECT coalesce(max(position), 0) + 1 FROM {}",
+                table.table()
+            ),
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// A position before every existing row of the table.
+    pub(crate) fn first_position(&self, table: Ordered) -> Result<i64> {
+        Ok(self.conn.query_row(
+            &format!(
+                "SELECT coalesce(min(position), 1) - 1 FROM {}",
                 table.table()
             ),
             [],

@@ -229,7 +229,10 @@ impl Status {
 
     /// Position of this status in [`Status::LIST_ORDER`].
     pub fn list_rank(self) -> usize {
-        Self::LIST_ORDER.iter().position(|&s| s == self).unwrap_or(usize::MAX)
+        Self::LIST_ORDER
+            .iter()
+            .position(|&s| s == self)
+            .unwrap_or(usize::MAX)
     }
 
     /// Stable identifier, used in the database, JSON and on the command line.

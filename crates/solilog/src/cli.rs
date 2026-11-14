@@ -80,8 +80,9 @@ pub enum Command {
 
 #[derive(Subcommand)]
 pub enum IssueCommand {
-    /// List issues, newest first. Archived issues are left out unless
-    /// `--archived` is given.
+    /// List issues in the user-defined order (see `issue move`; new issues
+    /// first). Archived issues are left out unless `--archived` is given;
+    /// those are listed newest first.
     #[command(visible_alias = "ls")]
     List {
         /// Use a saved view's filter (see `solilog view`).
@@ -131,8 +132,22 @@ pub enum IssueCommand {
         #[arg(long, short, group = "fields")]
         description: Option<String>,
     },
-    /// Change an issue's status and print it.
+    /// Change an issue's status and print it. The issue goes first in the
+    /// order of its new status (unless it already had that status).
     SetStatus { id: IssueId, status: Status },
+    /// Reorder an issue before or after another issue with the same status,
+    /// and print it. `issue list` and the GUI (which groups issues by
+    /// status) use this order.
+    #[command(group = clap::ArgGroup::new("placement").required(true))]
+    Move {
+        id: IssueId,
+        /// Put it right before this issue.
+        #[arg(long, value_name = "ID", group = "placement")]
+        before: Option<IssueId>,
+        /// Put it right after this issue.
+        #[arg(long, value_name = "ID", group = "placement")]
+        after: Option<IssueId>,
+    },
     /// Archive an issue and print it. Archived issues keep their status,
     /// labels and projects, but are left out of listings, views and counts.
     Archive { id: IssueId },
@@ -450,6 +465,9 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     out.issue(&db.edit_issue(id, &edit)?)
                 }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
+                IssueCommand::Move { id, before, after } => {
+                    out.issue(&db.move_issue(id, &Placement::from_options(before, after)?)?)
+                }
                 IssueCommand::Archive { id } => out.issue(&db.set_archived(id, true)?),
                 IssueCommand::Unarchive { id } => out.issue(&db.set_archived(id, false)?),
                 IssueCommand::Delete { id } => out.issue(&db.delete_issue(id)?),

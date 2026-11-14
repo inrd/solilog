@@ -70,6 +70,8 @@
       "shift-k": "issue_list::ExtendSelectionUp",
       "shift-down": "issue_list::ExtendSelectionDown",
       "shift-up": "issue_list::ExtendSelectionUp",
+      "alt-down": "issue_list::MoveDown",
+      "alt-up": "issue_list::MoveUp",
       "m": "issue_list::ShowContextMenu",
       "shift-f10": "issue_list::ShowContextMenu"
     }
