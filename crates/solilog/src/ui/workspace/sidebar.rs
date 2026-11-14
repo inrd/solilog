@@ -1,5 +1,6 @@
-//! The sidebar: everything the issue list can show (all issues, saved views),
-//! with the number of open issues in each.
+//! The sidebar: everything the issue list can show (all issues, saved views,
+//! projects, labels), with the number of open issues in each. Done and
+//! archived projects sit in a collapsed section.
 //!
 //! Key context: `Sidebar`. Each row stands for an action (e.g. `view::Open`);
 //! confirming a row, by key or click, dispatches it.
@@ -11,6 +12,7 @@ use gpui::{
 use solilog_core::IssueFilter;
 
 use super::Workspace;
+use super::scope::Source;
 use crate::ui::actions::{sidebar, view, workspace};
 use crate::ui::theme;
 
@@ -22,6 +24,10 @@ const WIDTH: f32 = 220.;
 pub enum SidebarItem {
     AllIssues,
     View(String),
+    Project(String),
+    /// Expands or collapses the done and archived projects.
+    ClosedProjects,
+    Label(String),
 }
 
 impl SidebarItem {
@@ -30,6 +36,13 @@ impl SidebarItem {
         match self {
             SidebarItem::AllIssues => Box::new(view::ShowAll),
             SidebarItem::View(name) => Box::new(view::Open {
+                name: Some(name.clone()),
+            }),
+            SidebarItem::Project(name) => Box::new(view::OpenProject {
+                name: Some(name.clone()),
+            }),
+            SidebarItem::ClosedProjects => Box::new(sidebar::ToggleClosedProjects),
+            SidebarItem::Label(name) => Box::new(view::OpenLabel {
                 name: Some(name.clone()),
             }),
         }
@@ -45,6 +58,8 @@ enum Row {
         /// Nesting level, for the label tree.
         depth: usize,
         count: usize,
+        /// Overrides `count` on the right (e.g. the closed-projects chevron).
+        trailing: Option<&'static str>,
     },
 }
 
@@ -63,6 +78,7 @@ impl Workspace {
             label: "All issues".into(),
             depth: 0,
             count: self.open_count(&IssueFilter::default()),
+            trailing: None,
         }];
         if !self.views.is_empty() {
             rows.push(Row::Heading("Views"));
@@ -71,6 +87,62 @@ impl Workspace {
                 label: v.name.clone().into(),
                 depth: 0,
                 count: self.open_count(&v.filter),
+                trailing: None,
+            }));
+        }
+
+        if !self.projects.is_empty() {
+            rows.push(Row::Heading("Projects"));
+            let project_row = |p: &solilog_core::Project| Row::Item {
+                item: SidebarItem::Project(p.name.clone()),
+                label: p.name.clone().into(),
+                depth: 0,
+                count: self.open_count(&Source::Project(p.name.clone()).filter()),
+                trailing: None,
+            };
+            let (closed, open): (Vec<_>, Vec<_>) =
+                self.projects.iter().partition(|p| p.status.is_closed());
+            rows.extend(open.into_iter().map(project_row));
+            if !closed.is_empty() {
+                rows.push(Row::Item {
+                    item: SidebarItem::ClosedProjects,
+                    label: format!("Closed ({})", closed.len()).into(),
+                    depth: 0,
+                    count: 0,
+                    trailing: Some(if self.show_closed_projects {
+                        "▾"
+                    } else {
+                        "▸"
+                    }),
+                });
+                if self.show_closed_projects {
+                    rows.extend(closed.into_iter().map(|p| match project_row(p) {
+                        Row::Item {
+                            item, label, count, ..
+                        } => Row::Item {
+                            item,
+                            label,
+                            depth: 1,
+                            count,
+                            trailing: None,
+                        },
+                        heading => heading,
+                    }));
+                }
+            }
+        }
+
+        if !self.labels.is_empty() {
+            rows.push(Row::Heading("Labels"));
+            rows.extend(self.labels.iter().map(|l| {
+                let leaf = l.name.rsplit(solilog_core::LABEL_SEPARATOR).next();
+                Row::Item {
+                    item: SidebarItem::Label(l.name.clone()),
+                    label: leaf.unwrap_or(&l.name).to_string().into(),
+                    depth: l.depth(),
+                    count: self.open_count(&Source::Label(l.name.clone()).filter()),
+                    trailing: None,
+                }
             }));
         }
         rows
@@ -89,9 +161,11 @@ impl Workspace {
 
     /// The item matching what the issue list currently shows.
     pub(super) fn active_sidebar_item(&self) -> SidebarItem {
-        match &self.view {
-            Some(view) => SidebarItem::View(view.name.clone()),
-            None => SidebarItem::AllIssues,
+        match &self.scope.source {
+            Source::All => SidebarItem::AllIssues,
+            Source::View(view) => SidebarItem::View(view.name.clone()),
+            Source::Project(name) => SidebarItem::Project(name.clone()),
+            Source::Label(name) => SidebarItem::Label(name.clone()),
         }
     }
 
@@ -144,6 +218,16 @@ impl Workspace {
         self.move_sidebar_cursor(-1, cx);
     }
 
+    pub(super) fn on_toggle_closed_projects(
+        &mut self,
+        _: &sidebar::ToggleClosedProjects,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_closed_projects = !self.show_closed_projects;
+        cx.notify();
+    }
+
     fn on_sidebar_open(&mut self, _: &sidebar::Open, window: &mut Window, cx: &mut Context<Self>) {
         window.dispatch_action(self.sidebar_cursor.action(), cx);
     }
@@ -177,6 +261,7 @@ impl Workspace {
                     label,
                     depth,
                     count,
+                    trailing,
                 } => {
                     let highlight = if focused && item == self.sidebar_cursor {
                         Some(theme::HIGHLIGHT)
@@ -186,6 +271,7 @@ impl Workspace {
                         None
                     };
                     let action = item.action();
+                    let muted = item == SidebarItem::ClosedProjects;
                     div()
                         .id(("sidebar", ix))
                         .flex()
@@ -206,16 +292,27 @@ impl Workspace {
                             window.focus(&this.list_focus);
                             window.dispatch_action(action.boxed_clone(), cx);
                         }))
-                        .child(div().flex_1().truncate().child(label))
-                        .when(count > 0, |s| {
-                            s.child(
-                                div()
-                                    .flex_none()
-                                    .text_size(px(12.))
-                                    .text_color(rgb(theme::TEXT_MUTED))
-                                    .child(count.to_string()),
-                            )
-                        })
+                        .child(
+                            div()
+                                .flex_1()
+                                .truncate()
+                                .when(muted, |s| s.text_color(rgb(theme::TEXT_MUTED)))
+                                .child(label),
+                        )
+                        .when_some(
+                            trailing
+                                .map(str::to_string)
+                                .or_else(|| (count > 0).then(|| count.to_string())),
+                            |s, text| {
+                                s.child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(theme::TEXT_MUTED))
+                                        .child(text),
+                                )
+                            },
+                        )
                         .into_any_element()
                 }
             })

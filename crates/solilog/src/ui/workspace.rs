@@ -4,6 +4,7 @@
 //! Every user-facing behavior here is an action handler (see `actions.rs`);
 //! mouse handlers only select things and dispatch the same actions.
 
+mod scope;
 mod sidebar;
 
 use std::time::Duration;
@@ -12,7 +13,7 @@ use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
     ScrollHandle, Subscription, Task, Window, deferred, div, prelude::*, px, rgb,
 };
-use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, NewProject, Status, View};
+use solilog_core::{Db, Issue, IssueFilter, IssueId, Label, NewProject, Project, Status, View};
 
 use super::actions::{
     self, command_palette, humanize_action_name,
@@ -25,6 +26,7 @@ use super::picker::{Picker, PickerEvent, PickerItem};
 use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
 use super::theme;
+use scope::Scope;
 use sidebar::SidebarItem;
 
 /// How often to check the database (and keymap file) for outside changes.
@@ -46,10 +48,10 @@ enum Modal {
         /// Label or project names, by picker index.
         names: Vec<String>,
     },
-    ViewPicker {
+    /// A picker whose items each dispatch an action (open view, project…).
+    ActionPicker {
         picker: Entity<Picker>,
-        /// View names, by picker index; `None` is "All issues".
-        views: Vec<Option<String>>,
+        actions: Vec<Box<dyn Action>>,
     },
 }
 
@@ -89,7 +91,7 @@ impl Modal {
             Modal::CommandPalette { picker, .. }
             | Modal::StatusPicker { picker, .. }
             | Modal::Relation { picker, .. }
-            | Modal::ViewPicker { picker, .. } => picker,
+            | Modal::ActionPicker { picker, .. } => picker,
         }
     }
 }
@@ -108,10 +110,13 @@ pub struct Workspace {
     /// Every issue, for the sidebar's counts.
     all_issues: Vec<Issue>,
     views: Vec<View>,
+    /// Including done and archived ones.
+    projects: Vec<Project>,
+    labels: Vec<Label>,
     data_version: i64,
-    /// The view being shown; `None` shows all issues. Its filter is re-read
-    /// on every reload, so outside edits apply.
-    view: Option<View>,
+    /// What the issue list shows. Re-read on every reload, so outside
+    /// edits (e.g. from the CLI) apply.
+    scope: Scope,
     selected: Option<IssueId>,
     input: Entity<TextInput>,
     list_focus: FocusHandle,
@@ -120,6 +125,7 @@ pub struct Workspace {
     sidebar_focus: FocusHandle,
     /// Keyboard cursor in the sidebar.
     sidebar_cursor: SidebarItem,
+    show_closed_projects: bool,
     modal: Option<OpenModal>,
     error: Option<String>,
     _poll: Task<()>,
@@ -162,8 +168,10 @@ impl Workspace {
             issues: Vec::new(),
             all_issues: Vec::new(),
             views: Vec::new(),
+            projects: Vec::new(),
+            labels: Vec::new(),
             data_version: 0,
-            view: None,
+            scope: Scope::default(),
             selected: None,
             input,
             list_focus: cx.focus_handle(),
@@ -171,6 +179,7 @@ impl Workspace {
             sidebar_visible: true,
             sidebar_focus: cx.focus_handle(),
             sidebar_cursor: SidebarItem::AllIssues,
+            show_closed_projects: false,
             modal: None,
             error: None,
             _poll: poll,
@@ -203,36 +212,32 @@ impl Workspace {
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.data_version = self.db.data_version().unwrap_or_default();
         let prev_ix = self.selected_index();
-        let mut view_error = None;
-        if let Some(view) = &self.view {
-            match self.db.get_view(&view.name) {
-                Ok(view) => self.view = Some(view),
-                // Deleted (or renamed) elsewhere: fall back to all issues.
-                Err(err) => {
-                    self.view = None;
-                    view_error = Some(format!("{err:#}"));
-                }
-            }
-        }
-        let filter = self
-            .view
-            .as_ref()
-            .map_or_else(IssueFilter::default, |v| v.filter.clone());
+        let scope_error = self.refresh_scope();
+        let filter = self.scope.filter.clone();
         let sidebar_data = self
             .db
             .list_issues(&IssueFilter::default())
-            .and_then(|issues| Ok((issues, self.db.list_views()?)));
-        if let Some((all_issues, views)) = self.report(sidebar_data, cx) {
+            .and_then(|issues| {
+                Ok((
+                    issues,
+                    self.db.list_views()?,
+                    self.db.list_projects(true)?,
+                    self.db.list_labels()?,
+                ))
+            });
+        if let Some((all_issues, views, projects, labels)) = self.report(sidebar_data, cx) {
             self.all_issues = all_issues;
             self.views = views;
+            self.projects = projects;
+            self.labels = labels;
         }
         let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
             return;
         };
         self.issues = issues;
-        if view_error.is_some() {
-            self.error = view_error;
+        if scope_error.is_some() {
+            self.error = scope_error;
         }
         // Keep the selection on the same issue, or on the same row if it vanished.
         if self.selected_index().is_none() {
@@ -242,37 +247,6 @@ impl Workspace {
             self.selected = self.issues.get(ix).map(|i| i.id);
         }
         cx.notify();
-    }
-
-    /// A new issue created while a view is shown gets the view's labels, and
-    /// its project if it names exactly one.
-    fn new_issue(&self, title: String) -> NewIssue {
-        let mut new = NewIssue::new(title);
-        if let Some(view) = &self.view {
-            new.labels = view.filter.labels.clone();
-            if let [project] = view.filter.projects.as_slice() {
-                new.projects = vec![project.clone()];
-            }
-        }
-        new
-    }
-
-    fn show_view(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
-        match name {
-            None => self.view = None,
-            Some(name) => match self.db.get_view(name) {
-                Ok(view) => self.view = Some(view),
-                Err(err) => {
-                    self.report::<()>(Err(err), cx);
-                    return;
-                }
-            },
-        }
-        self.error = None;
-        self.selected = None;
-        self.reload(cx);
-        self.select_index(0, cx);
-        self.sidebar_cursor = self.active_sidebar_item();
     }
 
     fn selected_index(&self) -> Option<usize> {
@@ -365,8 +339,8 @@ impl Workspace {
                 }
                 self.apply_relation(relation, issue_id, name.clone(), cx);
             }
-            (Modal::ViewPicker { views, .. }, PickerEvent::Confirmed(ix)) => {
-                self.show_view(views[*ix].as_deref(), cx);
+            (Modal::ActionPicker { actions, .. }, PickerEvent::Confirmed(ix)) => {
+                window.dispatch_action(actions[*ix].boxed_clone(), cx);
             }
             (_, PickerEvent::Create(_)) => {}
         }
@@ -440,41 +414,6 @@ impl Workspace {
             window,
             cx,
         );
-    }
-
-    fn open_view_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(saved) = self.report(self.db.list_views(), cx) else {
-            return;
-        };
-        let mut items = vec![PickerItem::new("All issues")];
-        let mut views = vec![None];
-        for view in saved {
-            items.push(PickerItem::new(view.name.clone()).hint(Some(view.filter.to_string())));
-            views.push(Some(view.name));
-        }
-        let current = self.view.as_ref().map(|v| v.name.as_str());
-        let highlighted = views
-            .iter()
-            .position(|v| v.as_deref() == current)
-            .unwrap_or(0);
-        let picker = cx.new(|cx| Picker::new("Open view…", items, highlighted, cx));
-        self.open_modal(
-            picker,
-            |picker| Modal::ViewPicker { picker, views },
-            window,
-            cx,
-        );
-    }
-
-    fn on_open_view(&mut self, action: &view::Open, window: &mut Window, cx: &mut Context<Self>) {
-        match &action.name {
-            Some(name) => self.show_view(Some(name), cx),
-            None => self.open_view_picker(window, cx),
-        }
-    }
-
-    fn on_show_all(&mut self, _: &view::ShowAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.show_view(None, cx);
     }
 
     fn open_relation_picker(
@@ -771,10 +710,9 @@ impl Workspace {
 
     /// Current view name, its filter, and the issue count.
     fn render_view_header(&self) -> impl IntoElement + use<> {
-        let (name, summary) = match &self.view {
-            Some(view) => (view.name.clone(), Some(view.filter.to_string())),
-            None => ("All issues".to_string(), None),
-        };
+        let name = self.scope.source.title().to_string();
+        let summary = matches!(self.scope.source, scope::Source::View(_))
+            .then(|| self.scope.filter.to_string());
         div()
             .flex()
             .items_center()
@@ -867,6 +805,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_remove_from_project))
             .on_action(cx.listener(Self::on_open_view))
             .on_action(cx.listener(Self::on_show_all))
+            .on_action(cx.listener(Self::on_open_project))
+            .on_action(cx.listener(Self::on_open_label))
+            .on_action(cx.listener(Self::on_toggle_closed_projects))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))
@@ -950,8 +891,8 @@ impl Workspace {
                                 .px_4()
                                 .py_2()
                                 .text_color(rgb(theme::TEXT_MUTED))
-                                .child(if self.view.is_some() {
-                                    "No issues in this view."
+                                .child(if self.scope.source != scope::Source::All {
+                                    "No issues here."
                                 } else {
                                     "No issues yet. Type a title above and press Enter."
                                 }),

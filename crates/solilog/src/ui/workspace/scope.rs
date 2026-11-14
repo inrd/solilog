@@ -1,0 +1,219 @@
+//! What the issue list shows: all issues, a saved view, a project or a label,
+//! and the filter in effect.
+
+use gpui::{Action, AppContext as _, Context, Window};
+use solilog_core::{IssueFilter, NewIssue, View};
+
+use super::{Modal, Workspace};
+use crate::ui::actions::view;
+use crate::ui::picker::{Picker, PickerItem};
+
+/// Where the shown issues come from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Source {
+    #[default]
+    All,
+    /// A saved view, as stored.
+    View(View),
+    Project(String),
+    Label(String),
+}
+
+impl Source {
+    /// The filter this source stands for.
+    pub fn filter(&self) -> IssueFilter {
+        match self {
+            Source::All => IssueFilter::default(),
+            Source::View(view) => view.filter.clone(),
+            Source::Project(name) => IssueFilter {
+                projects: vec![name.clone()],
+                ..Default::default()
+            },
+            Source::Label(name) => IssueFilter {
+                labels: vec![name.clone()],
+                ..Default::default()
+            },
+        }
+    }
+
+    pub fn title(&self) -> &str {
+        match self {
+            Source::All => "All issues",
+            Source::View(view) => &view.name,
+            Source::Project(name) | Source::Label(name) => name,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scope {
+    pub source: Source,
+    /// The filter in effect.
+    pub filter: IssueFilter,
+}
+
+impl Scope {
+    pub fn new(source: Source) -> Self {
+        Self {
+            filter: source.filter(),
+            source,
+        }
+    }
+}
+
+impl Workspace {
+    /// Re-reads the scope's source from the database. Returns an error
+    /// message if it no longer exists, after falling back to all issues.
+    pub(super) fn refresh_scope(&mut self) -> Option<String> {
+        let found = match &self.scope.source {
+            Source::All => return None,
+            Source::View(view) => self.db.get_view(&view.name).map(Source::View),
+            Source::Project(name) => self.db.get_project(name).map(|p| Source::Project(p.name)),
+            Source::Label(name) => self.db.get_label(name).map(|l| Source::Label(l.name)),
+        };
+        match found {
+            Ok(source) => {
+                self.scope = Scope::new(source);
+                None
+            }
+            Err(err) => {
+                self.scope = Scope::default();
+                Some(format!("{err:#}"))
+            }
+        }
+    }
+
+    /// A new issue created in a scope gets the scope's labels, and its project
+    /// if it names exactly one.
+    pub(super) fn new_issue(&self, title: String) -> NewIssue {
+        let filter = &self.scope.filter;
+        let mut new = NewIssue::new(title);
+        new.labels = filter.labels.clone();
+        if let [project] = filter.projects.as_slice() {
+            new.projects = vec![project.clone()];
+        }
+        new
+    }
+
+    fn show(&mut self, source: anyhow::Result<Source>, cx: &mut Context<Self>) {
+        let Some(source) = self.report(source, cx) else {
+            return;
+        };
+        self.scope = Scope::new(source);
+        self.selected = None;
+        self.reload(cx);
+        self.select_index(0, cx);
+        self.sidebar_cursor = self.active_sidebar_item();
+    }
+
+    /// Opens a picker whose items each dispatch an action.
+    fn open_action_picker(
+        &mut self,
+        placeholder: &str,
+        entries: Vec<(PickerItem, Box<dyn Action>)>,
+        highlighted: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (items, actions): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+        let picker = cx.new(|cx| Picker::new(placeholder, items, highlighted, cx));
+        self.open_modal(
+            picker,
+            |picker| Modal::ActionPicker { picker, actions },
+            window,
+            cx,
+        );
+    }
+
+    pub(super) fn on_show_all(
+        &mut self,
+        _: &view::ShowAll,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show(Ok(Source::All), cx);
+    }
+
+    pub(super) fn on_open_view(
+        &mut self,
+        action: &view::Open,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(name) = &action.name {
+            let view = self.db.get_view(name).map(Source::View);
+            return self.show(view, cx);
+        }
+        let mut entries: Vec<(PickerItem, Box<dyn Action>)> =
+            vec![(PickerItem::new("All issues"), Box::new(view::ShowAll))];
+        entries.extend(self.views.iter().map(|v| {
+            let item = PickerItem::new(v.name.clone()).hint(Some(v.filter.to_string()));
+            let action = view::Open {
+                name: Some(v.name.clone()),
+            };
+            (item, Box::new(action) as Box<dyn Action>)
+        }));
+        let current = match &self.scope.source {
+            Source::View(v) => self
+                .views
+                .iter()
+                .position(|w| w.name == v.name)
+                .map(|i| i + 1),
+            _ => None,
+        };
+        self.open_action_picker("Open view…", entries, current.unwrap_or(0), window, cx);
+    }
+
+    pub(super) fn on_open_project(
+        &mut self,
+        action: &view::OpenProject,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(name) = &action.name {
+            let project = self.db.get_project(name).map(|p| Source::Project(p.name));
+            return self.show(project, cx);
+        }
+        let entries = self
+            .projects
+            .iter()
+            .map(|p| {
+                let hint = p.status.is_closed().then(|| p.status.label());
+                let action = view::OpenProject {
+                    name: Some(p.name.clone()),
+                };
+                (
+                    PickerItem::new(p.name.clone()).hint(hint),
+                    Box::new(action) as Box<dyn Action>,
+                )
+            })
+            .collect();
+        self.open_action_picker("Open project…", entries, 0, window, cx);
+    }
+
+    pub(super) fn on_open_label(
+        &mut self,
+        action: &view::OpenLabel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(name) = &action.name {
+            let label = self.db.get_label(name).map(|l| Source::Label(l.name));
+            return self.show(label, cx);
+        }
+        let entries = self
+            .labels
+            .iter()
+            .map(|l| {
+                let action = view::OpenLabel {
+                    name: Some(l.name.clone()),
+                };
+                (
+                    PickerItem::new(l.name.clone()),
+                    Box::new(action) as Box<dyn Action>,
+                )
+            })
+            .collect();
+        self.open_action_picker("Open label…", entries, 0, window, cx);
+    }
+}
