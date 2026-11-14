@@ -13,6 +13,9 @@ cargo run -- issue set-status SOL-1 done
 cargo run -- issue create "Crash on load" -l acme/reverb -l bug
 cargo run -- issue ls -l acme             # also matches sublabels like acme/reverb
 cargo run -- label ls
+cargo run -- project create "Reverb v1.1" -l acme/reverb -t 2027-02-01
+cargo run -- issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
+cargo run -- issue ls -l acme --no-project                 # work outside any project
 ```
 
 ## Keyboard

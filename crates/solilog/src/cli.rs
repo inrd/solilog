@@ -13,7 +13,10 @@ use anyhow::{Context as _, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
-use solilog_core::{Db, Issue, IssueFilter, IssueId, Label, NewIssue, Status};
+use solilog_core::{
+    Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Project, ProjectStatus,
+    ProjectUpdate, Status,
+};
 
 #[derive(Parser)]
 #[command(
@@ -46,6 +49,13 @@ pub enum Command {
     /// matches its sublabels.
     #[command(subcommand, visible_alias = "l")]
     Label(LabelCommand),
+    /// Manage projects.
+    ///
+    /// A project is a body of work with a goal and a lifecycle (planned,
+    /// active, done, archived). Issues can be in several projects, or none.
+    /// A project's default labels are added to issues when they join it.
+    #[command(subcommand, visible_alias = "p")]
+    Project(ProjectCommand),
     /// List the valid issue statuses.
     Statuses,
     /// Show keymap information.
@@ -71,6 +81,12 @@ pub enum IssueCommand {
         /// Exclude issues with this label or one of its sublabels (repeatable).
         #[arg(long, value_name = "LABEL")]
         without_label: Vec<String>,
+        /// Only issues in this project (repeatable: any may match).
+        #[arg(long, short, value_name = "PROJECT", conflicts_with = "no_project")]
+        project: Vec<String>,
+        /// Only issues that are in no project.
+        #[arg(long)]
+        no_project: bool,
     },
     /// Show one issue.
     Show { id: IssueId },
@@ -84,6 +100,9 @@ pub enum IssueCommand {
         /// Add this label, creating it if needed (repeatable).
         #[arg(long, short, value_name = "LABEL")]
         label: Vec<String>,
+        /// Add to this existing project, with its default labels (repeatable).
+        #[arg(long, short, value_name = "PROJECT")]
+        project: Vec<String>,
     },
     /// Change an issue's status and print it.
     SetStatus { id: IssueId, status: Status },
@@ -96,6 +115,83 @@ pub enum IssueCommand {
     /// Remove labels from an issue and print it. Sublabels are not removed.
     RemoveLabel {
         id: IssueId,
+        #[arg(required = true)]
+        labels: Vec<String>,
+    },
+    /// Add an issue to projects (giving it their default labels) and print it.
+    AddToProject {
+        id: IssueId,
+        #[arg(required = true)]
+        projects: Vec<String>,
+    },
+    /// Remove an issue from projects and print it. It keeps its labels.
+    RemoveFromProject {
+        id: IssueId,
+        #[arg(required = true)]
+        projects: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProjectCommand {
+    /// List projects: active, then planned, by target date.
+    #[command(visible_alias = "ls")]
+    List {
+        /// Include done and archived projects.
+        #[arg(long, short)]
+        all: bool,
+    },
+    /// Show one project.
+    Show { name: String },
+    /// Create a project and print it.
+    #[command(visible_alias = "new")]
+    Create {
+        name: String,
+        /// planned, active, done or archived.
+        #[arg(long, short, default_value_t = ProjectStatus::Active)]
+        status: ProjectStatus,
+        /// What the project should achieve; `-` reads it from stdin.
+        #[arg(long, short, default_value = "")]
+        description: String,
+        /// Target date, `YYYY-MM-DD`.
+        #[arg(long, short, value_name = "DATE")]
+        target_date: Option<String>,
+        /// Default label, given to issues when they join (repeatable).
+        #[arg(long, short, value_name = "LABEL")]
+        label: Vec<String>,
+    },
+    /// Change a project's name, status, description or target date, and print it.
+    Update {
+        name: String,
+        /// New name.
+        #[arg(long)]
+        rename: Option<String>,
+        /// planned, active, done or archived.
+        #[arg(long, short)]
+        status: Option<ProjectStatus>,
+        /// New description; `-` reads it from stdin.
+        #[arg(long, short)]
+        description: Option<String>,
+        /// New target date, `YYYY-MM-DD`.
+        #[arg(long, short, value_name = "DATE", conflicts_with = "clear_target_date")]
+        target_date: Option<String>,
+        /// Remove the target date.
+        #[arg(long)]
+        clear_target_date: bool,
+    },
+    /// Delete a project and print it. Its issues stay, with their labels.
+    #[command(visible_alias = "rm")]
+    Delete { name: String },
+    /// Add default labels to a project (creating missing ones) and print it.
+    /// Issues already in the project are not changed.
+    AddLabel {
+        name: String,
+        #[arg(required = true)]
+        labels: Vec<String>,
+    },
+    /// Remove default labels from a project and print it. Issues keep them.
+    RemoveLabel {
+        name: String,
         #[arg(required = true)]
         labels: Vec<String>,
     },
@@ -150,13 +246,16 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     open,
                     label,
                     without_label,
+                    project,
+                    no_project,
                 } => {
                     let filter = IssueFilter {
                         statuses: status,
                         open_only: open,
                         labels: label,
                         without_labels: without_label,
-                        ..Default::default()
+                        projects: project,
+                        no_project,
                     };
                     out.issues(&db.list_issues(&filter)?)
                 }
@@ -165,23 +264,76 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     title,
                     status,
                     label,
+                    project,
                 } => {
-                    let title = if title == "-" {
-                        let mut buf = String::new();
-                        std::io::stdin()
-                            .read_to_string(&mut buf)
-                            .context("reading title from stdin")?;
-                        buf
-                    } else {
-                        title
-                    };
-                    let new = NewIssue::new(title).status(status).labels(label);
+                    let new = NewIssue::new(read_arg(title, "title")?)
+                        .status(status)
+                        .labels(label)
+                        .projects(project);
                     out.issue(&db.create_issue(&new)?)
                 }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
                 IssueCommand::AddLabel { id, labels } => out.issue(&db.add_labels(id, &labels)?),
                 IssueCommand::RemoveLabel { id, labels } => {
                     out.issue(&db.remove_labels(id, &labels)?)
+                }
+                IssueCommand::AddToProject { id, projects } => {
+                    out.issue(&db.add_to_projects(id, &projects)?)
+                }
+                IssueCommand::RemoveFromProject { id, projects } => {
+                    out.issue(&db.remove_from_projects(id, &projects)?)
+                }
+            }
+        }
+        Command::Project(cmd) => {
+            let db = Db::open_default()?;
+            match cmd {
+                ProjectCommand::List { all } => out.projects(&db.list_projects(all)?),
+                ProjectCommand::Show { name } => out.project(&db.get_project(&name)?),
+                ProjectCommand::Create {
+                    name,
+                    status,
+                    description,
+                    target_date,
+                    label,
+                } => {
+                    let new = NewProject {
+                        status,
+                        description: read_arg(description, "description")?,
+                        target_date,
+                        labels: label,
+                        ..NewProject::new(name)
+                    };
+                    out.project(&db.create_project(&new)?)
+                }
+                ProjectCommand::Update {
+                    name,
+                    rename,
+                    status,
+                    description,
+                    target_date,
+                    clear_target_date,
+                } => {
+                    let update = ProjectUpdate {
+                        name: rename,
+                        status,
+                        description: description
+                            .map(|d| read_arg(d, "description"))
+                            .transpose()?,
+                        target_date: if clear_target_date {
+                            Some(None)
+                        } else {
+                            target_date.map(Some)
+                        },
+                    };
+                    out.project(&db.update_project(&name, &update)?)
+                }
+                ProjectCommand::Delete { name } => out.project(&db.delete_project(&name)?),
+                ProjectCommand::AddLabel { name, labels } => {
+                    out.project(&db.add_project_labels(&name, &labels)?)
+                }
+                ProjectCommand::RemoveLabel { name, labels } => {
+                    out.project(&db.remove_project_labels(&name, &labels)?)
                 }
             }
         }
@@ -252,6 +404,18 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
     }
 }
 
+/// `-` means "read from stdin".
+fn read_arg(value: String, what: &str) -> Result<String> {
+    if value != "-" {
+        return Ok(value);
+    }
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .with_context(|| format!("reading {what} from stdin"))?;
+    Ok(buf)
+}
+
 struct Output {
     json: bool,
 }
@@ -273,6 +437,26 @@ impl Output {
 
     fn issue(&self, issue: &Issue) -> Result<()> {
         self.print(issue, || issue_line(issue))
+    }
+
+    fn project(&self, project: &Project) -> Result<()> {
+        self.print(project, || {
+            let mut text = project_line(project);
+            if !project.description.is_empty() {
+                text.push_str(&format!("\n\n{}", project.description));
+            }
+            text
+        })
+    }
+
+    fn projects(&self, projects: &[Project]) -> Result<()> {
+        self.print(projects, || {
+            projects
+                .iter()
+                .map(project_line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
     }
 
     fn label(&self, label: &Label) -> Result<()> {
@@ -299,6 +483,27 @@ fn issue_line(issue: &Issue) -> String {
     );
     if !issue.labels.is_empty() {
         line.push_str(&format!("  [{}]", issue.labels.join(", ")));
+    }
+    if !issue.projects.is_empty() {
+        line.push_str(&format!("  in: {}", issue.projects.join(", ")));
+    }
+    line
+}
+
+/// Name, status, progress, target date, default labels.
+fn project_line(project: &Project) -> String {
+    let mut line = format!(
+        "{:<24} {:<9} {}/{}",
+        project.name,
+        project.status.key(),
+        project.closed_issue_count,
+        project.issue_count
+    );
+    if let Some(date) = &project.target_date {
+        line.push_str(&format!("  due {date}"));
+    }
+    if !project.labels.is_empty() {
+        line.push_str(&format!("  [{}]", project.labels.join(", ")));
     }
     line
 }
