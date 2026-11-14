@@ -125,7 +125,7 @@ One concept, one name, consistent across surfaces:
   writes.
 - WAL mode plus a busy timeout make concurrent GUI and CLI use safe. Keep
   transactions short.
-- Errors in the GUI go through `Workspace::report` (shown in the error bar);
+- Errors in the GUI go through `Workspace::report` (shown in the footer);
   never `unwrap` on IO or DB results.
 
 ## Keymap

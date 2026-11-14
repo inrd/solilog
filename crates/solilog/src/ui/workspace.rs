@@ -1,5 +1,6 @@
 //! The main window: sidebar, new-issue input, issue list (or the archive, or
-//! an open issue), modals (command palette, pickers) and an error bar.
+//! an open issue), modals (command palette, pickers) and a footer (errors,
+//! context, shortcuts).
 //!
 //! Every user-facing behavior here is an action handler (see `actions.rs`);
 //! mouse handlers only select things and dispatch the same actions.
@@ -178,6 +179,8 @@ pub struct Workspace {
     list_scroll: ScrollHandle,
     sidebar_visible: bool,
     sidebar_focus: FocusHandle,
+    /// What had focus when the footer was last rendered.
+    footer_focus: Option<FocusHandle>,
     /// Keyboard cursor in the sidebar.
     sidebar_cursor: SidebarItem,
     show_closed_projects: bool,
@@ -253,6 +256,7 @@ impl Workspace {
             list_scroll: ScrollHandle::new(),
             sidebar_visible: true,
             sidebar_focus: cx.focus_handle(),
+            footer_focus: None,
             sidebar_cursor: SidebarItem::AllIssues,
             show_closed_projects: false,
             showing_archive: false,
@@ -521,12 +525,7 @@ impl Workspace {
         let items = entries
             .iter()
             .map(|(label, action)| {
-                let binding = match &focused {
-                    Some(focus) => {
-                        window.highest_precedence_binding_for_action_in(action.as_ref(), focus)
-                    }
-                    None => window.highest_precedence_binding_for_action(action.as_ref()),
-                };
+                let binding = simplest_binding(action.as_ref(), focused.as_ref(), window);
                 let hint = binding.map(|b| keystrokes_text(&b));
                 PickerItem::new(label.clone()).hint(hint)
             })
@@ -1250,19 +1249,92 @@ fn chip(text: String, color: u32) -> impl IntoElement {
         .child(text)
 }
 
+/// A footer hint: the keystrokes running `action`, then what it does.
+/// Clicking it runs the action from the focused element too.
+fn footer_hint(
+    action: Box<dyn Action>,
+    label: &'static str,
+    binding: &KeyBinding,
+) -> impl IntoElement + use<> {
+    div()
+        .id(action.name())
+        .flex_none()
+        .flex()
+        .gap_1p5()
+        .px_1()
+        .rounded_sm()
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(theme::HOVER)))
+        .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
+        .child(
+            div()
+                .text_color(rgb(theme::TEXT))
+                .child(keystrokes_text(binding)),
+        )
+        .child(label)
+}
+
 /// "g g" -> "G G", "cmd-k" -> "⌘K" (platform display form).
+/// Enter and escape show as "⏎" and "esc".
 fn keystrokes_text(binding: &KeyBinding) -> String {
     binding
         .keystrokes()
         .iter()
-        .map(|k| k.to_string())
+        .map(|k| {
+            let text = k.to_string();
+            // GPUI writes the modifiers, then "enter" or "⎋" ("escape" off macOS).
+            let named = match k.key() {
+                "enter" => text.strip_suffix("enter").map(|m| (m, "⏎")),
+                "escape" => text
+                    .strip_suffix('⎋')
+                    .or_else(|| text.strip_suffix("escape"))
+                    .map(|m| (m, "esc")),
+                _ => None,
+            };
+            match named {
+                Some((modifiers, key)) => format!("{modifiers}{key}"),
+                None => text,
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The binding shown as an action's shortcut: of those that run it from
+/// `focus` (else from anywhere), the one with the fewest keystrokes, then
+/// modifiers (`m` over `shift-f10`, `cmd-k` over `cmd-shift-p`).
+///
+/// Bindings are looked up in the last rendered frame, so an element focused
+/// since then has none yet (see `Workspace::footer_focus`).
+fn simplest_binding(
+    action: &dyn Action,
+    focus: Option<&FocusHandle>,
+    window: &Window,
+) -> Option<KeyBinding> {
+    let bindings = match focus {
+        Some(focus) => window.bindings_for_action_in(action, focus),
+        None => window.bindings_for_action(action),
+    };
+    bindings.into_iter().min_by_key(|b| {
+        let modifiers: usize = b
+            .keystrokes()
+            .iter()
+            .map(|k| k.modifiers().number_of_modifiers() as usize)
+            .sum();
+        (b.keystrokes().len(), modifiers)
+    })
 }
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_checklist(window, cx);
+        // The footer's hints come from the last rendered frame, which does
+        // not have a newly focused element yet: render once more.
+        let focused = window.focused(cx);
+        if focused != self.footer_focus {
+            self.footer_focus = focused;
+            cx.on_next_frame(window, |_, _, cx| cx.notify());
+        }
         let list_focused = self.list_focus.is_focused(window);
         div()
             .key_context("Workspace")
@@ -1331,20 +1403,97 @@ impl Render for Workspace {
                         }
                     }),
             )
-            .children(self.error.clone().map(|err| {
-                div()
-                    .px_4()
-                    .py_1()
-                    .border_t_1()
-                    .border_color(rgb(theme::DIVIDER))
-                    .text_color(rgb(theme::ERROR))
-                    .child(err)
-            }))
+            .child(self.render_footer(window, cx))
             .children(self.render_modal(cx))
     }
 }
 
 impl Workspace {
+    /// Status bar at the bottom: the last error, else context about the
+    /// list (selected issues); the command palette shortcut on the right.
+    fn render_footer(&self, window: &Window, cx: &App) -> impl IntoElement + use<> {
+        let (text, color) = match &self.error {
+            Some(err) => (Some(err.clone()), theme::ERROR),
+            None => {
+                let n = self.selection.len();
+                let text = (n > 0 && self.detail.is_none() && !self.showing_archive)
+                    .then(|| format!("{n} selected"));
+                (text, theme::TEXT_MUTED)
+            }
+        };
+        // Hints for what can be done from the focused element: those of
+        // `footer_hints` that have a binding there, then the palette.
+        let focus = window.focused(cx);
+        let hints = self
+            .footer_hints()
+            .into_iter()
+            .chain([(
+                Box::new(command_palette::Toggle) as Box<dyn Action>,
+                "Commands",
+            )])
+            .filter_map(|(action, label)| {
+                let binding = simplest_binding(action.as_ref(), focus.as_ref(), window)?;
+                Some(footer_hint(action, label, &binding))
+            })
+            .collect::<Vec<_>>();
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_2()
+            .h(px(24.))
+            .px_3()
+            .border_t_1()
+            .border_color(rgb(theme::DIVIDER))
+            .bg(rgb(theme::SIDEBAR))
+            .text_size(px(12.))
+            .text_color(rgb(theme::TEXT_MUTED))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .whitespace_nowrap()
+                    .text_color(rgb(color))
+                    .children(text),
+            )
+            .children(hints)
+    }
+
+    /// Candidate footer hints, most useful first. Only those bound from the
+    /// focused element show, so each context gets its own.
+    fn footer_hints(&self) -> Vec<(Box<dyn Action>, &'static str)> {
+        use actions::{archive, checklist, issue_detail, picker, sidebar};
+        let mut hints: Vec<(Box<dyn Action>, &'static str)> = vec![
+            (Box::new(picker::Confirm), "Choose"),
+            (Box::new(picker::Dismiss), "Cancel"),
+            (Box::new(issue::Open::default()), "Open"),
+            (Box::new(sidebar::Open), "Open"),
+            (Box::new(issue_detail::Close), "Back"),
+            (Box::new(archive::Close), "Back"),
+            (Box::new(issue_detail::StopEditing), "Done"),
+            (Box::new(checklist::ToggleItem::default()), "Check"),
+            (Box::new(issue_detail::EditDescription), "Description"),
+            (Box::new(checklist::AddItem::default()), "Add item"),
+            (Box::new(SetStatus::default()), "Status"),
+            (Box::new(issue_list::ToggleSelected), "Select"),
+        ];
+        if !self.selection.is_empty() {
+            hints.push((Box::new(issue_list::ClearSelection), "Deselect"));
+        }
+        hints.extend([
+            (
+                Box::new(issue_list::ShowContextMenu) as Box<dyn Action>,
+                "Menu",
+            ),
+            (Box::new(sidebar::ShowContextMenu), "Menu"),
+            (Box::new(archive::ShowContextMenu), "Menu"),
+            (Box::new(issue_list::Focus), "Issues"),
+        ]);
+        hints
+    }
+
     /// New-issue input, view header and issue list.
     fn render_main(&self, list_focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let rows: Vec<_> = self
