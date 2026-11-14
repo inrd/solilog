@@ -66,8 +66,7 @@ writing SQL or validation in `crates/solilog`, move it to core.
   carry the labels they were given. Names are case-insensitive and keep the
   case they were created with. Renaming a label moves its sublabels with it.
 - **Project**: a body of work with a goal (`reverb v1.1`): status
-  (`planned`, `active`, `done`, `archived`), description, optional target
-  date. Issues can be in any number of projects, or none; being outside a
+  (`planned`, `active`, `done`, `archived`), description. Issues can be in any number of projects, or none; being outside a
   project is normal. A project's default labels are added to issues when they
   join it and kept when they leave. Done/archived projects are hidden from
   pickers and default listings.

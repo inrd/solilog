@@ -71,6 +71,8 @@ const MIGRATIONS: &[&str] = &[
         filter     TEXT    NOT NULL,
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );",
+    // 6: projects no longer have a target date.
+    "ALTER TABLE projects DROP COLUMN target_date;",
 ];
 
 /// Label names per issue.

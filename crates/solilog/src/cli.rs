@@ -126,7 +126,7 @@ pub enum IssueCommand {
 
 #[derive(Subcommand)]
 pub enum ProjectCommand {
-    /// List projects: active, then planned, by target date.
+    /// List projects: active, then planned, by name.
     #[command(visible_alias = "ls")]
     List {
         /// Include done and archived projects.
@@ -145,14 +145,11 @@ pub enum ProjectCommand {
         /// What the project should achieve; `-` reads it from stdin.
         #[arg(long, short, default_value = "")]
         description: String,
-        /// Target date, `YYYY-MM-DD`.
-        #[arg(long, short, value_name = "DATE")]
-        target_date: Option<String>,
         /// Default label, given to issues when they join (repeatable).
         #[arg(long, short, value_name = "LABEL")]
         label: Vec<String>,
     },
-    /// Change a project's name, status, description or target date, and print it.
+    /// Change a project's name, status or description, and print it.
     Update {
         name: String,
         /// New name.
@@ -164,12 +161,6 @@ pub enum ProjectCommand {
         /// New description; `-` reads it from stdin.
         #[arg(long, short)]
         description: Option<String>,
-        /// New target date, `YYYY-MM-DD`.
-        #[arg(long, short, value_name = "DATE", conflicts_with = "clear_target_date")]
-        target_date: Option<String>,
-        /// Remove the target date.
-        #[arg(long)]
-        clear_target_date: bool,
     },
     /// Delete a project and print it. Its issues stay, with their labels.
     #[command(visible_alias = "rm")]
@@ -349,13 +340,11 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     name,
                     status,
                     description,
-                    target_date,
                     label,
                 } => {
                     let new = NewProject {
                         status,
                         description: read_arg(description, "description")?,
-                        target_date,
                         labels: label,
                         ..NewProject::new(name)
                     };
@@ -366,8 +355,6 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     rename,
                     status,
                     description,
-                    target_date,
-                    clear_target_date,
                 } => {
                     let update = ProjectUpdate {
                         name: rename,
@@ -375,11 +362,6 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                         description: description
                             .map(|d| read_arg(d, "description"))
                             .transpose()?,
-                        target_date: if clear_target_date {
-                            Some(None)
-                        } else {
-                            target_date.map(Some)
-                        },
                     };
                     out.project(&db.update_project(&name, &update)?)
                 }
@@ -559,7 +541,7 @@ fn view_line(view: &View) -> String {
     format!("{:<24} {}", view.name, view.filter)
 }
 
-/// Name, status, progress, target date, default labels.
+/// Name, status, progress, default labels.
 fn project_line(project: &Project) -> String {
     let mut line = format!(
         "{:<24} {:<9} {}/{}",
@@ -568,9 +550,6 @@ fn project_line(project: &Project) -> String {
         project.closed_issue_count,
         project.issue_count
     );
-    if let Some(date) = &project.target_date {
-        line.push_str(&format!("  due {date}"));
-    }
     if !project.labels.is_empty() {
         line.push_str(&format!("  [{}]", project.labels.join(", ")));
     }

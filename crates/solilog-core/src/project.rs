@@ -1,5 +1,4 @@
-//! Projects: bodies of work with a goal, a lifecycle and optionally a target
-//! date (e.g. "reverb v1.1").
+//! Projects: bodies of work with a goal and a lifecycle (e.g. "reverb v1.1").
 //!
 //! An issue can be in any number of projects, or none. A project can have
 //! default labels: issues get them when they join the project, and keep them
@@ -104,8 +103,6 @@ pub struct Project {
     pub name: String,
     pub status: ProjectStatus,
     pub description: String,
-    /// `YYYY-MM-DD`.
-    pub target_date: Option<String>,
     /// Default labels, given to issues when they join the project.
     pub labels: Vec<String>,
     pub issue_count: i64,
@@ -121,7 +118,6 @@ pub struct NewProject {
     pub name: String,
     pub status: ProjectStatus,
     pub description: String,
-    pub target_date: Option<String>,
     /// Default labels; missing labels are created.
     pub labels: Vec<String>,
 }
@@ -132,7 +128,6 @@ impl NewProject {
             name: name.into(),
             status: ProjectStatus::Active,
             description: String::new(),
-            target_date: None,
             labels: Vec::new(),
         }
     }
@@ -144,8 +139,6 @@ pub struct ProjectUpdate {
     pub name: Option<String>,
     pub status: Option<ProjectStatus>,
     pub description: Option<String>,
-    /// `Some(None)` clears the date.
-    pub target_date: Option<Option<String>>,
 }
 
 fn normalize_project_name(name: &str) -> Result<String> {
@@ -158,33 +151,7 @@ fn normalize_project_name(name: &str) -> Result<String> {
     Ok(name.to_owned())
 }
 
-/// Validates a `YYYY-MM-DD` date.
-pub fn parse_date(date: &str) -> Result<String> {
-    let date = date.trim();
-    let invalid = || format!("invalid date {date:?} (expected YYYY-MM-DD)");
-    let parts: Vec<&str> = date.split('-').collect();
-    let [y, m, d] = parts.as_slice() else {
-        anyhow::bail!(invalid());
-    };
-    anyhow::ensure!(y.len() == 4 && m.len() == 2 && d.len() == 2, invalid());
-    let (y, m, d): (u32, u32, u32) = (
-        y.parse().with_context(invalid)?,
-        m.parse().with_context(invalid)?,
-        d.parse().with_context(invalid)?,
-    );
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    let days = match m {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => anyhow::bail!(invalid()),
-    };
-    anyhow::ensure!((1..=days).contains(&d), invalid());
-    Ok(date.to_owned())
-}
-
-const PROJECT_COLUMNS: &str = "p.id, p.name, p.status, p.description, p.target_date, p.created_at,
+const PROJECT_COLUMNS: &str = "p.id, p.name, p.status, p.description, p.created_at,
     (SELECT count(*) FROM issue_projects ip WHERE ip.project_id = p.id),
     (SELECT count(*) FROM issue_projects ip JOIN issues i ON i.id = ip.issue_id
         WHERE ip.project_id = p.id AND i.status IN ('done', 'cancelled'))";
@@ -196,10 +163,9 @@ fn project_from_row(row: &Row) -> rusqlite::Result<(i64, Project)> {
             name: row.get(1)?,
             status: row.get(2)?,
             description: row.get(3)?,
-            target_date: row.get(4)?,
-            created_at: row.get(5)?,
-            issue_count: row.get(6)?,
-            closed_issue_count: row.get(7)?,
+            created_at: row.get(4)?,
+            issue_count: row.get(5)?,
+            closed_issue_count: row.get(6)?,
             labels: Vec::new(),
         },
     ))
@@ -207,13 +173,13 @@ fn project_from_row(row: &Row) -> rusqlite::Result<(i64, Project)> {
 
 impl Db {
     /// Active, then planned, then (if `include_closed`) done and archived
-    /// projects; by target date (undated last), then name.
+    /// projects; by name.
     pub fn list_projects(&self, include_closed: bool) -> Result<Vec<Project>> {
         let rows: Vec<(i64, Project)> = self
             .conn
             .prepare_cached(&format!(
                 "SELECT {PROJECT_COLUMNS} FROM projects p
-                 ORDER BY p.target_date IS NULL, p.target_date, p.name COLLATE NOCASE"
+                 ORDER BY p.name COLLATE NOCASE"
             ))?
             .query_map([], project_from_row)?
             .collect::<rusqlite::Result<_>>()?;
@@ -245,7 +211,6 @@ impl Db {
             self.find_project(&name)?.is_none(),
             "project {name:?} already exists"
         );
-        let target_date = new.target_date.as_deref().map(parse_date).transpose()?;
         let labels = new
             .labels
             .iter()
@@ -253,8 +218,8 @@ impl Db {
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
         self.conn.execute(
-            "INSERT INTO projects (name, status, description, target_date) VALUES (?1, ?2, ?3, ?4)",
-            params![name, new.status, new.description.trim(), target_date],
+            "INSERT INTO projects (name, status, description) VALUES (?1, ?2, ?3)",
+            params![name, new.status, new.description.trim()],
         )?;
         let id = self.conn.last_insert_rowid();
         for label in &labels {
@@ -303,13 +268,6 @@ impl Db {
             self.conn.execute(
                 "UPDATE projects SET description = ?2 WHERE id = ?1",
                 params![id, description.trim()],
-            )?;
-        }
-        if let Some(date) = &update.target_date {
-            let date = date.as_deref().map(parse_date).transpose()?;
-            self.conn.execute(
-                "UPDATE projects SET target_date = ?2 WHERE id = ?1",
-                params![id, date],
             )?;
         }
         tx.commit()?;
@@ -464,21 +422,11 @@ mod tests {
     }
 
     #[test]
-    fn dates() {
-        assert_eq!(parse_date(" 2024-02-29 ").unwrap(), "2024-02-29");
-        assert!(parse_date("2023-02-29").is_err());
-        assert!(parse_date("2024-13-01").is_err());
-        assert!(parse_date("2024-1-01").is_err());
-        assert!(parse_date("tomorrow").is_err());
-    }
-
-    #[test]
     fn create_update_delete() {
         let db = Db::open_in_memory().unwrap();
         let p = db
             .create_project(&NewProject {
                 description: " goal ".into(),
-                target_date: Some("2027-01-15".into()),
                 labels: strings(&["acme/reverb"]),
                 ..NewProject::new(" Reverb v1.1 ")
             })
@@ -488,13 +436,6 @@ mod tests {
         assert_eq!(p.description, "goal");
         assert_eq!(p.labels, ["acme/reverb"]);
         assert!(db.create_project(&NewProject::new("reverb V1.1")).is_err());
-        assert!(
-            db.create_project(&NewProject {
-                target_date: Some("nope".into()),
-                ..NewProject::new("x")
-            })
-            .is_err()
-        );
 
         let p = db
             .update_project(
@@ -502,14 +443,13 @@ mod tests {
                 &ProjectUpdate {
                     name: Some("Reverb 1.1".into()),
                     status: Some(ProjectStatus::Done),
-                    target_date: Some(None),
                     ..Default::default()
                 },
             )
             .unwrap();
         assert_eq!(
-            (p.name.as_str(), p.status, p.target_date),
-            ("Reverb 1.1", ProjectStatus::Done, None)
+            (p.name.as_str(), p.status),
+            ("Reverb 1.1", ProjectStatus::Done)
         );
         assert!(db.list_projects(false).unwrap().is_empty());
         assert_eq!(db.list_projects(true).unwrap().len(), 1);
@@ -525,25 +465,24 @@ mod tests {
     #[test]
     fn listing_order() {
         let db = Db::open_in_memory().unwrap();
-        let mk = |name: &str, status, date: Option<&str>| {
+        let mk = |name: &str, status| {
             db.create_project(&NewProject {
                 status,
-                target_date: date.map(Into::into),
                 ..NewProject::new(name)
             })
             .unwrap();
         };
-        mk("b", ProjectStatus::Planned, None);
-        mk("a", ProjectStatus::Active, None);
-        mk("c", ProjectStatus::Active, Some("2027-01-01"));
-        mk("d", ProjectStatus::Archived, None);
+        mk("b", ProjectStatus::Planned);
+        mk("c", ProjectStatus::Active);
+        mk("a", ProjectStatus::Active);
+        mk("d", ProjectStatus::Archived);
         let names: Vec<_> = db
             .list_projects(true)
             .unwrap()
             .into_iter()
             .map(|p| p.name)
             .collect();
-        assert_eq!(names, ["c", "a", "b", "d"]);
+        assert_eq!(names, ["a", "c", "b", "d"]);
     }
 
     #[test]
