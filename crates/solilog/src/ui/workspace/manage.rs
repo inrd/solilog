@@ -13,6 +13,7 @@ use super::sidebar::SidebarItem;
 use super::{CreateAction, Modal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view};
 use crate::ui::picker::{Picker, PickerItem};
+use crate::ui::status_icon::project_status_icon;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -411,7 +412,7 @@ impl Workspace {
                         status: Some(status),
                     };
                     (
-                        PickerItem::new(status.label()),
+                        PickerItem::new(status.label()).icon(move || project_status_icon(status)),
                         Box::new(action) as Box<dyn Action>,
                     )
                 })

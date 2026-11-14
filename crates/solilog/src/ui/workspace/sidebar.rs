@@ -12,11 +12,12 @@ use gpui::{
     Action, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent,
     SharedString, Window, div, prelude::*, px, rgb,
 };
-use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement};
+use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement, ProjectStatus};
 
 use super::scope::Source;
 use super::{Modal, OpenModal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view, workspace};
+use crate::ui::status_icon::project_status_icon;
 use crate::ui::theme;
 
 pub const CONTEXT: &str = "Sidebar";
@@ -122,6 +123,8 @@ enum Row {
         count: usize,
         /// Overrides `count` on the right (e.g. the closed-projects chevron).
         trailing: Option<&'static str>,
+        /// Shown as an indicator before the label.
+        status: Option<ProjectStatus>,
     },
 }
 
@@ -141,6 +144,7 @@ impl Workspace {
             depth: 0,
             count: self.open_count(&IssueFilter::default()),
             trailing: None,
+            status: None,
         }];
         if !self.views.is_empty() {
             rows.push(Row::Heading("Views"));
@@ -150,6 +154,7 @@ impl Workspace {
                 depth: 0,
                 count: self.open_count(&v.filter),
                 trailing: None,
+                status: None,
             }));
         }
 
@@ -161,6 +166,7 @@ impl Workspace {
                 depth: 0,
                 count: self.open_count(&Source::Project(p.name.clone()).filter()),
                 trailing: None,
+                status: Some(p.status),
             };
             let (closed, open): (Vec<_>, Vec<_>) =
                 self.projects.iter().partition(|p| p.status.is_closed());
@@ -176,17 +182,23 @@ impl Workspace {
                     } else {
                         "▸"
                     }),
+                    status: None,
                 });
                 if self.show_closed_projects {
                     rows.extend(closed.into_iter().map(|p| match project_row(p) {
                         Row::Item {
-                            item, label, count, ..
+                            item,
+                            label,
+                            count,
+                            status,
+                            ..
                         } => Row::Item {
                             item,
                             label,
                             depth: 1,
                             count,
                             trailing: None,
+                            status,
                         },
                         heading => heading,
                     }));
@@ -204,6 +216,7 @@ impl Workspace {
                     depth: l.depth(),
                     count: self.open_count(&Source::Label(l.name.clone()).filter()),
                     trailing: None,
+                    status: None,
                 }
             }));
         }
@@ -488,6 +501,7 @@ impl Workspace {
                     depth,
                     count,
                     trailing,
+                    status,
                 } => {
                     let highlight = if (focused && item == self.sidebar_cursor)
                         || menu_item.as_ref() == Some(&item)
@@ -531,6 +545,7 @@ impl Workspace {
                         .when_some(reorderable, |row, target| {
                             self.drag_and_drop(row, target, cx)
                         })
+                        .when_some(status, |s, status| s.child(project_status_icon(status)))
                         .child(
                             div()
                                 .flex_1()
