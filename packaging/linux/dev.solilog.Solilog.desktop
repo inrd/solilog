@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Solilog
+Comment=Offline, keyboard-first issue tracker
+Exec=@BIN@
+Icon=dev.solilog.Solilog
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=issues;tasks;todo;tracker;
+StartupNotify=true
+StartupWMClass=dev.solilog.Solilog

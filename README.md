@@ -4,15 +4,19 @@ A fast, minimal, offline issue tracker for one. Native desktop app built in Rust
 
 ![Solilog](docs/screenshot.png)
 
-## Install (macOS)
+## Install
 
 ```sh
-make install      # builds Solilog.app, installs it in /Applications,
-                  # links the `solilog` command into ~/.local/bin
-make uninstall    # removes both; your database is kept
+make install      # macOS: builds Solilog.app, installs it in /Applications,
+                  #   links the `solilog` command into ~/.local/bin
+                  # Linux: installs `solilog` in ~/.local/bin, with a desktop
+                  #   entry and an icon in ~/.local/share (app launcher)
+make uninstall    # removes them; your database is kept
 ```
 
-`APP_DIR=…` and `BIN_DIR=…` change where they go. `make` lists the other targets (tests, lints, bundle only, …).
+`BIN_DIR=…`, `APP_DIR=…` (macOS) and `DATA_DIR=…` (Linux) change where they go. `make` lists the other targets (tests, lints, bundle only, …).
+
+On Linux, building needs a C compiler and the development packages of GPUI's dependencies (as for [Zed](https://zed.dev/docs/development/linux)): on Debian/Ubuntu, `sudo apt install build-essential pkg-config libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev`; a build error names any other missing package. Running it needs Vulkan (`libvulkan1` and a driver; Mesa provides one for most GPUs).
 
 ## Run from source
 

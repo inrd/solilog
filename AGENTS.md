@@ -18,8 +18,10 @@ crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
                        must draw them (Wayland without server-side decorations)
   src/ui/workspace.rs  main view; action handlers
   src/ui/workspace/    parts of the main view (sidebar, …)
-packaging/macos/       app icon (icon.svg → Solilog.icns via icon.sh), Info.plist
-Makefile               common tasks, macOS bundle and install
+packaging/icon.svg     app icon, for both systems
+packaging/macos/       Solilog.icns (from icon.svg via icon.sh), Info.plist
+packaging/linux/       .desktop file (named after the app id, `APP_ID` in ui/mod.rs)
+Makefile               common tasks, install (macOS bundle; Linux desktop entry)
 scripts/               demo database, README screenshot
 docs/screenshot.png    README image, generated: see "Screenshot"
 ```

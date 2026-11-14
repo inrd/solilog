@@ -1,12 +1,22 @@
-# Common tasks. `make install` builds Solilog.app, installs it and puts the
-# `solilog` command on the PATH (a link into the app, so both stay in sync).
+# Common tasks. `make install` installs the app and puts the `solilog`
+# command on the PATH:
+# - macOS: builds Solilog.app, installs it in APP_DIR and links the command
+#   into the app, so both stay in sync.
+# - Linux: installs the binary in BIN_DIR, plus a desktop entry and an icon
+#   in DATA_DIR, so the app shows up in the desktop's app launcher.
 
-APP_DIR ?= /Applications
-BIN_DIR ?= $(HOME)/.local/bin
+UNAME    ?= $(shell uname -s)
+APP_ID   := dev.solilog.Solilog
+BIN_DIR  ?= $(HOME)/.local/bin
+APP_DIR  ?= /Applications
+DATA_DIR ?= $(HOME)/.local/share
 
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 APP     := target/release/Solilog.app
 MACOS   := packaging/macos
+LINUX   := packaging/linux
+DESKTOP := $(DATA_DIR)/applications/$(APP_ID).desktop
+ICON    := $(DATA_DIR)/icons/hicolor/scalable/apps/$(APP_ID).svg
 
 .PHONY: help run demo screenshot test test-core clippy check release bundle install uninstall icon clean
 
@@ -19,7 +29,7 @@ run: ## Run the desktop app (debug build)
 demo: release ## Run the app on a fresh demo database
 	@db="$$(mktemp -d)/solilog.db" && scripts/demo-db.sh "$$db" && SOLILOG_DB="$$db" target/release/solilog
 
-screenshot: release ## Update docs/screenshot.png (the README image) from the demo data
+screenshot: release ## Update docs/screenshot.png (the README image) from the demo data (macOS)
 	scripts/screenshot.sh
 
 test: ## Run all tests
@@ -36,7 +46,10 @@ check: test clippy ## Tests and lints
 release: ## Release build of the binary
 	cargo build --release -p solilog
 
-bundle: release ## Build target/release/Solilog.app
+bundle: release ## Build target/release/Solilog.app (macOS)
+ifneq ($(UNAME),Darwin)
+	@echo "bundle: macOS only (on Linux, \`make install\` installs the binary)" >&2; exit 1
+endif
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp target/release/solilog $(APP)/Contents/MacOS/solilog
@@ -44,19 +57,37 @@ bundle: release ## Build target/release/Solilog.app
 	sed 's/@VERSION@/$(VERSION)/g' $(MACOS)/Info.plist > $(APP)/Contents/Info.plist
 	codesign --force --sign - $(APP)  # ad-hoc, so macOS treats it as one app
 
-install: bundle ## Install the app in APP_DIR and link the CLI into BIN_DIR
+ifeq ($(UNAME),Darwin)
+install: bundle ## Install the app and the `solilog` command
 	-osascript -e 'if application "Solilog" is running then quit app "Solilog"'
 	rm -rf "$(APP_DIR)/Solilog.app"
 	ditto $(APP) "$(APP_DIR)/Solilog.app"
 	mkdir -p "$(BIN_DIR)"
 	ln -sf "$(APP_DIR)/Solilog.app/Contents/MacOS/solilog" "$(BIN_DIR)/solilog"
 	@case ":$$PATH:" in *":$(BIN_DIR):"*) ;; *) echo "note: $(BIN_DIR) is not on your PATH";; esac
+else
+install: release
+	mkdir -p "$(BIN_DIR)" "$(dir $(DESKTOP))" "$(dir $(ICON))"
+# Replaced, not overwritten in place: a running app keeps its copy.
+	rm -f "$(BIN_DIR)/solilog"
+	cp target/release/solilog "$(BIN_DIR)/solilog"
+	sed 's|@BIN@|$(BIN_DIR)/solilog|' $(LINUX)/$(APP_ID).desktop > "$(DESKTOP)"
+	cp packaging/icon.svg "$(ICON)"
+	@# Refresh the launcher's caches, where the desktop keeps them.
+	@if command -v update-desktop-database >/dev/null; then update-desktop-database "$(dir $(DESKTOP))"; fi
+	@if command -v gtk-update-icon-cache >/dev/null; then gtk-update-icon-cache -q -t "$(DATA_DIR)/icons/hicolor"; fi
+	@case ":$$PATH:" in *":$(BIN_DIR):"*) ;; *) echo "note: $(BIN_DIR) is not on your PATH";; esac
+endif
 
-uninstall: ## Remove the app and the CLI link (the database is kept)
+uninstall: ## Remove the app and the `solilog` command (the database is kept)
+ifeq ($(UNAME),Darwin)
 	rm -rf "$(APP_DIR)/Solilog.app"
+else
+	rm -f "$(DESKTOP)" "$(ICON)"
+endif
 	rm -f "$(BIN_DIR)/solilog"
 
-icon: ## Regenerate the .icns from icon.svg (needs rsvg-convert)
+icon: ## Regenerate the macOS .icns from packaging/icon.svg (needs rsvg-convert)
 	$(MACOS)/icon.sh
 
 clean: ## Remove build output
