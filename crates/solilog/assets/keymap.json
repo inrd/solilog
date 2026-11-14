@@ -55,7 +55,9 @@
       "g g": "issue_list::SelectFirst",
       "shift-g": "issue_list::SelectLast",
       "home": "issue_list::SelectFirst",
-      "end": "issue_list::SelectLast"
+      "end": "issue_list::SelectLast",
+      "m": "issue_list::ShowContextMenu",
+      "shift-f10": "issue_list::ShowContextMenu"
     }
   },
   {

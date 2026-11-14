@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    Pixels, Point, ScrollHandle, Subscription, Task, Window, anchored, deferred, div, prelude::*,
+    MouseDownEvent, Pixels, Point, ScrollHandle, Subscription, Task, Window, anchored, deferred, div, prelude::*,
     px, rgb,
 };
 use solilog_core::{Db, Issue, IssueFilter, IssueId, Label, NewProject, Project, Status, View};
@@ -81,6 +81,7 @@ type MenuEntry = (&'static str, Box<dyn Action>);
 enum MenuTarget {
     Sidebar(SidebarItem),
     Archive(ArchiveItem),
+    Issue(IssueId),
 }
 
 /// A change to an issue's labels or projects, each an action that picks the
@@ -641,6 +642,60 @@ impl Workspace {
         }
     }
 
+    /// Opens the menu of the selected issue, at `position` (window
+    /// coordinates) when opened with the mouse.
+    fn show_issue_menu(
+        &mut self,
+        position: Option<Point<Pixels>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(issue) = self.selected_issue(cx) else {
+            return;
+        };
+        let mut entries: Vec<MenuEntry> = vec![
+            ("Set Status…", Box::new(SetStatus::default())),
+            ("Add Label…", Box::new(AddLabel::default())),
+        ];
+        if !issue.labels.is_empty() {
+            entries.push(("Remove Label…", Box::new(RemoveLabel::default())));
+        }
+        entries.push(("Add to Project…", Box::new(AddToProject::default())));
+        if !issue.projects.is_empty() {
+            entries.push((
+                "Remove from Project…",
+                Box::new(RemoveFromProject::default()),
+            ));
+        }
+        entries.push(("Archive", Box::new(issue::Archive)));
+        entries.push((
+            "Delete…",
+            Box::new(issue::Delete {
+                id: Some(issue.id),
+                confirmed: false,
+            }),
+        ));
+        // The entries act on the selection from the issue list.
+        window.focus(&self.list_focus);
+        self.open_context_menu(
+            &issue.id.to_string(),
+            entries,
+            MenuTarget::Issue(issue.id),
+            position,
+            window,
+            cx,
+        );
+    }
+
+    fn on_show_issue_menu(
+        &mut self,
+        _: &issue_list::ShowContextMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_issue_menu(None, window, cx);
+    }
+
     fn on_new_issue(&mut self, _: &issue::New, window: &mut Window, cx: &mut Context<Self>) {
         self.close_modal(window, cx);
         if self.showing_archive {
@@ -710,6 +765,16 @@ impl Workspace {
     ) -> impl IntoElement + use<> {
         let issue_id = issue.id;
         let selected = self.selected == Some(issue_id);
+        let menu_open = matches!(
+            &self.modal,
+            Some(OpenModal {
+                modal: Modal::ContextMenu {
+                    target: MenuTarget::Issue(id),
+                    ..
+                },
+                ..
+            }) if *id == issue_id
+        );
 
         let status = div()
             .id(("status", issue_id.0 as u64))
@@ -736,7 +801,7 @@ impl Workspace {
             .px_4()
             .py_1()
             .when(selected, |s| {
-                s.bg(rgb(if list_focused {
+                s.bg(rgb(if list_focused || menu_open {
                     theme::HIGHLIGHT
                 } else {
                     theme::HOVER
@@ -746,6 +811,13 @@ impl Workspace {
                 this.select_index(ix, cx);
                 window.focus(&this.list_focus);
             }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    this.select_index(ix, cx);
+                    this.show_issue_menu(Some(event.position), window, cx);
+                }),
+            )
             .child(status)
             .child(
                 div()
@@ -957,6 +1029,8 @@ impl Workspace {
                     .on_action(cx.listener(Self::select_first))
                     .on_action(cx.listener(Self::select_last))
                     .on_action(cx.listener(Self::on_archive_issue))
+                    .on_action(cx.listener(Self::on_delete_issue))
+                    .on_action(cx.listener(Self::on_show_issue_menu))
                     .flex_1()
                     .flex()
                     .flex_col()

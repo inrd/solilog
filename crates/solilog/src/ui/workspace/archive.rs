@@ -260,7 +260,7 @@ impl Workspace {
         self.set_archived(false, cx);
     }
 
-    fn on_delete_issue(
+    pub(super) fn on_delete_issue(
         &mut self,
         action: &issue::Delete,
         window: &mut Window,

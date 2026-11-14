@@ -449,6 +449,9 @@ pub mod issue_list {
             SelectPrevious,
             SelectFirst,
             SelectLast,
+            /// Show the menu of the selected issue (set status, labels,
+            /// archive…). Right-clicking an issue does this.
+            ShowContextMenu,
         ]
     );
 }
