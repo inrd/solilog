@@ -455,6 +455,62 @@ pub mod checklist {
     }
 }
 
+/// Files attached to the open issue. They are copied into the attachments
+/// directory next to the database, one folder per issue.
+pub mod attachment {
+    use std::path::PathBuf;
+
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::AttachmentId;
+
+    actions!(
+        attachment,
+        [
+            /// Attach the files (copied in the Finder) or the image (e.g. a
+            /// screenshot) on the clipboard to the open issue.
+            Paste,
+        ]
+    );
+
+    /// Attach files to the open issue: the given `paths`, else the files
+    /// chosen in a file dialog. Dropping files on the open issue does this.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = attachment)]
+    #[serde(deny_unknown_fields)]
+    pub struct Add {
+        #[serde(default)]
+        pub paths: Vec<PathBuf>,
+    }
+
+    /// Show an attachment's file in the Finder (the file manager): the
+    /// given `id`, else one picked among the open issue's attachments.
+    /// Clicking an attachment does this.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = attachment)]
+    #[serde(deny_unknown_fields)]
+    pub struct Reveal {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<AttachmentId>,
+    }
+
+    /// Delete an attachment and its file: the given `id`, else one picked
+    /// among the open issue's attachments. Asks for confirmation unless
+    /// `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = attachment)]
+    #[serde(deny_unknown_fields)]
+    pub struct Delete {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<AttachmentId>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
+}
+
 pub mod view {
     use gpui::{Action, actions};
     use schemars::JsonSchema;

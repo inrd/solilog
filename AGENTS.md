@@ -58,7 +58,7 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, description, status, labels, projects, checklist. The description is
+- **Issue**: title, description, status, labels, projects, checklist, attachments. The description is
   plain text, stored as written apart from whitespace cleanup
   (`normalize_description`), so it can be rendered as Markdown later. An issue can be archived: it
   keeps everything but is left out of listings, views and counts
@@ -71,6 +71,15 @@ writing SQL or validation in `crates/solilog`, move it to core.
   number). It only tracks progress (`Issue::checklist_progress`, shown as
   `done/total` in the list): unchecked items never prevent closing an issue.
   New items go last; `Db::move_checklist_item` reorders within one checklist.
+- **Attachment**: a file copied into the attachments directory next to the
+  database (`solilog.db` → `solilog-attachments/SOL-12/<name>`; see
+  `attachments_dir_for`), so the database and that directory move together.
+  The database lists them (`Attachment`: id, name, size, `path` computed from
+  the database location); stray files in the directory are ignored. Names
+  are unique per issue, ignoring case (taken ones get ` (2)`); existing
+  files are never overwritten. Deleting an issue deletes its directory;
+  archiving keeps it. In-memory databases can't have attachments: tests use
+  a temporary database file.
 - **Label**: a free-form, hierarchical tag. The name is a `/`-separated path
   (`acme/reverb`). Every ancestor exists as a label of its own and is created
   on demand. An issue may carry any number of labels. Filtering by a label
@@ -140,7 +149,8 @@ One concept, one name, consistent across surfaces:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
 - Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `IssueDetail` | `NewIssue > TextInput`;
-  `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items;
+  `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items
+  (attachment commands are registered on `IssueDetail`);
   `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
   bindings in a context that holds text fields need `&& !TextInput` (see `IssueDetail`).
 - Issue commands act on the selected issues (`issue_list::ToggleSelected`,
@@ -152,6 +162,8 @@ One concept, one name, consistent across surfaces:
   description and checklist items are edited in place and saved as you type
   (`workspace/detail.rs`, `workspace/detail/checklist.rs`). Issue commands
   then act on it; checklist item commands act on the item being edited.
+  Files dropped on it, or pasted (`ui/clipboard.rs` reads copied Finder
+  files and images on macOS), become attachments.
 - The archive (`workspace::OpenArchive`, palette only) replaces the issue list
   and lists archived projects and issues, with a context menu to delete them
   or bring them back.

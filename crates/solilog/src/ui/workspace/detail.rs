@@ -1,5 +1,6 @@
 //! The issue detail: one issue, in place of the issue list (or the archive),
-//! with its title, description and checklist editable in place. Opened with
+//! with its title, description and checklist editable in place, and its
+//! attachments. Opened with
 //! `issue::Open` (Enter or double click in the list), left with
 //! `issue_detail::Close` (Escape).
 //!
@@ -9,18 +10,20 @@
 //! closes. Changes made elsewhere (e.g. from the CLI) show up in a field
 //! unless it has unsaved edits.
 
+mod attachments;
 mod checklist;
 
 use std::time::Duration;
 
 use gpui::{
-    Action, ClickEvent, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
-    ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
+    Action, ClickEvent, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
+    IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
 };
 use solilog_core::{Issue, IssueEdit, IssueId, normalize_description};
 
 use super::{Workspace, chip};
 use crate::ui::actions::{
+    attachment,
     issue::{self, SetStatus},
     issue_detail,
 };
@@ -409,6 +412,7 @@ impl Workspace {
                     .line_height(px(22.))
                     .child(detail.description.clone()),
             )
+            .child(self.render_attachments(detail))
             .child(self.render_checklist(detail, cx));
 
         div()
@@ -433,6 +437,21 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_toggle_checklist_item))
                     .on_action(cx.listener(Self::on_delete_checklist_item))
                     .on_action(cx.listener(Self::on_move_item))
+                    .on_action(cx.listener(Self::on_add_attachments))
+                    .on_action(cx.listener(Self::on_paste_attachments))
+                    .on_action(cx.listener(Self::on_reveal_attachment))
+                    .on_action(cx.listener(Self::on_delete_attachment))
+                    // Files dropped anywhere on the issue are attached to it.
+                    .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(rgb(theme::SELECTION)))
+                    .on_drop({
+                        let focus = focus.clone();
+                        move |paths: &ExternalPaths, window, cx| {
+                            let action = attachment::Add {
+                                paths: paths.paths().to_vec(),
+                            };
+                            focus.dispatch_action(&action, window, cx);
+                        }
+                    })
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()

@@ -119,6 +119,8 @@
       "enter": "issue_detail::EditDescription",
       "d": "issue_detail::EditDescription",
       "a": "checklist::AddItem",
+      "shift-a": "attachment::Add",
+      "cmd-v": "attachment::Paste",
       "s": "issue::SetStatus",
       "l": "issue::AddLabel",
       "shift-l": "issue::RemoveLabel",

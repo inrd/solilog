@@ -7,6 +7,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::attachment::Attachment;
 use crate::checklist::{ChecklistItem, checklist_progress};
 
 /// Prefix of human-facing issue ids (`SOL-12`).
@@ -87,6 +88,8 @@ pub struct Issue {
     pub projects: Vec<String>,
     /// Checklist items, in order; empty when there is no checklist.
     pub checklist: Vec<ChecklistItem>,
+    /// Attached files, in the order they were added.
+    pub attachments: Vec<Attachment>,
 }
 
 impl Issue {

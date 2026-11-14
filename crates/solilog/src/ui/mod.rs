@@ -1,6 +1,7 @@
 //! The GPUI desktop app.
 
 pub mod actions;
+mod clipboard;
 pub mod keymap;
 mod picker;
 mod status_icon;

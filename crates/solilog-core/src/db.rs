@@ -15,6 +15,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, params};
 
+use crate::attachment::attachments_dir_for;
 use crate::checklist::normalize_item_text;
 use crate::filter::IssueFilter;
 use crate::issue::{
@@ -119,6 +120,15 @@ const MIGRATIONS: &[&str] = &[
     UPDATE issues SET position = ranked.position
     FROM (SELECT id, row_number() OVER (ORDER BY id DESC) AS position FROM issues) AS ranked
     WHERE ranked.id = issues.id;",
+    // 14: attachments: files in `<attachments dir>/SOL-<issue>/<name>`.
+    "CREATE TABLE attachments (
+        id         INTEGER PRIMARY KEY,
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        name       TEXT    NOT NULL,
+        size       INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE (issue_id, name COLLATE NOCASE)
+    );",
 ];
 
 /// Label names per issue.
@@ -137,6 +147,8 @@ const ISSUE_COLUMNS: &str = "id, title, status, created_at, archived, descriptio
 
 pub struct Db {
     pub(crate) conn: Connection,
+    /// Where attachment files go (see `attachment.rs`); `None` in memory.
+    pub(crate) attachments_dir: Option<PathBuf>,
 }
 
 impl Db {
@@ -150,18 +162,22 @@ impl Db {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
-        Self::init(conn)
+        Self::init(conn, Some(attachments_dir_for(path)))
     }
 
+    /// A database without a file, for tests. It can't have attachments.
     pub fn open_in_memory() -> Result<Self> {
-        Self::init(Connection::open_in_memory()?)
+        Self::init(Connection::open_in_memory()?, None)
     }
 
-    fn init(conn: Connection) -> Result<Self> {
+    fn init(conn: Connection, attachments_dir: Option<PathBuf>) -> Result<Self> {
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let mut db = Self { conn };
+        let mut db = Self {
+            conn,
+            attachments_dir,
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -222,10 +238,12 @@ impl Db {
         let mut labels = self.names_per_issue(ISSUE_LABELS_SQL, None)?;
         let mut projects = self.names_per_issue(ISSUE_PROJECTS_SQL, None)?;
         let mut checklists = self.checklists_per_issue(None)?;
+        let mut attachments = self.attachments_per_issue(None)?;
         for issue in &mut issues {
             issue.labels = labels.remove(&issue.id).unwrap_or_default();
             issue.projects = projects.remove(&issue.id).unwrap_or_default();
             issue.checklist = checklists.remove(&issue.id).unwrap_or_default();
+            issue.attachments = attachments.remove(&issue.id).unwrap_or_default();
         }
         issues.retain(|i| filter.matches(i));
         Ok(issues)
@@ -251,6 +269,10 @@ impl Db {
             .unwrap_or_default();
         issue.checklist = self
             .checklists_per_issue(Some(id))?
+            .remove(&id)
+            .unwrap_or_default();
+        issue.attachments = self
+            .attachments_per_issue(Some(id))?
             .remove(&id)
             .unwrap_or_default();
         Ok(issue)
@@ -410,7 +432,8 @@ impl Db {
         Ok(issues.remove(0))
     }
 
-    /// Deletes issues for good, all or nothing. Returns them as they were.
+    /// Deletes issues for good, with their attachments, all or nothing.
+    /// Returns them as they were.
     pub fn delete_issues(&self, ids: &[IssueId]) -> Result<Vec<Issue>> {
         let tx = self.conn.unchecked_transaction()?;
         let mut deleted = Vec::with_capacity(ids.len());
@@ -423,6 +446,9 @@ impl Db {
                 .execute("DELETE FROM issues WHERE id = ?1", [id])?;
         }
         tx.commit()?;
+        // After the commit: files are only removed once the issues are gone.
+        let ids: Vec<IssueId> = deleted.iter().map(|i| i.id).collect();
+        self.remove_attachment_dirs(&ids)?;
         Ok(deleted)
     }
 
@@ -476,6 +502,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         labels: Vec::new(),
         projects: Vec::new(),
         checklist: Vec::new(),
+        attachments: Vec::new(),
     })
 }
 

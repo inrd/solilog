@@ -14,8 +14,9 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    ChecklistItemId, Db, Issue, IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue,
-    NewProject, Placement, Project, ProjectStatus, ProjectUpdate, Status, View,
+    Attachment, AttachmentId, ChecklistItemId, Db, Issue, IssueEdit, IssueFilter, IssueId, Label,
+    LabelColor, NewIssue, NewProject, Placement, Project, ProjectStatus, ProjectUpdate, Status,
+    View,
 };
 
 #[derive(Parser)]
@@ -70,6 +71,16 @@ pub enum Command {
     /// id. Every command prints the issue.
     #[command(subcommand, visible_alias = "c")]
     Checklist(ChecklistCommand),
+    /// Manage files attached to issues.
+    ///
+    /// Attaching copies a file into the attachments directory, next to the
+    /// database (`<db name>-attachments/SOL-12/<file name>`); the original
+    /// is left alone. Names are unique within an issue: a taken name gets a
+    /// number (`notes (2).txt`). Attachments have ids of their own (shown by
+    /// `issue show`, and in its JSON as `attachments[].id`, with the file's
+    /// `path`). Deleting an issue deletes its attachments.
+    #[command(subcommand, visible_alias = "a")]
+    Attachment(AttachmentCommand),
     /// List the valid issue statuses.
     Statuses,
     /// Show keymap information.
@@ -94,7 +105,7 @@ pub enum IssueCommand {
         #[command(flatten)]
         filter: FilterArgs,
     },
-    /// Show one issue, with its description and checklist.
+    /// Show one issue, with its description, checklist and attachments.
     Show { id: IssueId },
     /// Create an issue and print it.
     #[command(visible_alias = "new")]
@@ -215,6 +226,26 @@ pub enum ChecklistCommand {
     /// Delete an item.
     #[command(visible_alias = "rm")]
     Delete { item: ChecklistItemId },
+}
+
+#[derive(Subcommand)]
+pub enum AttachmentCommand {
+    /// Attach files to an issue (all or nothing) and print the new
+    /// attachments.
+    ///
+    /// Example: `solilog attachment add SOL-12 crash.log screenshot.png`.
+    Add {
+        id: IssueId,
+        /// Files to copy in (not folders).
+        #[arg(required = true)]
+        files: Vec<std::path::PathBuf>,
+    },
+    /// List an issue's attachments, in the order they were added.
+    #[command(visible_alias = "ls")]
+    List { id: IssueId },
+    /// Delete an attachment and its file, and print it as it was.
+    #[command(visible_alias = "rm")]
+    Delete { attachment: AttachmentId },
 }
 
 #[derive(Subcommand)]
@@ -512,6 +543,18 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
             };
             out.issue(&issue)
         }
+        Command::Attachment(cmd) => {
+            let db = Db::open_default()?;
+            match cmd {
+                AttachmentCommand::Add { id, files } => {
+                    out.attachments(&db.add_attachments(id, &files)?)
+                }
+                AttachmentCommand::List { id } => out.attachments(&db.list_attachments(id)?),
+                AttachmentCommand::Delete { attachment } => {
+                    out.attachment(&db.delete_attachment(attachment)?)
+                }
+            }
+        }
         Command::View(cmd) => {
             let db = Db::open_default()?;
             match cmd {
@@ -709,7 +752,28 @@ impl Output {
                     text.push_str(&format!("\n[{check}] {:<4} {}", item.id.0, item.text));
                 }
             }
+            if !issue.attachments.is_empty() {
+                text.push('\n');
+                for attachment in &issue.attachments {
+                    text.push('\n');
+                    text.push_str(&attachment_line(attachment));
+                }
+            }
             text
+        })
+    }
+
+    fn attachment(&self, attachment: &Attachment) -> Result<()> {
+        self.print(attachment, || attachment_line(attachment))
+    }
+
+    fn attachments(&self, attachments: &[Attachment]) -> Result<()> {
+        self.print(attachments, || {
+            attachments
+                .iter()
+                .map(attachment_line)
+                .collect::<Vec<_>>()
+                .join("\n")
         })
     }
 
@@ -776,6 +840,20 @@ fn issue_line(issue: &Issue) -> String {
     }
     if issue.archived {
         line.push_str("  (archived)");
+    }
+    line
+}
+
+/// Id, name, size and path.
+fn attachment_line(attachment: &Attachment) -> String {
+    let mut line = format!(
+        "{:<4} {}  {}",
+        attachment.id.0,
+        attachment.name,
+        solilog_core::format_size(attachment.size)
+    );
+    if let Some(path) = &attachment.path {
+        line.push_str(&format!("  {}", path.display()));
     }
     line
 }

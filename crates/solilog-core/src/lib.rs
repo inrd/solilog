@@ -3,6 +3,7 @@
 //! Frontends (the GPUI app, the CLI) call into this crate and contain no
 //! business logic of their own. This crate must never depend on GPUI.
 
+mod attachment;
 mod checklist;
 mod db;
 mod filter;
@@ -12,6 +13,10 @@ mod order;
 mod project;
 mod view;
 
+pub use attachment::{
+    Attachment, AttachmentId, AttachmentKind, attachments_dir_for, format_size,
+    normalize_attachment_name,
+};
 pub use checklist::{ChecklistItem, ChecklistItemId, checklist_progress, normalize_item_text};
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
