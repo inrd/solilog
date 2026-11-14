@@ -468,8 +468,8 @@ pub mod attachment {
     actions!(
         attachment,
         [
-            /// Attach the files (copied in the Finder) or the image (e.g. a
-            /// screenshot) on the clipboard to the open issue.
+            /// Attach the files (copied in the file manager) or the image
+            /// (e.g. a screenshot) on the clipboard to the open issue.
             Paste,
         ]
     );
@@ -497,7 +497,7 @@ pub mod attachment {
         pub id: Option<AttachmentId>,
     }
 
-    /// Show an attachment's file in the Finder (the file manager): the
+    /// Show an attachment's file in the file manager (the Finder on macOS): the
     /// given `id`, else the image being previewed, else one picked among
     /// the open issue's attachments. Clicking a file attachment does this.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]

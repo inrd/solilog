@@ -174,11 +174,13 @@ One concept, one name, consistent across surfaces:
   description and checklist items are edited in place and saved as you type
   (`workspace/detail.rs`, `workspace/detail/checklist.rs`). Issue commands
   then act on it; checklist item commands act on the item being edited.
-  Files dropped on it, or pasted (`ui/clipboard.rs` reads copied Finder
-  files and images on macOS), become attachments. Clicking an image
+  Files dropped on it, or pasted (`ui/clipboard.rs` reads files copied in
+  the file manager, and images: from the pasteboard on macOS, from the
+  clipboard text elsewhere), become attachments. Clicking an image
   attachment previews it (`attachment::Preview`, `workspace/detail/preview.rs`;
-  arrows go through the issue's images, `r` shows it in the Finder); other
-  files are shown in the Finder.
+  arrows go through the issue's images, `r` shows it in the file manager);
+  other files are shown in the file manager. Name it with
+  `SHOW_IN_FILE_MANAGER` in the UI ("Finder" on macOS).
 - The archive (`workspace::OpenArchive`, palette only) replaces the issue list
   and lists archived projects and issues, with a context menu to delete them
   or bring them back.

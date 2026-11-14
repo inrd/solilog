@@ -35,7 +35,7 @@ use super::keymap;
 use super::picker::{Picker, PickerEvent, PickerItem};
 use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
-use super::theme;
+use super::{SHOW_IN_FILE_MANAGER, theme};
 use archive::ArchiveItem;
 use detail::IssueDetail;
 use scope::Scope;
@@ -1641,7 +1641,7 @@ impl Workspace {
             (Box::new(picker::Dismiss), "Cancel"),
             (Box::new(image_preview::Previous), "Previous"),
             (Box::new(image_preview::Next), "Next"),
-            (Box::new(attachment::Reveal::default()), "Show in Finder"),
+            (Box::new(attachment::Reveal::default()), SHOW_IN_FILE_MANAGER),
             (Box::new(image_preview::Close), "Close"),
             (Box::new(issue::Open::default()), "Open"),
             (Box::new(sidebar::Open), "Open"),

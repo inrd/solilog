@@ -1,6 +1,6 @@
 //! The image preview: an image attachment of the open issue, over the whole
 //! window, scaled down to fit. It goes through the issue's images in
-//! attachment order, and can show the file in the Finder.
+//! attachment order, and can show the file in the file manager.
 //!
 //! Key context: `ImagePreview` (outside `IssueDetail`, so the issue's
 //! single-key bindings don't apply while it is open).
@@ -14,7 +14,7 @@ use solilog_core::{Attachment, AttachmentId, AttachmentKind, format_size};
 use super::super::Workspace;
 use crate::ui::actions::attachment::{Preview, Reveal};
 use crate::ui::actions::image_preview::{Close, Next, Previous};
-use crate::ui::theme;
+use crate::ui::{SHOW_IN_FILE_MANAGER, theme};
 
 pub const CONTEXT: &str = "ImagePreview";
 
@@ -215,7 +215,7 @@ impl Workspace {
             .child(div().flex_1())
             .child(button(
                 "preview-reveal",
-                "Show in Finder",
+                SHOW_IN_FILE_MANAGER,
                 Box::new(Reveal { id: Some(image.id) }),
             ))
             .child(button("preview-close", "×", Box::new(Close)));

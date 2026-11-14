@@ -26,6 +26,12 @@ const APP_NAME: &str = "Solilog";
 /// Identifies the app to Linux desktops: the name of its `.desktop` file
 /// (and the macOS bundle identifier).
 const APP_ID: &str = "dev.solilog.Solilog";
+/// Label of `attachment::Reveal` in the app, naming the system's file manager.
+const SHOW_IN_FILE_MANAGER: &str = if cfg!(target_os = "macos") {
+    "Show in Finder"
+} else {
+    "Show in File Manager"
+};
 
 pub fn run(db: Db) -> Result<()> {
     Application::new()

@@ -1,8 +1,8 @@
 //! The attachments of the open issue, below its description: one row per
 //! file (an icon for its kind, its name and size). Clicking an image
 //! previews it in the app (see `preview.rs`); clicking another file shows it
-//! in the Finder. Files are added by dropping them on the open issue,
-//! by pasting (files copied in the Finder, or an image), or from a file
+//! in the file manager. Files are added by dropping them on the open issue,
+//! by pasting (files copied in the file manager, or an image), or from a file
 //! dialog (`attachment::Add`).
 
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ use super::IssueDetail;
 use crate::ui::actions::attachment::{Add, Delete, Paste, Preview, Reveal};
 use crate::ui::clipboard::{self, Attachable};
 use crate::ui::picker::PickerItem;
-use crate::ui::theme;
+use crate::ui::{SHOW_IN_FILE_MANAGER, theme};
 
 /// Name of a pasted image, before its extension (numbered if taken).
 const PASTED_IMAGE_NAME: &str = "Pasted image";
@@ -141,15 +141,15 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let reveal = |id| Box::new(Reveal { id: Some(id) }) as Box<dyn Action>;
-        let Some(attachment) =
-            self.attachment_target(action.id, "Show in Finder…", reveal, window, cx)
+        let prompt = format!("{SHOW_IN_FILE_MANAGER}…");
+        let Some(attachment) = self.attachment_target(action.id, &prompt, reveal, window, cx)
         else {
             return;
         };
         self.reveal_attachment(&attachment, cx);
     }
 
-    /// Shows the file in the Finder, or an error if it is gone.
+    /// Shows the file in the file manager, or an error if it is gone.
     pub(in crate::ui::workspace) fn reveal_attachment(
         &mut self,
         attachment: &Attachment,
