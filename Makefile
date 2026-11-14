@@ -8,13 +8,19 @@ VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 APP     := target/release/Solilog.app
 MACOS   := packaging/macos
 
-.PHONY: help run test test-core clippy check release bundle install uninstall icon clean
+.PHONY: help run demo screenshot test test-core clippy check release bundle install uninstall icon clean
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
 run: ## Run the desktop app (debug build)
 	cargo run
+
+demo: release ## Run the app on a fresh demo database
+	@db="$$(mktemp -d)/solilog.db" && scripts/demo-db.sh "$$db" && SOLILOG_DB="$$db" target/release/solilog
+
+screenshot: release ## Update docs/screenshot.png (the README image) from the demo data
+	scripts/screenshot.sh
 
 test: ## Run all tests
 	cargo test --workspace

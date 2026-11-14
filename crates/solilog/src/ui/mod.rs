@@ -26,6 +26,7 @@ pub fn run(db: Db) -> Result<()> {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
+            use_dark_appearance();
             keymap::load(cx);
             cx.on_action(|_: &Quit, cx| cx.quit());
 
@@ -55,3 +56,19 @@ pub fn run(db: Db) -> Result<()> {
         });
     Ok(())
 }
+
+/// The app is dark whatever the system setting, so its title bar (and other
+/// native parts) must be too.
+#[cfg(target_os = "macos")]
+fn use_dark_appearance() {
+    use objc2_app_kit::{NSAppearance, NSAppearanceNameDarkAqua, NSApplication};
+
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        return;
+    };
+    let dark = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua });
+    NSApplication::sharedApplication(mtm).setAppearance(dark.as_deref());
+}
+
+#[cfg(not(target_os = "macos"))]
+fn use_dark_appearance() {}

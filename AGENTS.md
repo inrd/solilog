@@ -18,6 +18,8 @@ crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   src/ui/workspace/    parts of the main view (sidebar, …)
 packaging/macos/       app icon (icon.svg → Solilog.icns via icon.sh), Info.plist
 Makefile               common tasks, macOS bundle and install
+scripts/               demo database, README screenshot
+docs/screenshot.png    README image, generated: see "Screenshot"
 ```
 
 `solilog` with no args opens the GUI; `solilog <command>` runs the CLI.
@@ -188,3 +190,12 @@ make install                           # /Applications + CLI link in ~/.local/bi
 ```
 
 Keep the build free of warnings and clippy lints.
+
+## Screenshot
+
+The README image (`docs/screenshot.png`) is generated: `make screenshot`
+opens the app on a fresh demo database (`scripts/demo-db.sh`) and captures
+its window (the terminal needs the Screen Recording permission). After any
+visible UI change, regenerate it and commit it with the change. When a feature
+is worth showing, add it to the demo data. Keep that data fictional and
+neutral: no real people, companies or projects.

@@ -2,6 +2,8 @@
 
 A fast, minimal, offline issue tracker for one. Native desktop app built in Rust with [GPUI](https://gpui.rs), plus a CLI that works on the same data (handy for scripts and AI agents).
 
+![Solilog](docs/screenshot.png)
+
 ## Install (macOS)
 
 ```sh
