@@ -10,11 +10,11 @@ use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
     ScrollHandle, Subscription, Task, Window, deferred, div, prelude::*, px, rgb,
 };
-use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, Status};
+use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, NewProject, Status};
 
 use super::actions::{
     self, command_palette, humanize_action_name,
-    issue::{self, AddLabel, RemoveLabel, SetStatus},
+    issue::{self, AddLabel, AddToProject, RemoveFromProject, RemoveLabel, SetStatus},
     issue_list,
     workspace::{OpenKeymap, ReloadKeymap},
 };
@@ -36,17 +36,43 @@ enum Modal {
         picker: Entity<Picker>,
         issue_id: IssueId,
     },
-    AddLabel {
+    Relation {
         picker: Entity<Picker>,
         issue_id: IssueId,
-        /// Item labels, by picker index.
-        labels: Vec<String>,
+        relation: Relation,
+        /// Label or project names, by picker index.
+        names: Vec<String>,
     },
-    RemoveLabel {
-        picker: Entity<Picker>,
-        issue_id: IssueId,
-        labels: Vec<String>,
-    },
+}
+
+/// A change to an issue's labels or projects, each an action that picks the
+/// label or project interactively when not given one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Relation {
+    AddLabel,
+    RemoveLabel,
+    AddToProject,
+    RemoveFromProject,
+}
+
+impl Relation {
+    fn placeholder(self) -> &'static str {
+        match self {
+            Relation::AddLabel => "Add label…",
+            Relation::RemoveLabel => "Remove label…",
+            Relation::AddToProject => "Add to project…",
+            Relation::RemoveFromProject => "Remove from project…",
+        }
+    }
+
+    /// Prefix of the picker's "Create …" row, for relations that can create.
+    fn create_label(self) -> Option<&'static str> {
+        match self {
+            Relation::AddLabel => Some("Create label"),
+            Relation::AddToProject => Some("Create project"),
+            Relation::RemoveLabel | Relation::RemoveFromProject => None,
+        }
+    }
 }
 
 impl Modal {
@@ -54,8 +80,7 @@ impl Modal {
         match self {
             Modal::CommandPalette { picker, .. }
             | Modal::StatusPicker { picker, .. }
-            | Modal::AddLabel { picker, .. }
-            | Modal::RemoveLabel { picker, .. } => picker,
+            | Modal::Relation { picker, .. } => picker,
         }
     }
 }
@@ -232,23 +257,30 @@ impl Workspace {
                 self.set_status(issue_id, Status::ALL[*ix], cx);
             }
             (
-                Modal::AddLabel {
-                    issue_id, labels, ..
+                Modal::Relation {
+                    issue_id,
+                    relation,
+                    names,
+                    ..
                 },
                 PickerEvent::Confirmed(ix),
             ) => {
-                self.add_label(issue_id, labels[*ix].clone(), cx);
-            }
-            (Modal::AddLabel { issue_id, .. }, PickerEvent::Create(name)) => {
-                self.add_label(issue_id, name.clone(), cx);
+                self.apply_relation(relation, issue_id, names[*ix].clone(), cx);
             }
             (
-                Modal::RemoveLabel {
-                    issue_id, labels, ..
+                Modal::Relation {
+                    issue_id, relation, ..
                 },
-                PickerEvent::Confirmed(ix),
+                PickerEvent::Create(name),
             ) => {
-                self.remove_label(issue_id, labels[*ix].clone(), cx);
+                if relation == Relation::AddToProject
+                    && self
+                        .report(self.db.create_project(&NewProject::new(name.clone())), cx)
+                        .is_none()
+                {
+                    return;
+                }
+                self.apply_relation(relation, issue_id, name.clone(), cx);
             }
             (_, PickerEvent::Create(_)) => {}
         }
@@ -314,56 +346,59 @@ impl Workspace {
         );
     }
 
-    fn open_add_label_picker(
+    fn open_relation_picker(
         &mut self,
+        relation: Relation,
         issue: &Issue,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(all) = self.report(self.db.list_labels(), cx) else {
-            return;
+        let not_on_issue = |current: &[String], all: Vec<String>| -> Vec<String> {
+            all.into_iter()
+                .filter(|name| !current.iter().any(|c| c.eq_ignore_ascii_case(name)))
+                .collect()
         };
-        let labels: Vec<String> = all
-            .into_iter()
-            .map(|l| l.name)
-            .filter(|name| !issue.labels.iter().any(|l| l.eq_ignore_ascii_case(name)))
-            .collect();
-        let items = labels.iter().map(|l| PickerItem::new(l.clone())).collect();
-        let picker = cx.new(|cx| Picker::new("Add label…", items, 0, cx).creatable("Create label"));
-        let issue_id = issue.id;
-        self.open_modal(
-            picker,
-            |picker| Modal::AddLabel {
-                picker,
-                issue_id,
-                labels,
-            },
-            window,
-            cx,
-        );
-    }
-
-    fn open_remove_label_picker(
-        &mut self,
-        issue: &Issue,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if issue.labels.is_empty() {
-            self.error = Some(format!("{} has no labels", issue.id));
+        let names = match relation {
+            Relation::AddLabel => {
+                let Some(all) = self.report(self.db.list_labels(), cx) else {
+                    return;
+                };
+                not_on_issue(&issue.labels, all.into_iter().map(|l| l.name).collect())
+            }
+            Relation::AddToProject => {
+                let Some(all) = self.report(self.db.list_projects(false), cx) else {
+                    return;
+                };
+                not_on_issue(&issue.projects, all.into_iter().map(|p| p.name).collect())
+            }
+            Relation::RemoveLabel => issue.labels.clone(),
+            Relation::RemoveFromProject => issue.projects.clone(),
+        };
+        if names.is_empty() && relation.create_label().is_none() {
+            let what = match relation {
+                Relation::RemoveLabel => "has no labels",
+                _ => "is in no project",
+            };
+            self.error = Some(format!("{} {what}", issue.id));
             cx.notify();
             return;
         }
-        let labels = issue.labels.clone();
-        let items = labels.iter().map(|l| PickerItem::new(l.clone())).collect();
-        let picker = cx.new(|cx| Picker::new("Remove label…", items, 0, cx));
+        let items = names.iter().map(|n| PickerItem::new(n.clone())).collect();
+        let picker = cx.new(|cx| {
+            let picker = Picker::new(relation.placeholder(), items, 0, cx);
+            match relation.create_label() {
+                Some(label) => picker.creatable(label),
+                None => picker,
+            }
+        });
         let issue_id = issue.id;
         self.open_modal(
             picker,
-            |picker| Modal::RemoveLabel {
+            |picker| Modal::Relation {
                 picker,
                 issue_id,
-                labels,
+                relation,
+                names,
             },
             window,
             cx,
@@ -381,29 +416,45 @@ impl Workspace {
         issue
     }
 
-    fn add_label(&mut self, id: IssueId, label: String, cx: &mut Context<Self>) {
-        if self.report(self.db.add_labels(id, &[label]), cx).is_some() {
+    fn apply_relation(
+        &mut self,
+        relation: Relation,
+        id: IssueId,
+        name: String,
+        cx: &mut Context<Self>,
+    ) {
+        let names = [name];
+        let result = match relation {
+            Relation::AddLabel => self.db.add_labels(id, &names),
+            Relation::RemoveLabel => self.db.remove_labels(id, &names),
+            Relation::AddToProject => self.db.add_to_projects(id, &names),
+            Relation::RemoveFromProject => self.db.remove_from_projects(id, &names),
+        };
+        if self.report(result, cx).is_some() {
             self.reload(cx);
         }
     }
 
-    fn remove_label(&mut self, id: IssueId, label: String, cx: &mut Context<Self>) {
-        if self
-            .report(self.db.remove_labels(id, &[label]), cx)
-            .is_some()
-        {
-            self.reload(cx);
+    /// Applies `relation` to the selected issue, or opens a picker when no
+    /// name is given.
+    fn on_relation(
+        &mut self,
+        relation: Relation,
+        name: Option<&String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(issue) = self.selected_issue(cx) else {
+            return;
+        };
+        match name {
+            Some(name) => self.apply_relation(relation, issue.id, name.clone(), cx),
+            None => self.open_relation_picker(relation, &issue, window, cx),
         }
     }
 
     fn on_add_label(&mut self, action: &AddLabel, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(issue) = self.selected_issue(cx) else {
-            return;
-        };
-        match &action.label {
-            Some(label) => self.add_label(issue.id, label.clone(), cx),
-            None => self.open_add_label_picker(&issue, window, cx),
-        }
+        self.on_relation(Relation::AddLabel, action.label.as_ref(), window, cx);
     }
 
     fn on_remove_label(
@@ -412,13 +463,30 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(issue) = self.selected_issue(cx) else {
-            return;
-        };
-        match &action.label {
-            Some(label) => self.remove_label(issue.id, label.clone(), cx),
-            None => self.open_remove_label_picker(&issue, window, cx),
-        }
+        self.on_relation(Relation::RemoveLabel, action.label.as_ref(), window, cx);
+    }
+
+    fn on_add_to_project(
+        &mut self,
+        action: &AddToProject,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_relation(Relation::AddToProject, action.project.as_ref(), window, cx);
+    }
+
+    fn on_remove_from_project(
+        &mut self,
+        action: &RemoveFromProject,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_relation(
+            Relation::RemoveFromProject,
+            action.project.as_ref(),
+            window,
+            cx,
+        );
     }
 
     fn set_status(&mut self, id: IssueId, status: Status, cx: &mut Context<Self>) {
@@ -556,7 +624,18 @@ impl Workspace {
                     })
                     .child(issue.title.clone()),
             )
-            .children(issue.labels.iter().map(|label| chip(label.clone())))
+            .children(
+                issue
+                    .projects
+                    .iter()
+                    .map(|project| chip(project.clone(), theme::ACCENT)),
+            )
+            .children(
+                issue
+                    .labels
+                    .iter()
+                    .map(|label| chip(label.clone(), theme::TEXT_MUTED)),
+            )
     }
 
     fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
@@ -587,8 +666,8 @@ impl Workspace {
     }
 }
 
-/// A small rounded tag, used for labels.
-fn chip(text: String) -> impl IntoElement {
+/// A small rounded tag, used for projects and labels.
+fn chip(text: String, color: u32) -> impl IntoElement {
     div()
         .flex_none()
         .px_2()
@@ -597,7 +676,7 @@ fn chip(text: String) -> impl IntoElement {
         .border_color(rgb(theme::BORDER))
         .text_size(px(12.))
         .line_height(px(18.))
-        .text_color(rgb(theme::TEXT_MUTED))
+        .text_color(rgb(color))
         .child(text)
 }
 
@@ -632,6 +711,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_set_status))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))
+            .on_action(cx.listener(Self::on_add_to_project))
+            .on_action(cx.listener(Self::on_remove_from_project))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))

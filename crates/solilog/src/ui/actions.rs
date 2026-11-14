@@ -91,6 +91,27 @@ pub mod issue {
         #[serde(default)]
         pub label: Option<String>,
     }
+
+    /// Add the selected issue to a project, giving it the project's default
+    /// labels. Without a `project`, opens the project picker (which can also
+    /// create one).
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddToProject {
+        #[serde(default)]
+        pub project: Option<String>,
+    }
+
+    /// Remove the selected issue from a project; it keeps its labels. Without
+    /// a `project`, opens a picker of the issue's projects.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct RemoveFromProject {
+        #[serde(default)]
+        pub project: Option<String>,
+    }
 }
 
 pub mod issue_list {
