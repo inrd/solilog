@@ -8,9 +8,11 @@ mod filter;
 mod issue;
 mod label;
 mod project;
+mod view;
 
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
 pub use issue::{ISSUE_PREFIX, Issue, IssueId, NewIssue, Status};
 pub use label::{LABEL_SEPARATOR, Label, label_matches, normalize_label_name};
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate, parse_date};
+pub use view::View;

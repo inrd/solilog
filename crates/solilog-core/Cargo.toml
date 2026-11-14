@@ -11,6 +11,4 @@ dirs.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true

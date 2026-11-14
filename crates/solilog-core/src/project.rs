@@ -284,6 +284,13 @@ impl Db {
                 "UPDATE projects SET name = ?2 WHERE id = ?1",
                 params![id, new_name],
             )?;
+            self.rewrite_view_filters(|filter| {
+                for project in &mut filter.projects {
+                    if project.eq_ignore_ascii_case(&name) {
+                        project.clone_from(&new_name);
+                    }
+                }
+            })?;
             name = new_name;
         }
         if let Some(status) = update.status {

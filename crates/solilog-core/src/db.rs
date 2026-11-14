@@ -64,6 +64,13 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (issue_id, project_id)
     ) WITHOUT ROWID;
     CREATE INDEX issue_projects_by_project ON issue_projects (project_id);",
+    // 5: views. `filter` is a JSON-serialized `IssueFilter`.
+    "CREATE TABLE views (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+        filter     TEXT    NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );",
 ];
 
 /// Label names per issue.
@@ -236,7 +243,7 @@ impl Db {
 
     /// Checks that the filter is consistent and every name in it exists;
     /// uses stored spellings.
-    fn resolve_filter(&self, filter: &IssueFilter) -> Result<IssueFilter> {
+    pub(crate) fn resolve_filter(&self, filter: &IssueFilter) -> Result<IssueFilter> {
         anyhow::ensure!(
             !filter.no_project || filter.projects.is_empty(),
             "a filter cannot ask for both specific projects and no project"

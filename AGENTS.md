@@ -70,6 +70,10 @@ writing SQL or validation in `crates/solilog`, move it to core.
   project is normal. A project's default labels are added to issues when they
   join it and kept when they leave. Done/archived projects are hidden from
   pickers and default listings.
+- **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
+  must match), labels to exclude, projects (any may match) or no project).
+  Renaming a label or project updates views; deleting one makes the views
+  that use it fail until they are saved again.
 
 ## Naming
 

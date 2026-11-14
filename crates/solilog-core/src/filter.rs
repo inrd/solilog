@@ -1,11 +1,16 @@
 //! Issue filters.
 
+use serde::{Deserialize, Serialize};
+
 use crate::issue::{Issue, Status};
 use crate::label::label_matches;
 
 /// Which issues [`Db::list_issues`](crate::Db::list_issues) returns. The
 /// default matches everything; every non-empty criterion must hold.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// Serialized as stored in views; missing fields take their default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct IssueFilter {
     /// Only these statuses (any status if empty).
     pub statuses: Vec<Status>,

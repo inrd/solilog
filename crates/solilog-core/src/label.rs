@@ -151,6 +151,15 @@ impl Db {
                 params![id, renamed],
             )?;
         }
+        let rename = |label: &mut String| {
+            if label_matches(label, &old) {
+                *label = format!("{new}{}", &label[old.len()..]);
+            }
+        };
+        self.rewrite_view_filters(|filter| {
+            filter.labels.iter_mut().for_each(rename);
+            filter.without_labels.iter_mut().for_each(rename);
+        })?;
         tx.commit()?;
         self.get_label(&new)
     }
