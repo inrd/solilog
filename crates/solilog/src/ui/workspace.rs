@@ -5,6 +5,7 @@
 //! mouse handlers only select things and dispatch the same actions.
 
 mod filter;
+mod manage;
 mod scope;
 mod sidebar;
 
@@ -12,7 +13,8 @@ use std::time::Duration;
 
 use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    ScrollHandle, Subscription, Task, Window, deferred, div, prelude::*, px, rgb,
+    Pixels, Point, ScrollHandle, Subscription, Task, Window, anchored, deferred, div, prelude::*,
+    px, rgb,
 };
 use solilog_core::{Db, Issue, IssueFilter, IssueId, Label, NewProject, Project, Status, View};
 
@@ -56,6 +58,15 @@ enum Modal {
         /// Builds the action for the "Create …" row from the typed text.
         create: Option<CreateAction>,
     },
+    /// The actions of a sidebar row.
+    ContextMenu {
+        picker: Entity<Picker>,
+        actions: Vec<Box<dyn Action>>,
+        item: SidebarItem,
+        /// Where it was opened with the mouse (window coordinates); centered
+        /// like other pickers otherwise.
+        position: Option<Point<Pixels>>,
+    },
 }
 
 type CreateAction = Box<dyn Fn(String) -> Box<dyn Action>>;
@@ -96,7 +107,8 @@ impl Modal {
             Modal::CommandPalette { picker, .. }
             | Modal::StatusPicker { picker, .. }
             | Modal::Relation { picker, .. }
-            | Modal::ActionPicker { picker, .. } => picker,
+            | Modal::ActionPicker { picker, .. }
+            | Modal::ContextMenu { picker, .. } => picker,
         }
     }
 }
@@ -244,6 +256,9 @@ impl Workspace {
         if scope_error.is_some() {
             self.error = scope_error;
         }
+        if !self.sidebar_items().contains(&self.sidebar_cursor) {
+            self.sidebar_cursor = self.active_sidebar_item();
+        }
         // Keep the selection on the same issue, or on the same row if it vanished.
         if self.selected_index().is_none() {
             let ix = prev_ix
@@ -344,7 +359,10 @@ impl Workspace {
                 }
                 self.apply_relation(relation, issue_id, name.clone(), cx);
             }
-            (Modal::ActionPicker { actions, .. }, PickerEvent::Confirmed(ix)) => {
+            (
+                Modal::ActionPicker { actions, .. } | Modal::ContextMenu { actions, .. },
+                PickerEvent::Confirmed(ix),
+            ) => {
                 window.dispatch_action(actions[*ix].boxed_clone(), cx);
             }
             (
@@ -723,30 +741,44 @@ impl Workspace {
     }
 
     fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let picker = self.modal.as_ref()?.modal.picker().clone();
-        let dismiss = cx.listener(|this, _, window, cx| {
-            this.close_modal(window, cx);
-        });
-        Some(
-            deferred(
-                div()
-                    .id("modal-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .occlude()
-                    .flex()
-                    .justify_center()
-                    .pt(px(80.))
-                    .on_mouse_down(MouseButton::Left, dismiss)
-                    // Clicks inside the picker must not reach the backdrop.
-                    .child(
-                        div()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .child(picker),
-                    ),
+        let modal = &self.modal.as_ref()?.modal;
+        let picker = modal.picker().clone();
+        let position = match modal {
+            Modal::ContextMenu { position, .. } => *position,
+            _ => None,
+        };
+        // Clicks inside the picker must not reach the backdrop.
+        let content = div()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+            .child(picker);
+        let backdrop = div()
+            .id("modal-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    this.close_modal(window, cx);
+                }),
             )
-            .with_priority(1),
-        )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, window, cx| {
+                    this.close_modal(window, cx);
+                }),
+            );
+        let backdrop = match position {
+            Some(position) => backdrop.child(
+                anchored()
+                    .position(position)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(content),
+            ),
+            None => backdrop.flex().justify_center().pt(px(80.)).child(content),
+        };
+        Some(deferred(backdrop).with_priority(1))
     }
 }
 
@@ -805,6 +837,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_revert_view))
             .on_action(cx.listener(Self::on_rename_view))
             .on_action(cx.listener(Self::on_delete_view))
+            .on_action(cx.listener(Self::on_rename_project))
+            .on_action(cx.listener(Self::on_set_project_status))
+            .on_action(cx.listener(Self::on_delete_project))
+            .on_action(cx.listener(Self::on_rename_label))
+            .on_action(cx.listener(Self::on_delete_label))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))

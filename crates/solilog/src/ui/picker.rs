@@ -9,7 +9,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle,
     SharedString, Window, div, prelude::*, px, rgb,
 };
 
@@ -67,6 +67,7 @@ pub struct Picker {
     create_label: Option<SharedString>,
     /// The query the create row would create, when it is shown.
     create_query: Option<String>,
+    width: Pixels,
 }
 
 impl EventEmitter<PickerEvent> for Picker {}
@@ -95,7 +96,20 @@ impl Picker {
             scroll,
             create_label: None,
             create_query: None,
+            width: px(480.),
         }
+    }
+
+    pub fn width(mut self, width: Pixels) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Starts with `query` typed in, selected so that typing replaces it.
+    pub fn query(self, query: &str, cx: &mut Context<Self>) -> Self {
+        self.input
+            .update(cx, |input, cx| input.set_text(query.to_owned(), cx));
+        self
     }
 
     /// Offers a "`label` “query”" row when the query matches no item exactly.
@@ -226,7 +240,7 @@ impl Render for Picker {
             .on_action(cx.listener(Self::select_previous))
             .on_action(cx.listener(Self::on_confirm))
             .on_action(cx.listener(Self::on_dismiss))
-            .w(px(480.))
+            .w(self.width)
             .flex()
             .flex_col()
             .bg(rgb(theme::SURFACE))

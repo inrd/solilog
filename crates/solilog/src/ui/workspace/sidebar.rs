@@ -5,16 +5,17 @@
 //! Key context: `Sidebar`. Each row stands for an action (e.g. `view::Open`);
 //! confirming a row, by key or click, dispatches it. Projects and labels can
 //! be dragged to reorder them: projects within their section (open or
-//! closed), labels among their siblings.
+//! closed), labels among their siblings. Views, projects and labels have a
+//! context menu (right click, or `sidebar::ShowContextMenu`).
 
 use gpui::{
-    Action, ClickEvent, Context, FontWeight, IntoElement, SharedString, Window, div, prelude::*,
-    px, rgb,
+    Action, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent,
+    SharedString, Window, div, prelude::*, px, rgb,
 };
 use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement};
 
-use super::Workspace;
 use super::scope::Source;
+use super::{Modal, OpenModal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view, workspace};
 use crate::ui::theme;
 
@@ -34,7 +35,7 @@ pub enum SidebarItem {
 
 impl SidebarItem {
     /// What confirming the row does.
-    fn action(&self) -> Box<dyn Action> {
+    pub(super) fn action(&self) -> Box<dyn Action> {
         match self {
             SidebarItem::AllIssues => Box::new(view::ShowAll),
             SidebarItem::View(name) => Box::new(view::Open {
@@ -460,6 +461,13 @@ impl Workspace {
         }
         let focused = self.sidebar_focus.is_focused(window);
         let active = self.active_sidebar_item();
+        let menu_item = match &self.modal {
+            Some(OpenModal {
+                modal: Modal::ContextMenu { item, .. },
+                ..
+            }) => Some(item.clone()),
+            _ => None,
+        };
         let rows: Vec<_> = self
             .sidebar_rows()
             .into_iter()
@@ -481,7 +489,9 @@ impl Workspace {
                     count,
                     trailing,
                 } => {
-                    let highlight = if focused && item == self.sidebar_cursor {
+                    let highlight = if (focused && item == self.sidebar_cursor)
+                        || menu_item.as_ref() == Some(&item)
+                    {
                         Some(theme::HIGHLIGHT)
                     } else if item == active {
                         Some(theme::HOVER)
@@ -504,6 +514,13 @@ impl Workspace {
                         .cursor_pointer()
                         .when_some(highlight, |s, color| s.bg(rgb(color)))
                         .hover(|s| s.bg(rgb(theme::HOVER)))
+                        .on_mouse_down(MouseButton::Right, {
+                            let item = item.clone();
+                            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                                this.sidebar_cursor = item.clone();
+                                this.show_context_menu(Some(event.position), window, cx);
+                            })
+                        })
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             // Same action as confirming the row with the keyboard;
                             // the list keeps focus so mouse users stay in the list.
@@ -550,6 +567,7 @@ impl Workspace {
                 .on_action(cx.listener(Self::on_sidebar_open))
                 .on_action(cx.listener(Self::on_move_up))
                 .on_action(cx.listener(Self::on_move_down))
+                .on_action(cx.listener(Self::on_show_context_menu))
                 .w(px(WIDTH))
                 .flex_none()
                 .h_full()

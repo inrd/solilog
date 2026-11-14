@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::issue::{Issue, Status};
-use crate::label::label_matches;
+use crate::label::{label_matches, renamed_label};
 
 /// Which issues [`Db::list_issues`](crate::Db::list_issues) returns. The
 /// default matches everything; every non-empty criterion must hold.
@@ -44,6 +44,35 @@ impl IssueFilter {
                     .any(|p| issue.projects.iter().any(|ip| ip.eq_ignore_ascii_case(p))))
             && (!self.no_project || issue.projects.is_empty())
     }
+
+    /// Follows the rename of label `old` (with its sublabels) to `new`.
+    pub fn rename_label(&mut self, old: &str, new: &str) {
+        for label in self.labels.iter_mut().chain(&mut self.without_labels) {
+            if let Some(renamed) = renamed_label(label, old, new) {
+                *label = renamed;
+            }
+        }
+    }
+
+    /// Follows the rename of project `old` to `new`.
+    pub fn rename_project(&mut self, old: &str, new: &str) {
+        for project in &mut self.projects {
+            if project.eq_ignore_ascii_case(old) {
+                new.clone_into(project);
+            }
+        }
+    }
+
+    /// Drops the criteria on a deleted label and its sublabels.
+    pub fn drop_label(&mut self, name: &str) {
+        self.labels.retain(|l| !label_matches(l, name));
+        self.without_labels.retain(|l| !label_matches(l, name));
+    }
+
+    /// Drops the criterion on a deleted project.
+    pub fn drop_project(&mut self, name: &str) {
+        self.projects.retain(|p| !p.eq_ignore_ascii_case(name));
+    }
 }
 
 /// One-line summary: `open, status: todo|blocked, label: acme & bug, not: x,
@@ -79,6 +108,26 @@ impl fmt::Display for IssueFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renames_and_drops() {
+        let mut filter = IssueFilter {
+            labels: vec!["Acme/reverb".into(), "acmes".into()],
+            without_labels: vec!["acme".into()],
+            projects: vec!["Site".into(), "other".into()],
+            ..Default::default()
+        };
+        filter.rename_label("acme", "globex/acme");
+        filter.rename_project("site", "Website");
+        assert_eq!(filter.labels, ["globex/acme/reverb", "acmes"]);
+        assert_eq!(filter.without_labels, ["globex/acme"]);
+        assert_eq!(filter.projects, ["Website", "other"]);
+        filter.drop_label("globex");
+        filter.drop_project("WEBSITE");
+        assert_eq!(filter.labels, ["acmes"]);
+        assert!(filter.without_labels.is_empty());
+        assert_eq!(filter.projects, ["other"]);
+    }
 
     #[test]
     fn summary() {

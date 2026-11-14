@@ -77,6 +77,16 @@ impl TextInput {
         &self.content
     }
 
+    /// Replaces the text and selects all of it, so typing replaces it.
+    pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = text.into();
+        self.selected_range = 0..self.content.len();
+        self.selection_reversed = false;
+        self.marked_range = None;
+        cx.emit(Changed);
+        cx.notify();
+    }
+
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.content = SharedString::default();
         self.selected_range = 0..0;

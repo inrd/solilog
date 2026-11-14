@@ -63,6 +63,14 @@ pub fn label_matches(name: &str, filter: &str) -> bool {
         && (name.len() == filter.len() || name[filter.len()] == LABEL_SEPARATOR as u8)
 }
 
+/// Label `name` after renaming `old` to `new`, if it is `old` or one of its
+/// sublabels: `renamed_label("acme/reverb", "acme", "globex/acme")` is
+/// `Some("globex/acme/reverb")`.
+pub fn renamed_label(name: &str, old: &str, new: &str) -> Option<String> {
+    // `label_matches` compares bytes, so `old.len()` is a char boundary.
+    label_matches(name, old).then(|| format!("{new}{}", &name[old.len()..]))
+}
+
 impl Db {
     /// Every label, as a tree: each label is followed by its sublabels, and
     /// siblings are in the user-defined order.
@@ -178,21 +186,13 @@ impl Db {
             .filter(|r| r.as_ref().map_or(true, |(_, n)| label_matches(n, &old)))
             .collect::<rusqlite::Result<_>>()?;
         for (id, name) in subtree {
-            let renamed = format!("{new}{}", &name[old.len()..]);
+            let renamed = renamed_label(&name, &old, &new).unwrap_or(name);
             self.conn.execute(
                 "UPDATE labels SET name = ?2 WHERE id = ?1",
                 params![id, renamed],
             )?;
         }
-        let rename = |label: &mut String| {
-            if label_matches(label, &old) {
-                *label = format!("{new}{}", &label[old.len()..]);
-            }
-        };
-        self.rewrite_view_filters(|filter| {
-            filter.labels.iter_mut().for_each(rename);
-            filter.without_labels.iter_mut().for_each(rename);
-        })?;
+        self.rewrite_view_filters(|filter| filter.rename_label(&old, &new))?;
         tx.commit()?;
         self.get_label(&new)
     }

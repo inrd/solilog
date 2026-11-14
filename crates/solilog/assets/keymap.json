@@ -69,6 +69,8 @@
       "shift-k": "sidebar::MoveUp",
       "alt-down": "sidebar::MoveDown",
       "alt-up": "sidebar::MoveUp",
+      "m": "sidebar::ShowContextMenu",
+      "shift-f10": "sidebar::ShowContextMenu",
       "l": "issue_list::Focus",
       "right": "issue_list::Focus",
       "escape": "issue_list::Focus"

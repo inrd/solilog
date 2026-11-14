@@ -104,7 +104,7 @@ impl Workspace {
         new
     }
 
-    fn show(&mut self, source: anyhow::Result<Source>, cx: &mut Context<Self>) {
+    pub(super) fn show(&mut self, source: anyhow::Result<Source>, cx: &mut Context<Self>) {
         let Some(source) = self.report(source, cx) else {
             return;
         };
@@ -158,18 +158,6 @@ impl Workspace {
             window,
             cx,
         );
-    }
-
-    /// The saved view being shown, if any.
-    fn current_view(&mut self, cx: &mut Context<Self>) -> Option<View> {
-        match &self.scope.source {
-            Source::View(view) => Some(view.clone()),
-            _ => {
-                self.error = Some("Not showing a saved view".into());
-                cx.notify();
-                None
-            }
-        }
     }
 
     fn save_view(&mut self, name: &str, cx: &mut Context<Self>) {
@@ -231,49 +219,6 @@ impl Workspace {
         self.scope.filter = self.scope.source.filter();
         self.error = None;
         self.reload(cx);
-    }
-
-    pub(super) fn on_rename_view(
-        &mut self,
-        action: &view::Rename,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(view) = self.current_view(cx) else {
-            return;
-        };
-        let Some(new_name) = &action.name else {
-            let create: CreateAction = Box::new(|name| Box::new(view::Rename { name: Some(name) }));
-            let placeholder = format!("Rename “{}” to…", view.name);
-            return self.open_creatable_action_picker(
-                &placeholder,
-                Vec::new(),
-                0,
-                Some(("Rename to", create)),
-                window,
-                cx,
-            );
-        };
-        if let Some(renamed) = self.report(self.db.rename_view(&view.name, new_name), cx) {
-            // Keep any unsaved edits.
-            self.scope.source = Source::View(renamed);
-            self.reload(cx);
-            self.sidebar_cursor = self.active_sidebar_item();
-        }
-    }
-
-    pub(super) fn on_delete_view(
-        &mut self,
-        _: &view::Delete,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(view) = self.current_view(cx) else {
-            return;
-        };
-        if self.report(self.db.delete_view(&view.name), cx).is_some() {
-            self.show(Ok(Source::All), cx);
-        }
     }
 
     pub(super) fn on_show_all(

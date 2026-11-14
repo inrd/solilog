@@ -56,16 +56,57 @@ pub mod sidebar {
             MoveUp,
             /// Move the highlighted project or label below the next one.
             MoveDown,
+            /// Show the menu of the highlighted row (open, rename, delete…).
+            /// Right-clicking a row does this.
+            ShowContextMenu,
         ]
     );
 }
 
-/// Reordering projects. The order is shared by the sidebar, pickers and
-/// `solilog project list`.
+/// Managing projects. Where `name` is optional, leaving it out acts on the
+/// project being shown.
 pub mod project {
     use gpui::Action;
     use schemars::JsonSchema;
     use serde::Deserialize;
+    use solilog_core::ProjectStatus;
+
+    /// Rename a project. Without a `new_name`, asks for one.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct Rename {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub new_name: Option<String>,
+    }
+
+    /// Set a project's status. Done and archived projects are hidden from
+    /// pickers. Without a `status`, opens the status picker.
+    ///
+    /// Keymap example: `"cmd-d": ["project::SetStatus", { "status": "done" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetStatus {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub status: Option<ProjectStatus>,
+    }
+
+    /// Delete a project; its issues stay, with their labels. Asks for
+    /// confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct Delete {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
 
     /// Move a project right before or right after another one (give exactly
     /// one of `before` and `after`). Dragging a project in the sidebar does this.
@@ -83,12 +124,36 @@ pub mod project {
     }
 }
 
-/// Reordering labels. The order is shared by the sidebar and
-/// `solilog label list`.
+/// Managing labels. Where `name` is optional, leaving it out acts on the
+/// label being shown.
 pub mod label {
     use gpui::Action;
     use schemars::JsonSchema;
     use serde::Deserialize;
+
+    /// Rename a label, with its sublabels; a new path moves it
+    /// (`acme` → `globex/acme`). Without a `new_name`, asks for one.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
+    #[serde(deny_unknown_fields)]
+    pub struct Rename {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub new_name: Option<String>,
+    }
+
+    /// Delete a label and its sublabels, removing them from every issue.
+    /// Asks for confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
+    #[serde(deny_unknown_fields)]
+    pub struct Delete {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
 
     /// Move a label, with its sublabels, right before or right after a
     /// sibling (give exactly one of `before` and `after`). Dragging a label
@@ -203,8 +268,6 @@ pub mod view {
             /// Discard unsaved changes to the filter of the current view,
             /// project or label.
             Revert,
-            /// Delete the current view and show all issues.
-            Delete,
         ]
     );
 
@@ -238,13 +301,28 @@ pub mod view {
         pub name: Option<String>,
     }
 
-    /// Rename the current view. Without a `name`, asks for one.
+    /// Rename a view; without a `name`, the view being shown. Without a
+    /// `new_name`, asks for one.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = view)]
     #[serde(deny_unknown_fields)]
     pub struct Rename {
         #[serde(default)]
         pub name: Option<String>,
+        #[serde(default)]
+        pub new_name: Option<String>,
+    }
+
+    /// Delete a view; without a `name`, the view being shown (then all
+    /// issues are shown). Asks for confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = view)]
+    #[serde(deny_unknown_fields)]
+    pub struct Delete {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub confirmed: bool,
     }
 
     /// Show the issues of a saved view. Without a `name`, opens the view picker.
