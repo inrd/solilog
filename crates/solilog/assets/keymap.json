@@ -25,6 +25,8 @@
     "bindings": {
       "c": "issue::New",
       "s": "issue::SetStatus",
+      "l": "issue::AddLabel",
+      "shift-l": "issue::RemoveLabel",
       "j": "issue_list::SelectNext",
       "k": "issue_list::SelectPrevious",
       "down": "issue_list::SelectNext",

@@ -3,6 +3,8 @@
 //!
 //! Key context: `Picker` (see `assets/keymap.json`). Emits [`PickerEvent`];
 //! the owner decides what confirming an item means and closes the picker.
+//! With [`Picker::creatable`], typing something that matches no item exactly
+//! offers a "Create …" row as well.
 
 use std::rc::Rc;
 
@@ -48,6 +50,8 @@ impl PickerItem {
 pub enum PickerEvent {
     /// Index into the items the picker was created with.
     Confirmed(usize),
+    /// The "Create …" row was confirmed; carries the trimmed query.
+    Create(String),
     Dismissed,
 }
 
@@ -56,9 +60,13 @@ pub struct Picker {
     items: Vec<PickerItem>,
     /// Indices into `items` that match the query, best first.
     matches: Vec<usize>,
-    /// Index into `matches`.
+    /// Index into `matches`; `matches.len()` is the create row, if shown.
     highlighted: usize,
     scroll: ScrollHandle,
+    /// Label prefix of the create row ("Create label"); `None` disables it.
+    create_label: Option<SharedString>,
+    /// The query the create row would create, when it is shown.
+    create_query: Option<String>,
 }
 
 impl EventEmitter<PickerEvent> for Picker {}
@@ -85,19 +93,39 @@ impl Picker {
             matches,
             highlighted,
             scroll,
+            create_label: None,
+            create_query: None,
         }
+    }
+
+    /// Offers a "`label` “query”" row when the query matches no item exactly.
+    pub fn creatable(mut self, label: impl Into<SharedString>) -> Self {
+        self.create_label = Some(label.into());
+        self
+    }
+
+    fn row_count(&self) -> usize {
+        self.matches.len() + usize::from(self.create_query.is_some())
     }
 
     fn update_matches(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).text().to_owned();
         self.matches = rank(&query, self.items.iter().map(|i| i.label.as_ref()));
+        let trimmed = query.trim();
+        self.create_query = (self.create_label.is_some()
+            && !trimmed.is_empty()
+            && !self
+                .items
+                .iter()
+                .any(|i| i.label.eq_ignore_ascii_case(trimmed)))
+        .then(|| trimmed.to_owned());
         self.highlighted = 0;
         self.scroll.scroll_to_item(0);
         cx.notify();
     }
 
     fn move_highlight(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let len = self.matches.len();
+        let len = self.row_count();
         if len == 0 {
             return;
         }
@@ -109,6 +137,8 @@ impl Picker {
     fn confirm(&mut self, cx: &mut Context<Self>) {
         if let Some(&ix) = self.matches.get(self.highlighted) {
             cx.emit(PickerEvent::Confirmed(ix));
+        } else if let Some(query) = self.create_query.clone() {
+            cx.emit(PickerEvent::Create(query));
         }
     }
 
@@ -129,7 +159,17 @@ impl Picker {
     }
 
     fn render_item(&self, row: usize, item_ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let item = &self.items[item_ix];
+        self.render_row(row, &self.items[item_ix], cx)
+    }
+
+    fn render_create_row(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let query = self.create_query.as_ref()?;
+        let label = self.create_label.as_ref()?;
+        let item = PickerItem::new(format!("{label} “{query}”"));
+        Some(self.render_row(self.matches.len(), &item, cx))
+    }
+
+    fn render_row(&self, row: usize, item: &PickerItem, cx: &mut Context<Self>) -> AnyElement {
         div()
             .id(row)
             .flex()
@@ -171,12 +211,14 @@ impl Focusable for Picker {
 
 impl Render for Picker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows: Vec<_> = self
+        let mut rows: Vec<_> = self
             .matches
             .iter()
             .enumerate()
             .map(|(row, &ix)| self.render_item(row, ix, cx))
             .collect();
+        rows.extend(self.render_create_row(cx));
+        let empty = rows.is_empty();
 
         div()
             .key_context(CONTEXT)
@@ -210,7 +252,7 @@ impl Render for Picker {
                     .flex()
                     .flex_col()
                     .children(rows)
-                    .when(self.matches.is_empty(), |s| {
+                    .when(empty, |s| {
                         s.child(
                             div()
                                 .px_2()

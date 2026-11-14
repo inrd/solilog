@@ -69,6 +69,28 @@ pub mod issue {
         #[serde(default)]
         pub status: Option<Status>,
     }
+
+    /// Add a label to the selected issue, creating it if needed. Without a
+    /// `label`, opens the label picker.
+    ///
+    /// Keymap example: `"b": ["issue::AddLabel", { "label": "bug" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddLabel {
+        #[serde(default)]
+        pub label: Option<String>,
+    }
+
+    /// Remove a label from the selected issue. Without a `label`, opens a
+    /// picker of the issue's labels.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct RemoveLabel {
+        #[serde(default)]
+        pub label: Option<String>,
+    }
 }
 
 pub mod issue_list {

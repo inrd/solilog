@@ -14,7 +14,7 @@ use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, Status};
 
 use super::actions::{
     self, command_palette, humanize_action_name,
-    issue::{self, SetStatus},
+    issue::{self, AddLabel, RemoveLabel, SetStatus},
     issue_list,
     workspace::{OpenKeymap, ReloadKeymap},
 };
@@ -36,12 +36,26 @@ enum Modal {
         picker: Entity<Picker>,
         issue_id: IssueId,
     },
+    AddLabel {
+        picker: Entity<Picker>,
+        issue_id: IssueId,
+        /// Item labels, by picker index.
+        labels: Vec<String>,
+    },
+    RemoveLabel {
+        picker: Entity<Picker>,
+        issue_id: IssueId,
+        labels: Vec<String>,
+    },
 }
 
 impl Modal {
     fn picker(&self) -> &Entity<Picker> {
         match self {
-            Modal::CommandPalette { picker, .. } | Modal::StatusPicker { picker, .. } => picker,
+            Modal::CommandPalette { picker, .. }
+            | Modal::StatusPicker { picker, .. }
+            | Modal::AddLabel { picker, .. }
+            | Modal::RemoveLabel { picker, .. } => picker,
         }
     }
 }
@@ -207,18 +221,36 @@ impl Workspace {
         let Some(modal) = self.close_modal(window, cx) else {
             return;
         };
-        let PickerEvent::Confirmed(ix) = *event else {
-            return;
-        };
-        match modal {
-            Modal::CommandPalette { actions, .. } => {
+        match (modal, event) {
+            (_, PickerEvent::Dismissed) => {}
+            (Modal::CommandPalette { actions, .. }, PickerEvent::Confirmed(ix)) => {
                 // Focus has been restored, so the action reaches the same
                 // handlers it would have reached from a key binding.
-                window.dispatch_action(actions[ix].boxed_clone(), cx);
+                window.dispatch_action(actions[*ix].boxed_clone(), cx);
             }
-            Modal::StatusPicker { issue_id, .. } => {
-                self.set_status(issue_id, Status::ALL[ix], cx);
+            (Modal::StatusPicker { issue_id, .. }, PickerEvent::Confirmed(ix)) => {
+                self.set_status(issue_id, Status::ALL[*ix], cx);
             }
+            (
+                Modal::AddLabel {
+                    issue_id, labels, ..
+                },
+                PickerEvent::Confirmed(ix),
+            ) => {
+                self.add_label(issue_id, labels[*ix].clone(), cx);
+            }
+            (Modal::AddLabel { issue_id, .. }, PickerEvent::Create(name)) => {
+                self.add_label(issue_id, name.clone(), cx);
+            }
+            (
+                Modal::RemoveLabel {
+                    issue_id, labels, ..
+                },
+                PickerEvent::Confirmed(ix),
+            ) => {
+                self.remove_label(issue_id, labels[*ix].clone(), cx);
+            }
+            (_, PickerEvent::Create(_)) => {}
         }
     }
 
@@ -282,7 +314,112 @@ impl Workspace {
         );
     }
 
+    fn open_add_label_picker(
+        &mut self,
+        issue: &Issue,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(all) = self.report(self.db.list_labels(), cx) else {
+            return;
+        };
+        let labels: Vec<String> = all
+            .into_iter()
+            .map(|l| l.name)
+            .filter(|name| !issue.labels.iter().any(|l| l.eq_ignore_ascii_case(name)))
+            .collect();
+        let items = labels.iter().map(|l| PickerItem::new(l.clone())).collect();
+        let picker = cx.new(|cx| Picker::new("Add label…", items, 0, cx).creatable("Create label"));
+        let issue_id = issue.id;
+        self.open_modal(
+            picker,
+            |picker| Modal::AddLabel {
+                picker,
+                issue_id,
+                labels,
+            },
+            window,
+            cx,
+        );
+    }
+
+    fn open_remove_label_picker(
+        &mut self,
+        issue: &Issue,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if issue.labels.is_empty() {
+            self.error = Some(format!("{} has no labels", issue.id));
+            cx.notify();
+            return;
+        }
+        let labels = issue.labels.clone();
+        let items = labels.iter().map(|l| PickerItem::new(l.clone())).collect();
+        let picker = cx.new(|cx| Picker::new("Remove label…", items, 0, cx));
+        let issue_id = issue.id;
+        self.open_modal(
+            picker,
+            |picker| Modal::RemoveLabel {
+                picker,
+                issue_id,
+                labels,
+            },
+            window,
+            cx,
+        );
+    }
+
     // ---- domain actions ---------------------------------------------------
+
+    fn selected_issue(&mut self, cx: &mut Context<Self>) -> Option<Issue> {
+        let issue = self.selected_index().map(|ix| self.issues[ix].clone());
+        if issue.is_none() {
+            self.error = Some("No issue selected".into());
+            cx.notify();
+        }
+        issue
+    }
+
+    fn add_label(&mut self, id: IssueId, label: String, cx: &mut Context<Self>) {
+        if self.report(self.db.add_labels(id, &[label]), cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
+    fn remove_label(&mut self, id: IssueId, label: String, cx: &mut Context<Self>) {
+        if self
+            .report(self.db.remove_labels(id, &[label]), cx)
+            .is_some()
+        {
+            self.reload(cx);
+        }
+    }
+
+    fn on_add_label(&mut self, action: &AddLabel, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(issue) = self.selected_issue(cx) else {
+            return;
+        };
+        match &action.label {
+            Some(label) => self.add_label(issue.id, label.clone(), cx),
+            None => self.open_add_label_picker(&issue, window, cx),
+        }
+    }
+
+    fn on_remove_label(
+        &mut self,
+        action: &RemoveLabel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(issue) = self.selected_issue(cx) else {
+            return;
+        };
+        match &action.label {
+            Some(label) => self.remove_label(issue.id, label.clone(), cx),
+            None => self.open_remove_label_picker(&issue, window, cx),
+        }
+    }
 
     fn set_status(&mut self, id: IssueId, status: Status, cx: &mut Context<Self>) {
         if self.report(self.db.set_status(id, status), cx).is_some() {
@@ -291,9 +428,7 @@ impl Workspace {
     }
 
     fn on_set_status(&mut self, action: &SetStatus, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(issue) = self.selected_index().map(|ix| self.issues[ix].clone()) else {
-            self.error = Some("No issue selected".into());
-            cx.notify();
+        let Some(issue) = self.selected_issue(cx) else {
             return;
         };
         match action.status {
@@ -421,6 +556,7 @@ impl Workspace {
                     })
                     .child(issue.title.clone()),
             )
+            .children(issue.labels.iter().map(|label| chip(label.clone())))
     }
 
     fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
@@ -449,6 +585,20 @@ impl Workspace {
             .with_priority(1),
         )
     }
+}
+
+/// A small rounded tag, used for labels.
+fn chip(text: String) -> impl IntoElement {
+    div()
+        .flex_none()
+        .px_2()
+        .rounded_full()
+        .border_1()
+        .border_color(rgb(theme::BORDER))
+        .text_size(px(12.))
+        .line_height(px(18.))
+        .text_color(rgb(theme::TEXT_MUTED))
+        .child(text)
 }
 
 /// "g g" -> "G G", "cmd-k" -> "⌘K" (platform display form).
@@ -480,6 +630,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_command_palette))
             .on_action(cx.listener(Self::on_new_issue))
             .on_action(cx.listener(Self::on_set_status))
+            .on_action(cx.listener(Self::on_add_label))
+            .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))
