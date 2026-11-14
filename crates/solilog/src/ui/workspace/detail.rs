@@ -1,5 +1,5 @@
 //! The issue detail: one issue, in place of the issue list (or the archive),
-//! with its title and description editable in place. Opened with
+//! with its title, description and checklist editable in place. Opened with
 //! `issue::Open` (Enter or double click in the list), left with
 //! `issue_detail::Close` (Escape).
 //!
@@ -8,6 +8,8 @@
 //! shortly after typing stops, when a field loses focus, and when the detail
 //! closes. Changes made elsewhere (e.g. from the CLI) show up in a field
 //! unless it has unsaved edits.
+
+mod checklist;
 
 use std::time::Duration;
 
@@ -25,6 +27,7 @@ use crate::ui::actions::{
 use crate::ui::status_icon::status_icon;
 use crate::ui::text_input::{Changed, Submit, TextInput};
 use crate::ui::theme;
+use checklist::Checklist;
 
 pub const CONTEXT: &str = "IssueDetail";
 
@@ -36,6 +39,7 @@ pub(super) struct IssueDetail {
     issue: Issue,
     title: Entity<TextInput>,
     description: Entity<TextInput>,
+    checklist: Checklist,
     focus: FocusHandle,
     scroll: ScrollHandle,
     autosave: Option<Task<()>>,
@@ -100,18 +104,21 @@ impl Workspace {
                 cx.defer_in(window, |this, _, cx| this.save_detail(true, cx))
             }),
         ];
+        let checklist = Checklist::new(window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
         self.detail = Some(IssueDetail {
             issue,
             title,
             description,
+            checklist,
             focus,
             scroll,
             autosave: None,
             _subscriptions: subscriptions,
         });
         self.error = None;
+        self.sync_checklist(window, cx);
         cx.notify();
     }
 
@@ -125,10 +132,11 @@ impl Workspace {
         }));
     }
 
-    /// Writes the edited title and description, if changed. `leaving`: the
-    /// user is done with the field (it lost focus, the detail closes); an
-    /// empty title then goes back to the saved one, with an error. While
-    /// typing, it's just not saved yet.
+    /// Writes the edited title, description and checklist items, if
+    /// changed. `leaving`: the user is done with the field (it lost focus,
+    /// the detail closes); an empty title then goes back to the saved one,
+    /// with an error, and an emptied item is deleted (see `checklist.rs`).
+    /// While typing, they're just not saved yet.
     pub(super) fn save_detail(&mut self, leaving: bool, cx: &mut Context<Self>) {
         let Some(detail) = &self.detail else {
             return;
@@ -152,16 +160,19 @@ impl Workspace {
                 cx.notify();
             }
         }
-        if edit == IssueEdit::default() {
-            return;
+        let mut wrote = false;
+        if edit != IssueEdit::default() {
+            let Some(issue) = self.report(self.db.edit_issue(id, &edit), cx) else {
+                return;
+            };
+            if let Some(detail) = &mut self.detail {
+                detail.issue = issue;
+            }
+            wrote = true;
         }
-        let Some(issue) = self.report(self.db.edit_issue(id, &edit), cx) else {
-            return;
-        };
-        if let Some(detail) = &mut self.detail {
-            detail.issue = issue;
+        if self.save_checklist(leaving, cx) || wrote {
+            self.reload(cx);
         }
-        self.reload(cx);
     }
 
     /// After a reload: shows the issue as it now is. Fields with unsaved
@@ -387,10 +398,11 @@ impl Workspace {
                     .mt_2()
                     .flex()
                     .flex_col()
-                    .min_h(px(240.))
+                    .min_h(px(120.))
                     .line_height(px(22.))
                     .child(detail.description.clone()),
-            );
+            )
+            .child(self.render_checklist(detail, cx));
 
         div()
             .flex_1()
@@ -411,6 +423,8 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_unarchive_issue))
                     .on_action(cx.listener(Self::on_delete_issue))
                     .on_action(cx.listener(Self::on_show_issue_menu))
+                    .on_action(cx.listener(Self::on_toggle_checklist_item))
+                    .on_action(cx.listener(Self::on_delete_checklist_item))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()

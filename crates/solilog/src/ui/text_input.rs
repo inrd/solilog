@@ -793,7 +793,8 @@ fn display_runs(input: &TextInput, window: &Window) -> (SharedString, Vec<TextRu
         color: text_color,
         background_color: None,
         underline: None,
-        strikethrough: None,
+        // Inherited, e.g. for checked checklist items.
+        strikethrough: style.strikethrough,
     };
     let runs = match input.marked_range.as_ref() {
         Some(marked_range) => [

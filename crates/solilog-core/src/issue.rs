@@ -7,6 +7,8 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::checklist::{ChecklistItem, checklist_progress};
+
 /// Prefix of human-facing issue ids (`SOL-12`).
 pub const ISSUE_PREFIX: &str = "SOL";
 
@@ -83,6 +85,15 @@ pub struct Issue {
     pub labels: Vec<String>,
     /// Names of the projects the issue is in, sorted.
     pub projects: Vec<String>,
+    /// Checklist items, in order; empty when there is no checklist.
+    pub checklist: Vec<ChecklistItem>,
+}
+
+impl Issue {
+    /// Done and total checklist items, or `None` without a checklist.
+    pub fn checklist_progress(&self) -> Option<(usize, usize)> {
+        checklist_progress(&self.checklist)
+    }
 }
 
 /// Arguments of [`Db::create_issue`](crate::Db::create_issue).
@@ -95,6 +106,8 @@ pub struct NewIssue {
     pub labels: Vec<String>,
     /// Project names; the projects must exist. Their default labels are added.
     pub projects: Vec<String>,
+    /// Checklist item texts, in order.
+    pub checklist: Vec<String>,
 }
 
 impl NewIssue {
@@ -105,6 +118,7 @@ impl NewIssue {
             status: Status::Todo,
             labels: Vec::new(),
             projects: Vec::new(),
+            checklist: Vec::new(),
         }
     }
 
@@ -125,6 +139,11 @@ impl NewIssue {
 
     pub fn projects(mut self, projects: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.projects = projects.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn checklist(mut self, items: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.checklist = items.into_iter().map(Into::into).collect();
         self
     }
 }

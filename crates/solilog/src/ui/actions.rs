@@ -365,6 +365,62 @@ pub mod issue_detail {
     );
 }
 
+/// The checklist of an issue: one-line items, each checked or not. In the
+/// open issue, item commands act on the item being edited unless given an `id`.
+pub mod checklist {
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::ChecklistItemId;
+
+    actions!(
+        checklist,
+        [
+            /// Move the item being edited up the checklist.
+            MoveItemUp,
+            /// Move the item being edited down the checklist.
+            MoveItemDown,
+            /// Edit the next checklist item (or the new-item field).
+            FocusNext,
+            /// Edit the previous checklist item.
+            FocusPrevious,
+        ]
+    );
+
+    /// Add an item to the checklist of the open (else the highlighted)
+    /// issue. With a `text`, adds it; without, opens the issue and puts the
+    /// cursor in its new-item field.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = checklist)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddItem {
+        #[serde(default)]
+        pub text: Option<String>,
+    }
+
+    /// Check or uncheck a checklist item: the given `id`, else the one
+    /// being edited.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = checklist)]
+    #[serde(deny_unknown_fields)]
+    pub struct ToggleItem {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<ChecklistItemId>,
+    }
+
+    /// Delete a checklist item: the given `id`, else the one being edited.
+    /// Emptying an item's text and leaving it also deletes it.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = checklist)]
+    #[serde(deny_unknown_fields)]
+    pub struct DeleteItem {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<ChecklistItemId>,
+    }
+}
+
 pub mod view {
     use gpui::{Action, actions};
     use schemars::JsonSchema;

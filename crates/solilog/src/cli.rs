@@ -14,8 +14,8 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Db, Issue, IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue, NewProject, Placement,
-    Project, ProjectStatus, ProjectUpdate, Status, View,
+    ChecklistItemId, Db, Issue, IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue,
+    NewProject, Placement, Project, ProjectStatus, ProjectUpdate, Status, View,
 };
 
 #[derive(Parser)]
@@ -61,6 +61,15 @@ pub enum Command {
     /// List a view's issues with `solilog issue list --view <name>`.
     #[command(subcommand, visible_alias = "v")]
     View(ViewCommand),
+    /// Manage issue checklists.
+    ///
+    /// A checklist is an ordered list of one-line items, each checked or not,
+    /// on an issue. It tracks progress only: an issue can be done with
+    /// unchecked items. Items have ids of their own (shown by `issue show`,
+    /// and in its JSON as `checklist[].id`); commands on an item take that
+    /// id. Every command prints the issue.
+    #[command(subcommand, visible_alias = "c")]
+    Checklist(ChecklistCommand),
     /// List the valid issue statuses.
     Statuses,
     /// Show keymap information.
@@ -84,7 +93,7 @@ pub enum IssueCommand {
         #[command(flatten)]
         filter: FilterArgs,
     },
-    /// Show one issue, with its description.
+    /// Show one issue, with its description and checklist.
     Show { id: IssueId },
     /// Create an issue and print it.
     #[command(visible_alias = "new")]
@@ -102,6 +111,10 @@ pub enum IssueCommand {
         /// Add to this existing project, with its default labels (repeatable).
         #[arg(long, short, value_name = "PROJECT")]
         project: Vec<String>,
+        /// Add this checklist item, unchecked (repeatable; items keep the
+        /// order given).
+        #[arg(long, short, value_name = "TEXT")]
+        item: Vec<String>,
     },
     /// Change an issue's fields (give at least one) and print it.
     ///
@@ -152,6 +165,41 @@ pub enum IssueCommand {
         #[arg(required = true)]
         projects: Vec<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ChecklistCommand {
+    /// Add items at the end of an issue's checklist, unchecked.
+    ///
+    /// Example: `solilog checklist add SOL-12 "Write tests" "Update docs"`.
+    /// With `-` as the only text, reads the items from stdin, one per line
+    /// (blank lines are skipped).
+    Add {
+        id: IssueId,
+        /// Item texts, one line each.
+        #[arg(required = true)]
+        texts: Vec<String>,
+    },
+    /// Check an item (mark it done).
+    Check { item: ChecklistItemId },
+    /// Uncheck an item.
+    Uncheck { item: ChecklistItemId },
+    /// Change the text of an item; `-` reads it from stdin.
+    Edit { item: ChecklistItemId, text: String },
+    /// Move an item before or after another item of the same checklist.
+    #[command(group = clap::ArgGroup::new("placement").required(true))]
+    Move {
+        item: ChecklistItemId,
+        /// Put it right before this item.
+        #[arg(long, value_name = "ITEM", group = "placement")]
+        before: Option<ChecklistItemId>,
+        /// Put it right after this item.
+        #[arg(long, value_name = "ITEM", group = "placement")]
+        after: Option<ChecklistItemId>,
+    },
+    /// Delete an item.
+    #[command(visible_alias = "rm")]
+    Delete { item: ChecklistItemId },
 }
 
 #[derive(Subcommand)]
@@ -376,13 +424,15 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     status,
                     label,
                     project,
+                    item,
                 } => {
                     check_one_stdin([&title, &description])?;
                     let new = NewIssue::new(read_arg(title, "title")?)
                         .description(read_arg(description, "description")?)
                         .status(status)
                         .labels(label)
-                        .projects(project);
+                        .projects(project)
+                        .checklist(item);
                     out.issue(&db.create_issue(&new)?)
                 }
                 IssueCommand::Edit {
@@ -414,6 +464,35 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                     out.issue(&db.remove_from_projects(id, &projects)?)
                 }
             }
+        }
+        Command::Checklist(cmd) => {
+            let db = Db::open_default()?;
+            let issue = match cmd {
+                ChecklistCommand::Add { id, texts } => {
+                    let texts = if texts == ["-"] {
+                        read_arg(texts[0].clone(), "items")?
+                            .lines()
+                            .filter(|l| !l.trim().is_empty())
+                            .map(str::to_owned)
+                            .collect()
+                    } else {
+                        texts
+                    };
+                    db.add_checklist_items(id, &texts)?
+                }
+                ChecklistCommand::Check { item } => db.set_checklist_item_done(item, true)?,
+                ChecklistCommand::Uncheck { item } => db.set_checklist_item_done(item, false)?,
+                ChecklistCommand::Edit { item, text } => {
+                    db.edit_checklist_item(item, &read_arg(text, "text")?)?
+                }
+                ChecklistCommand::Move {
+                    item,
+                    before,
+                    after,
+                } => db.move_checklist_item(item, &Placement::from_options(before, after)?)?,
+                ChecklistCommand::Delete { item } => db.delete_checklist_item(item)?,
+            };
+            out.issue(&issue)
         }
         Command::View(cmd) => {
             let db = Db::open_default()?;
@@ -605,6 +684,13 @@ impl Output {
             if !issue.description.is_empty() {
                 text.push_str(&format!("\n\n{}", issue.description));
             }
+            if !issue.checklist.is_empty() {
+                text.push('\n');
+                for item in &issue.checklist {
+                    let check = if item.done { "x" } else { " " };
+                    text.push_str(&format!("\n[{check}] {:<4} {}", item.id.0, item.text));
+                }
+            }
             text
         })
     }
@@ -666,6 +752,9 @@ fn issue_line(issue: &Issue) -> String {
     }
     if !issue.projects.is_empty() {
         line.push_str(&format!("  in: {}", issue.projects.join(", ")));
+    }
+    if let Some((done, total)) = issue.checklist_progress() {
+        line.push_str(&format!("  checklist {done}/{total}"));
     }
     if issue.archived {
         line.push_str("  (archived)");

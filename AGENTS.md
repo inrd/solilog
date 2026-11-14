@@ -58,11 +58,16 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, description, status, labels, projects. The description is
+- **Issue**: title, description, status, labels, projects, checklist. The description is
   plain text, stored as written apart from whitespace cleanup
   (`normalize_description`), so it can be rendered as Markdown later. An issue can be archived: it
   keeps everything but is left out of listings, views and counts
   (`Db::list_archived_issues` lists them). Deleting an issue is permanent.
+- **Checklist**: an issue's ordered list of one-line items (`ChecklistItem`:
+  text, done), each with a global id (`ChecklistItemId`, shown as a plain
+  number). It only tracks progress (`Issue::checklist_progress`, shown as
+  `done/total` in the list): unchecked items never prevent closing an issue.
+  New items go last; `Db::move_checklist_item` reorders within one checklist.
 - **Label**: a free-form, hierarchical tag. The name is a `/`-separated path
   (`acme/reverb`). Every ancestor exists as a label of its own and is created
   on demand. An issue may carry any number of labels. Filtering by a label
@@ -132,6 +137,7 @@ One concept, one name, consistent across surfaces:
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
 - Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `IssueDetail` | `NewIssue > TextInput`;
+  `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items;
   `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
   bindings in a context that holds text fields need `&& !TextInput` (see `IssueDetail`).
 - Issue commands act on the selected issues (`issue_list::ToggleSelected`,
@@ -139,9 +145,10 @@ One concept, one name, consistent across surfaces:
   highlighted issue when none is selected. GUI handlers get them from
   `Workspace::target_issues` and apply changes in one go with
   `Db::update_issues` / `Db::delete_issues` (all or nothing).
-- An open issue (`issue::Open`, Enter) replaces the issue list: title and
-  description are edited in place and saved as you type (`workspace/detail.rs`).
-  Issue commands then act on it.
+- An open issue (`issue::Open`, Enter) replaces the issue list: title,
+  description and checklist items are edited in place and saved as you type
+  (`workspace/detail.rs`, `workspace/detail/checklist.rs`). Issue commands
+  then act on it; checklist item commands act on the item being edited.
 - The archive (`workspace::OpenArchive`, palette only) replaces the issue list
   and lists archived projects and issues, with a context menu to delete them
   or bring them back.

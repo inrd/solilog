@@ -3,6 +3,7 @@
 //! Frontends (the GPUI app, the CLI) call into this crate and contain no
 //! business logic of their own. This crate must never depend on GPUI.
 
+mod checklist;
 mod db;
 mod filter;
 mod issue;
@@ -11,6 +12,7 @@ mod order;
 mod project;
 mod view;
 
+pub use checklist::{ChecklistItem, ChecklistItemId, checklist_progress, normalize_item_text};
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
 pub use issue::{

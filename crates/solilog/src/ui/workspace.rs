@@ -1123,6 +1123,11 @@ impl Workspace {
             )
             .children(
                 issue
+                    .checklist_progress()
+                    .map(|(done, total)| checklist_badge(done, total)),
+            )
+            .children(
+                issue
                     .projects
                     .iter()
                     .map(|project| chip(project.clone(), theme::ACCENT)),
@@ -1211,6 +1216,19 @@ fn of_issues(issues: &[Issue]) -> String {
 }
 
 /// A small rounded tag, used for projects and labels.
+/// Checklist progress of an issue in the list: done/total items.
+fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
+    div()
+        .flex_none()
+        .text_size(px(12.))
+        .text_color(rgb(if done == total {
+            theme::ACCENT
+        } else {
+            theme::TEXT_MUTED
+        }))
+        .child(format!("✓ {done}/{total}"))
+}
+
 fn chip(text: String, color: u32) -> impl IntoElement {
     div()
         .flex_none()
@@ -1236,6 +1254,7 @@ fn keystrokes_text(binding: &KeyBinding) -> String {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_checklist(window, cx);
         let list_focused = self.list_focus.is_focused(window);
         div()
             .key_context("Workspace")
@@ -1244,6 +1263,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_set_status))
             .on_action(cx.listener(Self::on_edit_issue))
             .on_action(cx.listener(Self::on_open_issue))
+            .on_action(cx.listener(Self::on_add_checklist_item))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))

@@ -15,6 +15,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, params};
 
+use crate::checklist::normalize_item_text;
 use crate::filter::IssueFilter;
 use crate::issue::{
     Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status, normalize_description,
@@ -101,6 +102,16 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE labels ADD COLUMN color TEXT;",
     // 11: issues have a plain-text description (empty when there is none).
     "ALTER TABLE issues ADD COLUMN description TEXT NOT NULL DEFAULT '';",
+    // 12: checklists: ordered items (`position` ascending within an issue).
+    "CREATE TABLE checklist_items (
+        id         INTEGER PRIMARY KEY,
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        text       TEXT    NOT NULL,
+        done       INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+        position   INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX checklist_items_by_issue ON checklist_items (issue_id, position);",
 ];
 
 /// Label names per issue.
@@ -197,9 +208,11 @@ impl Db {
             .collect::<rusqlite::Result<_>>()?;
         let mut labels = self.names_per_issue(ISSUE_LABELS_SQL, None)?;
         let mut projects = self.names_per_issue(ISSUE_PROJECTS_SQL, None)?;
+        let mut checklists = self.checklists_per_issue(None)?;
         for issue in &mut issues {
             issue.labels = labels.remove(&issue.id).unwrap_or_default();
             issue.projects = projects.remove(&issue.id).unwrap_or_default();
+            issue.checklist = checklists.remove(&issue.id).unwrap_or_default();
         }
         issues.retain(|i| filter.matches(i));
         Ok(issues)
@@ -223,17 +236,27 @@ impl Db {
             .names_per_issue(ISSUE_PROJECTS_SQL, Some(id))?
             .remove(&id)
             .unwrap_or_default();
+        issue.checklist = self
+            .checklists_per_issue(Some(id))?
+            .remove(&id)
+            .unwrap_or_default();
         Ok(issue)
     }
 
     /// Creates an issue (and any labels that don't exist yet), adds it to
-    /// its projects with their default labels, and returns it.
+    /// its projects with their default labels, gives it its checklist, and
+    /// returns it.
     pub fn create_issue(&self, new: &NewIssue) -> Result<Issue> {
         let title = normalize_title(&new.title)?;
         let labels = new
             .labels
             .iter()
             .map(|l| normalize_label_name(l))
+            .collect::<Result<Vec<_>>>()?;
+        let checklist = new
+            .checklist
+            .iter()
+            .map(|t| normalize_item_text(t))
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
         let id: IssueId = self.conn.query_row(
@@ -249,6 +272,7 @@ impl Db {
             )?;
         }
         self.join_projects(id, &new.projects)?;
+        self.insert_checklist_items(id, &checklist)?;
         tx.commit()?;
         self.get_issue(id)
     }
@@ -400,6 +424,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         description: row.get(5)?,
         labels: Vec::new(),
         projects: Vec::new(),
+        checklist: Vec::new(),
     })
 }
 

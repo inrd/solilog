@@ -7,6 +7,8 @@
 //   Archive              the archive has focus (it replaces the issue list)
 //   IssueDetail          an open issue (it replaces the issue list); its
 //                        title and description fields are TextInputs in it
+//   Checklist            the open issue's checklist, in IssueDetail; each
+//                        item is a ChecklistItem holding a TextInput
 //   NewIssue > TextInput the new-issue input has focus
 //   Picker               any popup list (command palette, status picker)
 //   TextInput            any text field; multi-line ones are also `multiline`
@@ -114,6 +116,7 @@
       "e": "issue_detail::EditTitle",
       "enter": "issue_detail::EditDescription",
       "d": "issue_detail::EditDescription",
+      "a": "checklist::AddItem",
       "s": "issue::SetStatus",
       "l": "issue::AddLabel",
       "shift-l": "issue::RemoveLabel",
@@ -191,6 +194,23 @@
       "cmd-down": "text_input::MoveToEnd",
       "cmd-shift-up": "text_input::SelectToStart",
       "cmd-shift-down": "text_input::SelectToEnd"
+    }
+  },
+  // After the TextInput sections, to take precedence over them.
+  {
+    "context": "Checklist > TextInput",
+    "bindings": {
+      "up": "checklist::FocusPrevious",
+      "down": "checklist::FocusNext"
+    }
+  },
+  {
+    "context": "ChecklistItem > TextInput",
+    "bindings": {
+      "cmd-enter": "checklist::ToggleItem",
+      "alt-up": "checklist::MoveItemUp",
+      "alt-down": "checklist::MoveItemDown",
+      "cmd-shift-backspace": "checklist::DeleteItem"
     }
   }
 ]

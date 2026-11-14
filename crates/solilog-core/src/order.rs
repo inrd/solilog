@@ -1,20 +1,22 @@
-//! User-defined order of projects and labels: an integer `position` column,
-//! ascending. New rows get a position after every existing one.
+//! User-defined order of projects, labels and checklist items: an integer
+//! `position` column, ascending. New rows get a position after every
+//! existing one.
 
 use anyhow::{Context as _, Result};
 use rusqlite::params;
 
 use crate::Db;
 
-/// Where to move a project or label, relative to another one.
+/// Where to move a project, label (by name) or checklist item (by id),
+/// relative to another one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Placement {
-    Before(String),
-    After(String),
+pub enum Placement<T = String> {
+    Before(T),
+    After(T),
 }
 
-impl Placement {
-    pub fn anchor(&self) -> &str {
+impl<T> Placement<T> {
+    pub fn anchor(&self) -> &T {
         match self {
             Placement::Before(name) | Placement::After(name) => name,
         }
@@ -22,7 +24,7 @@ impl Placement {
 
     /// Builds a placement from `--before`/`--after` style options; exactly
     /// one must be given.
-    pub fn from_options(before: Option<String>, after: Option<String>) -> Result<Self> {
+    pub fn from_options(before: Option<T>, after: Option<T>) -> Result<Self> {
         match (before, after) {
             (Some(before), None) => Ok(Placement::Before(before)),
             (None, Some(after)) => Ok(Placement::After(after)),
@@ -36,6 +38,7 @@ impl Placement {
 pub(crate) enum Ordered {
     Projects,
     Labels,
+    ChecklistItems,
 }
 
 impl Ordered {
@@ -43,6 +46,7 @@ impl Ordered {
         match self {
             Ordered::Projects => "projects",
             Ordered::Labels => "labels",
+            Ordered::ChecklistItems => "checklist_items",
         }
     }
 }
@@ -64,13 +68,13 @@ impl Db {
     /// of the rows ranked together, in their current order), and renumbers
     /// them. Moving a row next to itself does nothing. Call inside a
     /// transaction.
-    pub(crate) fn place(
+    pub(crate) fn place<T>(
         &self,
         table: Ordered,
         mut order: Vec<i64>,
         id: i64,
         anchor: i64,
-        placement: &Placement,
+        placement: &Placement<T>,
     ) -> Result<()> {
         if anchor == id {
             return Ok(());
