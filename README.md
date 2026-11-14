@@ -2,7 +2,17 @@
 
 A fast, minimal, offline issue tracker for one. Native desktop app built in Rust with [GPUI](https://gpui.rs), plus a CLI that works on the same data (handy for scripts and AI agents).
 
-## Run
+## Install (macOS)
+
+```sh
+make install      # builds Solilog.app, installs it in /Applications,
+                  # links the `solilog` command into ~/.local/bin
+make uninstall    # removes both; your database is kept
+```
+
+`APP_DIR=…` and `BIN_DIR=…` change where they go. `make` lists the other targets (tests, lints, bundle only, …).
+
+## Run from source
 
 ```sh
 cargo run                       # desktop app

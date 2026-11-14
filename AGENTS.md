@@ -16,6 +16,8 @@ crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   src/ui/picker.rs     reusable filter-list popup (command palette, status picker…)
   src/ui/workspace.rs  main view; action handlers
   src/ui/workspace/    parts of the main view (sidebar, …)
+packaging/macos/       app icon (icon.svg → Solilog.icns via icon.sh), Info.plist
+Makefile               common tasks, macOS bundle and install
 ```
 
 `solilog` with no args opens the GUI; `solilog <command>` runs the CLI.
@@ -181,6 +183,8 @@ cargo clippy --workspace --all-targets
 cargo run                              # GUI
 cargo run -- issue ls --json           # CLI
 SOLILOG_DB=/tmp/scratch.db cargo run -- issue create "test"   # isolated DB
+make bundle                            # target/release/Solilog.app
+make install                           # /Applications + CLI link in ~/.local/bin
 ```
 
 Keep the build free of warnings and clippy lints.
