@@ -114,6 +114,32 @@ pub mod issue {
     }
 }
 
+pub mod view {
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+
+    actions!(
+        view,
+        [
+            /// Show all issues (leave the current view).
+            ShowAll,
+        ]
+    );
+
+    /// Show the issues of a saved view. Without a `name`, opens the view picker.
+    /// Views are created with `solilog view save`.
+    ///
+    /// Keymap example: `"g b": ["view::Open", { "name": "Acme bugs" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = view)]
+    #[serde(deny_unknown_fields)]
+    pub struct Open {
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+}
+
 pub mod issue_list {
     use gpui::actions;
 

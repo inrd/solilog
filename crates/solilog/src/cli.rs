@@ -556,34 +556,7 @@ fn issue_line(issue: &Issue) -> String {
 }
 
 fn view_line(view: &View) -> String {
-    format!("{:<24} {}", view.name, filter_summary(&view.filter))
-}
-
-/// `open, status: todo|blocked, label: acme & bug, not: x, project: a|b`.
-fn filter_summary(filter: &IssueFilter) -> String {
-    let mut parts = Vec::new();
-    if filter.open_only {
-        parts.push("open".to_string());
-    }
-    let keys: Vec<_> = filter.statuses.iter().map(|s| s.key()).collect();
-    for (name, values, sep) in [
-        ("status", keys.iter().map(|s| s.to_string()).collect(), "|"),
-        ("label", filter.labels.clone(), " & "),
-        ("not", filter.without_labels.clone(), ", "),
-        ("project", filter.projects.clone(), "|"),
-    ] {
-        if !values.is_empty() {
-            parts.push(format!("{name}: {}", values.join(sep)));
-        }
-    }
-    if filter.no_project {
-        parts.push("no project".to_string());
-    }
-    if parts.is_empty() {
-        "all issues".to_string()
-    } else {
-        parts.join(", ")
-    }
+    format!("{:<24} {}", view.name, view.filter)
 }
 
 /// Name, status, progress, target date, default labels.

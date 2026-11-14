@@ -10,12 +10,12 @@ use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
     ScrollHandle, Subscription, Task, Window, deferred, div, prelude::*, px, rgb,
 };
-use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, NewProject, Status};
+use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, NewProject, Status, View};
 
 use super::actions::{
     self, command_palette, humanize_action_name,
     issue::{self, AddLabel, AddToProject, RemoveFromProject, RemoveLabel, SetStatus},
-    issue_list,
+    issue_list, view,
     workspace::{OpenKeymap, ReloadKeymap},
 };
 use super::keymap;
@@ -42,6 +42,11 @@ enum Modal {
         relation: Relation,
         /// Label or project names, by picker index.
         names: Vec<String>,
+    },
+    ViewPicker {
+        picker: Entity<Picker>,
+        /// View names, by picker index; `None` is "All issues".
+        views: Vec<Option<String>>,
     },
 }
 
@@ -80,7 +85,8 @@ impl Modal {
         match self {
             Modal::CommandPalette { picker, .. }
             | Modal::StatusPicker { picker, .. }
-            | Modal::Relation { picker, .. } => picker,
+            | Modal::Relation { picker, .. }
+            | Modal::ViewPicker { picker, .. } => picker,
         }
     }
 }
@@ -97,6 +103,9 @@ pub struct Workspace {
     /// Cache of the database; reloaded whenever it changes. Newest first.
     issues: Vec<Issue>,
     data_version: i64,
+    /// The view being shown; `None` shows all issues. Its filter is re-read
+    /// on every reload, so outside edits apply.
+    view: Option<View>,
     selected: Option<IssueId>,
     input: Entity<TextInput>,
     list_focus: FocusHandle,
@@ -115,7 +124,7 @@ impl Workspace {
                 return;
             }
             // On failure the text stays in the input so nothing is lost.
-            if let Some(issue) = this.report(this.db.create_issue(&NewIssue::new(title)), cx) {
+            if let Some(issue) = this.report(this.db.create_issue(&this.new_issue(title)), cx) {
                 input.update(cx, |input, cx| input.clear(cx));
                 this.selected = Some(issue.id);
                 this.reload(cx);
@@ -142,6 +151,7 @@ impl Workspace {
             db,
             issues: Vec::new(),
             data_version: 0,
+            view: None,
             selected: None,
             input,
             list_focus: cx.focus_handle(),
@@ -178,10 +188,29 @@ impl Workspace {
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.data_version = self.db.data_version().unwrap_or_default();
         let prev_ix = self.selected_index();
-        let Some(issues) = self.report(self.db.list_issues(&IssueFilter::default()), cx) else {
+        let mut view_error = None;
+        if let Some(view) = &self.view {
+            match self.db.get_view(&view.name) {
+                Ok(view) => self.view = Some(view),
+                // Deleted (or renamed) elsewhere: fall back to all issues.
+                Err(err) => {
+                    self.view = None;
+                    view_error = Some(format!("{err:#}"));
+                }
+            }
+        }
+        let filter = self
+            .view
+            .as_ref()
+            .map_or_else(IssueFilter::default, |v| v.filter.clone());
+        let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
+            self.issues.clear();
             return;
         };
         self.issues = issues;
+        if view_error.is_some() {
+            self.error = view_error;
+        }
         // Keep the selection on the same issue, or on the same row if it vanished.
         if self.selected_index().is_none() {
             let ix = prev_ix
@@ -190,6 +219,36 @@ impl Workspace {
             self.selected = self.issues.get(ix).map(|i| i.id);
         }
         cx.notify();
+    }
+
+    /// A new issue created while a view is shown gets the view's labels, and
+    /// its project if it names exactly one.
+    fn new_issue(&self, title: String) -> NewIssue {
+        let mut new = NewIssue::new(title);
+        if let Some(view) = &self.view {
+            new.labels = view.filter.labels.clone();
+            if let [project] = view.filter.projects.as_slice() {
+                new.projects = vec![project.clone()];
+            }
+        }
+        new
+    }
+
+    fn show_view(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
+        match name {
+            None => self.view = None,
+            Some(name) => match self.db.get_view(name) {
+                Ok(view) => self.view = Some(view),
+                Err(err) => {
+                    self.report::<()>(Err(err), cx);
+                    return;
+                }
+            },
+        }
+        self.error = None;
+        self.selected = None;
+        self.reload(cx);
+        self.select_index(0, cx);
     }
 
     fn selected_index(&self) -> Option<usize> {
@@ -282,6 +341,9 @@ impl Workspace {
                 }
                 self.apply_relation(relation, issue_id, name.clone(), cx);
             }
+            (Modal::ViewPicker { views, .. }, PickerEvent::Confirmed(ix)) => {
+                self.show_view(views[*ix].as_deref(), cx);
+            }
             (_, PickerEvent::Create(_)) => {}
         }
     }
@@ -310,6 +372,16 @@ impl Workspace {
             .filter(|a| actions::is_palette_visible(a.name()))
             .map(|a| (humanize_action_name(a.name()), a))
             .collect();
+        // Every saved view is a command of its own.
+        if entries.iter().any(|(_, a)| a.name() == "view::Open")
+            && let Ok(views) = self.db.list_views()
+        {
+            entries.extend(views.into_iter().map(|v| {
+                let label = format!("View: Open › {}", v.name);
+                let action = view::Open { name: Some(v.name) };
+                (label, Box::new(action) as Box<dyn Action>)
+            }));
+        }
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         let items = entries
             .iter()
@@ -344,6 +416,41 @@ impl Workspace {
             window,
             cx,
         );
+    }
+
+    fn open_view_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(saved) = self.report(self.db.list_views(), cx) else {
+            return;
+        };
+        let mut items = vec![PickerItem::new("All issues")];
+        let mut views = vec![None];
+        for view in saved {
+            items.push(PickerItem::new(view.name.clone()).hint(Some(view.filter.to_string())));
+            views.push(Some(view.name));
+        }
+        let current = self.view.as_ref().map(|v| v.name.as_str());
+        let highlighted = views
+            .iter()
+            .position(|v| v.as_deref() == current)
+            .unwrap_or(0);
+        let picker = cx.new(|cx| Picker::new("Open view…", items, highlighted, cx));
+        self.open_modal(
+            picker,
+            |picker| Modal::ViewPicker { picker, views },
+            window,
+            cx,
+        );
+    }
+
+    fn on_open_view(&mut self, action: &view::Open, window: &mut Window, cx: &mut Context<Self>) {
+        match &action.name {
+            Some(name) => self.show_view(Some(name), cx),
+            None => self.open_view_picker(window, cx),
+        }
+    }
+
+    fn on_show_all(&mut self, _: &view::ShowAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.show_view(None, cx);
     }
 
     fn open_relation_picker(
@@ -638,6 +745,38 @@ impl Workspace {
             )
     }
 
+    /// Current view name, its filter, and the issue count.
+    fn render_view_header(&self) -> impl IntoElement + use<> {
+        let (name, summary) = match &self.view {
+            Some(view) => (view.name.clone(), Some(view.filter.to_string())),
+            None => ("All issues".to_string(), None),
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_4()
+            .py_1()
+            .border_b_1()
+            .border_color(rgb(theme::DIVIDER))
+            .text_size(px(12.))
+            .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(name))
+            .children(summary.map(|s| {
+                div()
+                    .flex_1()
+                    .truncate()
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .child(s)
+            }))
+            .child(
+                div()
+                    .ml_auto()
+                    .flex_none()
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .child(self.issues.len().to_string()),
+            )
+    }
+
     fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let picker = self.modal.as_ref()?.modal.picker().clone();
         let dismiss = cx.listener(|this, _, window, cx| {
@@ -713,6 +852,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))
             .on_action(cx.listener(Self::on_remove_from_project))
+            .on_action(cx.listener(Self::on_open_view))
+            .on_action(cx.listener(Self::on_show_all))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))
@@ -732,6 +873,7 @@ impl Render for Workspace {
                     .border_color(rgb(theme::DIVIDER))
                     .child(self.input.clone()),
             )
+            .child(self.render_view_header())
             .child(
                 div()
                     .id("issues")
@@ -754,7 +896,11 @@ impl Render for Workspace {
                                 .px_4()
                                 .py_2()
                                 .text_color(rgb(theme::TEXT_MUTED))
-                                .child("No issues yet. Type a title above and press Enter."),
+                                .child(if self.view.is_some() {
+                                    "No issues in this view."
+                                } else {
+                                    "No issues yet. Type a title above and press Enter."
+                                }),
                         )
                     }),
             )

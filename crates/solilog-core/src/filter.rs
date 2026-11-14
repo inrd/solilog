@@ -1,5 +1,7 @@
 //! Issue filters.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::issue::{Issue, Status};
@@ -41,5 +43,57 @@ impl IssueFilter {
                     .iter()
                     .any(|p| issue.projects.iter().any(|ip| ip.eq_ignore_ascii_case(p))))
             && (!self.no_project || issue.projects.is_empty())
+    }
+}
+
+/// One-line summary: `open, status: todo|blocked, label: acme & bug, not: x,
+/// project: a|b`, or `all issues`.
+impl fmt::Display for IssueFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut parts = Vec::new();
+        if self.open_only {
+            parts.push("open".to_string());
+        }
+        let statuses = self.statuses.iter().map(|s| s.key().to_string()).collect();
+        for (name, values, sep) in [
+            ("status", statuses, "|"),
+            ("label", self.labels.clone(), " & "),
+            ("not", self.without_labels.clone(), ", "),
+            ("project", self.projects.clone(), "|"),
+        ] {
+            if !values.is_empty() {
+                parts.push(format!("{name}: {}", values.join(sep)));
+            }
+        }
+        if self.no_project {
+            parts.push("no project".to_string());
+        }
+        if parts.is_empty() {
+            f.write_str("all issues")
+        } else {
+            f.write_str(&parts.join(", "))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary() {
+        assert_eq!(IssueFilter::default().to_string(), "all issues");
+        let filter = IssueFilter {
+            open_only: true,
+            statuses: vec![Status::Todo, Status::Blocked],
+            labels: vec!["acme".into(), "bug".into()],
+            without_labels: vec!["x".into()],
+            no_project: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            filter.to_string(),
+            "open, status: todo|blocked, label: acme & bug, not: x, no project"
+        );
     }
 }

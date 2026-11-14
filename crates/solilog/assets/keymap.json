@@ -29,6 +29,8 @@
       "shift-l": "issue::RemoveLabel",
       "p": "issue::AddToProject",
       "shift-p": "issue::RemoveFromProject",
+      "v": "view::Open",
+      "shift-v": "view::ShowAll",
       "j": "issue_list::SelectNext",
       "k": "issue_list::SelectPrevious",
       "down": "issue_list::SelectNext",
