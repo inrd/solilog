@@ -10,5 +10,5 @@ mod label;
 
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
-pub use issue::{ISSUE_PREFIX, Issue, IssueId, Status};
+pub use issue::{ISSUE_PREFIX, Issue, IssueId, NewIssue, Status};
 pub use label::{LABEL_SEPARATOR, Label, label_matches, normalize_label_name};

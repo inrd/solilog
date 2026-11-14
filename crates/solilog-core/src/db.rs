@@ -16,7 +16,8 @@ use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
 
 use crate::filter::IssueFilter;
-use crate::issue::{Issue, IssueId, Status};
+use crate::issue::{Issue, IssueId, NewIssue, Status};
+use crate::label::normalize_label_name;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
 /// Never edit an existing entry; append a new one.
@@ -136,14 +137,29 @@ impl Db {
         Ok(issue)
     }
 
-    pub fn create_issue(&self, title: &str, status: Status) -> Result<Issue> {
-        let title = title.trim();
+    /// Creates an issue (and any labels that don't exist yet). Returns it.
+    pub fn create_issue(&self, new: &NewIssue) -> Result<Issue> {
+        let title = new.title.trim();
         anyhow::ensure!(!title.is_empty(), "issue title cannot be empty");
-        let id = self.conn.query_row(
+        let labels = new
+            .labels
+            .iter()
+            .map(|l| normalize_label_name(l))
+            .collect::<Result<Vec<_>>>()?;
+        let tx = self.conn.unchecked_transaction()?;
+        let id: IssueId = self.conn.query_row(
             "INSERT INTO issues (title, status) VALUES (?1, ?2) RETURNING id",
-            params![title, status],
+            params![title, new.status],
             |row| row.get(0),
         )?;
+        for label in &labels {
+            let label_id = self.ensure_label(label)?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO issue_labels (issue_id, label_id) VALUES (?1, ?2)",
+                params![id, label_id],
+            )?;
+        }
+        tx.commit()?;
         self.get_issue(id)
     }
 
@@ -220,16 +236,16 @@ mod tests {
     #[test]
     fn create_and_list() {
         let db = Db::open_in_memory().unwrap();
-        db.create_issue("first", Status::Todo).unwrap();
-        db.create_issue("  second  ", Status::Todo).unwrap();
+        db.create_issue(&NewIssue::new("first")).unwrap();
+        db.create_issue(&NewIssue::new("  second  ")).unwrap();
         assert_eq!(titles(&db, &IssueFilter::default()), ["second", "first"]);
-        assert!(db.create_issue("   ", Status::Todo).is_err());
+        assert!(db.create_issue(&NewIssue::new("   ")).is_err());
     }
 
     #[test]
     fn get_and_set_status() {
         let db = Db::open_in_memory().unwrap();
-        let issue = db.create_issue("x", Status::Todo).unwrap();
+        let issue = db.create_issue(&NewIssue::new("x")).unwrap();
         assert_eq!(db.get_issue(issue.id).unwrap(), issue);
         let updated = db.set_status(issue.id, Status::Blocked).unwrap();
         assert_eq!(updated.status, Status::Blocked);
@@ -241,9 +257,11 @@ mod tests {
     #[test]
     fn filters() {
         let db = Db::open_in_memory().unwrap();
-        db.create_issue("a", Status::Todo).unwrap();
-        db.create_issue("b", Status::Done).unwrap();
-        db.create_issue("c", Status::Blocked).unwrap();
+        db.create_issue(&NewIssue::new("a")).unwrap();
+        db.create_issue(&NewIssue::new("b").status(Status::Done))
+            .unwrap();
+        db.create_issue(&NewIssue::new("c").status(Status::Blocked))
+            .unwrap();
         let open = IssueFilter {
             open_only: true,
             ..Default::default()
@@ -259,7 +277,7 @@ mod tests {
     #[test]
     fn migrations_are_idempotent() {
         let mut db = Db::open_in_memory().unwrap();
-        db.create_issue("kept", Status::Todo).unwrap();
+        db.create_issue(&NewIssue::new("kept")).unwrap();
         db.migrate().unwrap();
         assert_eq!(db.list_issues(&IssueFilter::default()).unwrap().len(), 1);
     }
@@ -272,9 +290,9 @@ mod tests {
         let a = Db::open(&path).unwrap();
         let b = Db::open(&path).unwrap();
         let before = a.data_version().unwrap();
-        a.create_issue("own write", Status::Todo).unwrap();
+        a.create_issue(&NewIssue::new("own write")).unwrap();
         assert_eq!(a.data_version().unwrap(), before);
-        b.create_issue("other write", Status::Todo).unwrap();
+        b.create_issue(&NewIssue::new("other write")).unwrap();
         assert_ne!(a.data_version().unwrap(), before);
         std::fs::remove_dir_all(&dir).unwrap();
     }

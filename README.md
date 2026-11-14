@@ -10,6 +10,9 @@ cargo run -- --help             # CLI
 cargo run -- issue create "Fix the thing"
 cargo run -- issue ls --open --json
 cargo run -- issue set-status SOL-1 done
+cargo run -- issue create "Crash on load" -l acme/reverb -l bug
+cargo run -- issue ls -l acme             # also matches sublabels like acme/reverb
+cargo run -- label ls
 ```
 
 ## Keyboard

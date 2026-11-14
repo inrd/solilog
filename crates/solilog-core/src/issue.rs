@@ -77,6 +77,35 @@ pub struct Issue {
     pub labels: Vec<String>,
 }
 
+/// Arguments of [`Db::create_issue`](crate::Db::create_issue).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewIssue {
+    pub title: String,
+    pub status: Status,
+    /// Label paths; missing labels are created.
+    pub labels: Vec<String>,
+}
+
+impl NewIssue {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            status: Status::Todo,
+            labels: Vec::new(),
+        }
+    }
+
+    pub fn status(mut self, status: Status) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub fn labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.labels = labels.into_iter().map(Into::into).collect();
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {

@@ -270,7 +270,7 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IssueFilter, Status};
+    use crate::{IssueFilter, NewIssue};
 
     fn names(db: &Db) -> Vec<String> {
         db.list_labels()
@@ -313,8 +313,8 @@ mod tests {
     #[test]
     fn issue_labels_and_counts() {
         let db = Db::open_in_memory().unwrap();
-        let a = db.create_issue("a", Status::Todo).unwrap();
-        let b = db.create_issue("b", Status::Todo).unwrap();
+        let a = db.create_issue(&NewIssue::new("a")).unwrap();
+        let b = db.create_issue(&NewIssue::new("b")).unwrap();
         let a = db
             .add_labels(a.id, &strings(&["bug", "acme/reverb", "bug"]))
             .unwrap();
@@ -338,14 +338,23 @@ mod tests {
         assert_eq!(a.labels, ["acme/reverb"]);
         assert!(db.remove_labels(a.id, &strings(&["nope"])).is_err());
         assert!(db.add_labels(crate::IssueId(99), &strings(&["x"])).is_err());
+        let c = db
+            .create_issue(&NewIssue::new("c").labels(["new/label"]))
+            .unwrap();
+        assert_eq!(c.labels, ["new/label"]);
+        assert!(names(&db).contains(&"new".to_string()));
+        assert!(
+            db.create_issue(&NewIssue::new("d").labels(["a//b"]))
+                .is_err()
+        );
     }
 
     #[test]
     fn filter_implies_ancestors() {
         let db = Db::open_in_memory().unwrap();
-        let a = db.create_issue("a", Status::Todo).unwrap();
-        let b = db.create_issue("b", Status::Todo).unwrap();
-        db.create_issue("c", Status::Todo).unwrap();
+        let a = db.create_issue(&NewIssue::new("a")).unwrap();
+        let b = db.create_issue(&NewIssue::new("b")).unwrap();
+        db.create_issue(&NewIssue::new("c")).unwrap();
         db.add_labels(a.id, &strings(&["acme/reverb", "bug"]))
             .unwrap();
         db.add_labels(b.id, &strings(&["globex/delay", "bug"]))
@@ -382,7 +391,7 @@ mod tests {
     #[test]
     fn rename_moves_subtree() {
         let db = Db::open_in_memory().unwrap();
-        let a = db.create_issue("a", Status::Todo).unwrap();
+        let a = db.create_issue(&NewIssue::new("a")).unwrap();
         db.add_labels(a.id, &strings(&["acme/reverb", "bug"]))
             .unwrap();
         db.create_label("Globex").unwrap();
@@ -405,7 +414,7 @@ mod tests {
     #[test]
     fn delete_removes_subtree() {
         let db = Db::open_in_memory().unwrap();
-        let a = db.create_issue("a", Status::Todo).unwrap();
+        let a = db.create_issue(&NewIssue::new("a")).unwrap();
         db.add_labels(a.id, &strings(&["acme/reverb", "bug"]))
             .unwrap();
         let deleted = db.delete_label("acme").unwrap();

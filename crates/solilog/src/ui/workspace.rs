@@ -10,7 +10,7 @@ use gpui::{
     Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
     ScrollHandle, Subscription, Task, Window, deferred, div, prelude::*, px, rgb,
 };
-use solilog_core::{Db, Issue, IssueFilter, IssueId, Status};
+use solilog_core::{Db, Issue, IssueFilter, IssueId, NewIssue, Status};
 
 use super::actions::{
     self, command_palette, humanize_action_name,
@@ -76,7 +76,7 @@ impl Workspace {
                 return;
             }
             // On failure the text stays in the input so nothing is lost.
-            if let Some(issue) = this.report(this.db.create_issue(&title, Status::Todo), cx) {
+            if let Some(issue) = this.report(this.db.create_issue(&NewIssue::new(title)), cx) {
                 input.update(cx, |input, cx| input.clear(cx));
                 this.selected = Some(issue.id);
                 this.reload(cx);
