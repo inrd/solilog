@@ -38,6 +38,8 @@ pub mod workspace {
             /// Show the archive: archived projects and issues, which can be
             /// deleted or brought back from there.
             OpenArchive,
+            /// Show the database file and its attachments in the file manager.
+            OpenDatabaseDirectory,
         ]
     );
 }

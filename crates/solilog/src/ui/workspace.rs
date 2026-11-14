@@ -29,7 +29,7 @@ use super::actions::{
     self, command_palette, humanize_action_name,
     issue::{self, AddLabel, AddToProject, Edit, RemoveFromProject, RemoveLabel, SetStatus},
     issue_list, view,
-    workspace::{OpenKeymap, ReloadKeymap},
+    workspace::{OpenDatabaseDirectory, OpenKeymap, ReloadKeymap},
 };
 use super::keymap;
 use super::picker::{Picker, PickerEvent, PickerItem};
@@ -914,6 +914,18 @@ impl Workspace {
         }
     }
 
+    fn on_open_database_directory(
+        &mut self,
+        _: &OpenDatabaseDirectory,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = anyhow::Context::context(self.db.path(), "the database is in memory");
+        if let Some(path) = self.report(path, cx) {
+            cx.reveal_path(&path);
+        }
+    }
+
     fn on_reload_keymap(&mut self, _: &ReloadKeymap, _: &mut Window, cx: &mut Context<Self>) {
         keymap::load(cx);
     }
@@ -1544,6 +1556,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_delete_label))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
+            .on_action(cx.listener(Self::on_open_database_directory))
             .on_action(cx.listener(Self::on_reload_keymap))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_focus_sidebar))

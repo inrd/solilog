@@ -203,6 +203,14 @@ impl Db {
 
     /// Changes whenever *another* connection commits to the database.
     /// Poll it to detect external modifications (e.g. from the CLI).
+    /// The database file, or `None` for an in-memory database.
+    pub fn path(&self) -> Option<PathBuf> {
+        self.conn
+            .path()
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+    }
+
     pub fn data_version(&self) -> Result<i64> {
         Ok(self
             .conn
@@ -742,6 +750,21 @@ mod tests {
         db.create_issue(&NewIssue::new("kept")).unwrap();
         db.migrate().unwrap();
         assert_eq!(db.list_issues(&IssueFilter::default()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn path_is_the_database_file() {
+        assert_eq!(Db::open_in_memory().unwrap().path(), None);
+        let dir = std::env::temp_dir().join(format!("solilog-test-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("p.db");
+        let db = Db::open(&path).unwrap();
+        assert_eq!(
+            db.path().unwrap().canonicalize().unwrap(),
+            path.canonicalize().unwrap()
+        );
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
