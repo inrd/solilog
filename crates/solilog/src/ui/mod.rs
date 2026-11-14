@@ -8,19 +8,24 @@ mod picker;
 mod status_icon;
 mod text_input;
 mod theme;
+mod window_frame;
 mod workspace;
 
 use anyhow::Result;
 use gpui::{
-    App, Application, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions,
-    prelude::*, px, size,
+    App, Application, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowDecorations,
+    WindowOptions, prelude::*, px, size,
 };
 use solilog_core::Db;
 
 use actions::workspace::Quit;
+use window_frame::WindowFrame;
 use workspace::Workspace;
 
 const APP_NAME: &str = "Solilog";
+/// Identifies the app to Linux desktops: the name of its `.desktop` file
+/// (and the macOS bundle identifier).
+const APP_ID: &str = "dev.solilog.Solilog";
 
 pub fn run(db: Db) -> Result<()> {
     Application::new()
@@ -38,9 +43,15 @@ pub fn run(db: Db) -> Result<()> {
                         title: Some(SharedString::from(APP_NAME)),
                         ..Default::default()
                     }),
+                    app_id: Some(APP_ID.to_string()),
+                    // Drawn by the system when it can; else by `WindowFrame`.
+                    window_decorations: Some(WindowDecorations::Server),
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| Workspace::new(db, window, cx)),
+                |window, cx| {
+                    let workspace = cx.new(|cx| Workspace::new(db, window, cx));
+                    cx.new(|_| WindowFrame::new(workspace))
+                },
             )
             .expect("failed to open window");
 

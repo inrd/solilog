@@ -14,6 +14,8 @@ crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   src/ui/actions.rs    every GUI action, grouped by namespace
   src/ui/keymap.rs     keymap loading (defaults + user file, hot reload)
   src/ui/picker.rs     reusable filter-list popup (command palette, status picker…)
+  src/ui/window_frame.rs  window root: title bar and resize edges when the app
+                       must draw them (Wayland without server-side decorations)
   src/ui/workspace.rs  main view; action handlers
   src/ui/workspace/    parts of the main view (sidebar, …)
 packaging/macos/       app icon (icon.svg → Solilog.icns via icon.sh), Info.plist
