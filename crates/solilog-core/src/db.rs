@@ -43,7 +43,40 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (issue_id, label_id)
     ) WITHOUT ROWID;
     CREATE INDEX issue_labels_by_label ON issue_labels (label_id);",
+    // 4: projects, their default labels, and issue membership.
+    "CREATE TABLE projects (
+        id          INTEGER PRIMARY KEY,
+        name        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+        status      TEXT    NOT NULL DEFAULT 'active'
+            CHECK (status IN ('planned', 'active', 'done', 'archived')),
+        description TEXT    NOT NULL DEFAULT '',
+        target_date TEXT,
+        created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE TABLE project_labels (
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        label_id   INTEGER NOT NULL REFERENCES labels (id) ON DELETE CASCADE,
+        PRIMARY KEY (project_id, label_id)
+    ) WITHOUT ROWID;
+    CREATE TABLE issue_projects (
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        PRIMARY KEY (issue_id, project_id)
+    ) WITHOUT ROWID;
+    CREATE INDEX issue_projects_by_project ON issue_projects (project_id);",
 ];
+
+/// Label names per issue.
+const ISSUE_LABELS_SQL: &str =
+    "SELECT il.issue_id, l.name FROM issue_labels il JOIN labels l ON l.id = il.label_id
+     WHERE ?1 IS NULL OR il.issue_id = ?1
+     ORDER BY l.name COLLATE NOCASE";
+
+/// Project names per issue.
+const ISSUE_PROJECTS_SQL: &str =
+    "SELECT ip.issue_id, p.name FROM issue_projects ip JOIN projects p ON p.id = ip.project_id
+     WHERE ?1 IS NULL OR ip.issue_id = ?1
+     ORDER BY p.name COLLATE NOCASE";
 
 const ISSUE_COLUMNS: &str = "id, title, status, created_at";
 
@@ -105,7 +138,8 @@ impl Db {
             .pragma_query_value(None, "data_version", |row| row.get(0))?)
     }
 
-    /// Newest first. Fails if the filter names a label that doesn't exist.
+    /// Newest first. Fails if the filter names a label or project that
+    /// doesn't exist.
     pub fn list_issues(&self, filter: &IssueFilter) -> Result<Vec<Issue>> {
         let filter = self.resolve_filter(filter)?;
         let mut issues: Vec<Issue> = self
@@ -115,9 +149,11 @@ impl Db {
             ))?
             .query_map([], issue_from_row)?
             .collect::<rusqlite::Result<_>>()?;
-        let mut labels = self.issue_labels(None)?;
+        let mut labels = self.names_per_issue(ISSUE_LABELS_SQL, None)?;
+        let mut projects = self.names_per_issue(ISSUE_PROJECTS_SQL, None)?;
         for issue in &mut issues {
             issue.labels = labels.remove(&issue.id).unwrap_or_default();
+            issue.projects = projects.remove(&issue.id).unwrap_or_default();
         }
         issues.retain(|i| filter.matches(i));
         Ok(issues)
@@ -133,11 +169,19 @@ impl Db {
             )
             .optional()?
             .with_context(|| format!("no issue {id}"))?;
-        issue.labels = self.issue_labels(Some(id))?.remove(&id).unwrap_or_default();
+        issue.labels = self
+            .names_per_issue(ISSUE_LABELS_SQL, Some(id))?
+            .remove(&id)
+            .unwrap_or_default();
+        issue.projects = self
+            .names_per_issue(ISSUE_PROJECTS_SQL, Some(id))?
+            .remove(&id)
+            .unwrap_or_default();
         Ok(issue)
     }
 
-    /// Creates an issue (and any labels that don't exist yet). Returns it.
+    /// Creates an issue (and any labels that don't exist yet), adds it to
+    /// its projects with their default labels, and returns it.
     pub fn create_issue(&self, new: &NewIssue) -> Result<Issue> {
         let title = new.title.trim();
         anyhow::ensure!(!title.is_empty(), "issue title cannot be empty");
@@ -159,6 +203,7 @@ impl Db {
                 params![id, label_id],
             )?;
         }
+        self.join_projects(id, &new.projects)?;
         tx.commit()?;
         self.get_issue(id)
     }
@@ -173,14 +218,14 @@ impl Db {
         self.get_issue(id)
     }
 
-    /// Label names per issue (sorted), for one issue or all of them.
-    fn issue_labels(&self, only: Option<IssueId>) -> Result<HashMap<IssueId, Vec<String>>> {
+    /// Related names per issue (`ISSUE_*_SQL`), for one issue or all of them.
+    fn names_per_issue(
+        &self,
+        sql: &str,
+        only: Option<IssueId>,
+    ) -> Result<HashMap<IssueId, Vec<String>>> {
         let mut map: HashMap<IssueId, Vec<String>> = HashMap::new();
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT il.issue_id, l.name FROM issue_labels il JOIN labels l ON l.id = il.label_id
-             WHERE ?1 IS NULL OR il.issue_id = ?1
-             ORDER BY l.name COLLATE NOCASE",
-        )?;
+        let mut stmt = self.conn.prepare_cached(sql)?;
         let rows = stmt.query_map([only], |row| Ok((row.get(0)?, row.get(1)?)))?;
         for row in rows {
             let (id, name) = row?;
@@ -189,14 +234,24 @@ impl Db {
         Ok(map)
     }
 
-    /// Checks that every name in the filter exists, using stored spellings.
+    /// Checks that the filter is consistent and every name in it exists;
+    /// uses stored spellings.
     fn resolve_filter(&self, filter: &IssueFilter) -> Result<IssueFilter> {
-        let names = |names: &[String]| -> Result<Vec<String>> {
+        anyhow::ensure!(
+            !filter.no_project || filter.projects.is_empty(),
+            "a filter cannot ask for both specific projects and no project"
+        );
+        let labels = |names: &[String]| -> Result<Vec<String>> {
             names.iter().map(|n| self.label_name(n)).collect()
         };
         Ok(IssueFilter {
-            labels: names(&filter.labels)?,
-            without_labels: names(&filter.without_labels)?,
+            labels: labels(&filter.labels)?,
+            without_labels: labels(&filter.without_labels)?,
+            projects: filter
+                .projects
+                .iter()
+                .map(|p| self.project_name(p))
+                .collect::<Result<_>>()?,
             ..filter.clone()
         })
     }
@@ -209,6 +264,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         status: row.get(2)?,
         created_at: row.get(3)?,
         labels: Vec::new(),
+        projects: Vec::new(),
     })
 }
 

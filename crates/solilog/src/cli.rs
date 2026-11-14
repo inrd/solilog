@@ -156,6 +156,7 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                         open_only: open,
                         labels: label,
                         without_labels: without_label,
+                        ..Default::default()
                     };
                     out.issues(&db.list_issues(&filter)?)
                 }

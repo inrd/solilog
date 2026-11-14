@@ -57,13 +57,19 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, status, labels.
+- **Issue**: title, status, labels, projects.
 - **Label**: a free-form, hierarchical tag. The name is a `/`-separated path
   (`acme/reverb`). Every ancestor exists as a label of its own and is created
   on demand. An issue may carry any number of labels. Filtering by a label
   also matches its sublabels (`acme` matches `acme/reverb`), but issues only
   carry the labels they were given. Names are case-insensitive and keep the
   case they were created with. Renaming a label moves its sublabels with it.
+- **Project**: a body of work with a goal (`reverb v1.1`): status
+  (`planned`, `active`, `done`, `archived`), description, optional target
+  date. Issues can be in any number of projects, or none; being outside a
+  project is normal. A project's default labels are added to issues when they
+  join it and kept when they leave. Done/archived projects are hidden from
+  pickers and default listings.
 
 ## Naming
 

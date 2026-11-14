@@ -15,10 +15,14 @@ pub struct IssueFilter {
     pub labels: Vec<String>,
     /// The issue has none of these labels, nor any of their sublabels.
     pub without_labels: Vec<String>,
+    /// The issue is in at least one of these projects.
+    pub projects: Vec<String>,
+    /// The issue is in no project. Incompatible with `projects`.
+    pub no_project: bool,
 }
 
 impl IssueFilter {
-    /// Assumes label names have been resolved to their stored spelling
+    /// Assumes names have been resolved to their stored spelling
     /// (`Db::list_issues` does this); comparison is case-insensitive anyway.
     pub fn matches(&self, issue: &Issue) -> bool {
         let has = |filter: &String| issue.labels.iter().any(|l| label_matches(l, filter));
@@ -26,5 +30,11 @@ impl IssueFilter {
             && !(self.open_only && issue.status.is_closed())
             && self.labels.iter().all(has)
             && !self.without_labels.iter().any(has)
+            && (self.projects.is_empty()
+                || self
+                    .projects
+                    .iter()
+                    .any(|p| issue.projects.iter().any(|ip| ip.eq_ignore_ascii_case(p))))
+            && (!self.no_project || issue.projects.is_empty())
     }
 }

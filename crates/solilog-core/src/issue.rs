@@ -75,6 +75,8 @@ pub struct Issue {
     /// Label paths (`acme/reverb`), sorted. Only the labels given to the
     /// issue; their ancestors are implied, not listed.
     pub labels: Vec<String>,
+    /// Names of the projects the issue is in, sorted.
+    pub projects: Vec<String>,
 }
 
 /// Arguments of [`Db::create_issue`](crate::Db::create_issue).
@@ -84,6 +86,8 @@ pub struct NewIssue {
     pub status: Status,
     /// Label paths; missing labels are created.
     pub labels: Vec<String>,
+    /// Project names; the projects must exist. Their default labels are added.
+    pub projects: Vec<String>,
 }
 
 impl NewIssue {
@@ -92,6 +96,7 @@ impl NewIssue {
             title: title.into(),
             status: Status::Todo,
             labels: Vec::new(),
+            projects: Vec::new(),
         }
     }
 
@@ -102,6 +107,11 @@ impl NewIssue {
 
     pub fn labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.labels = labels.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn projects(mut self, projects: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.projects = projects.into_iter().map(Into::into).collect();
         self
     }
 }
