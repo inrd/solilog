@@ -146,6 +146,13 @@ pub mod view {
         [
             /// Show all issues (leave the current view).
             ShowAll,
+            /// Save the current filter as a new view, or replace an existing one.
+            SaveAs,
+            /// Discard unsaved changes to the filter of the current view,
+            /// project or label.
+            Revert,
+            /// Delete the current view. Its filter stays in effect, unsaved.
+            Delete,
         ]
     );
 
@@ -164,6 +171,26 @@ pub mod view {
     #[action(namespace = view)]
     #[serde(deny_unknown_fields)]
     pub struct OpenLabel {
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+
+    /// Save the current filter. With a `name`, saves it as that view (created
+    /// or replaced); without one, updates the view being shown, or asks for a
+    /// name.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = view)]
+    #[serde(deny_unknown_fields)]
+    pub struct Save {
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+
+    /// Rename the current view. Without a `name`, asks for one.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = view)]
+    #[serde(deny_unknown_fields)]
+    pub struct Rename {
         #[serde(default)]
         pub name: Option<String>,
     }

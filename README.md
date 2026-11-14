@@ -22,7 +22,7 @@ cargo run -- issue ls --view "acme bugs"
 
 ## Keyboard
 
-Everything is a command. Press `cmd-k` to open the command palette. Key bindings are customizable in `~/.config/solilog/keymap.json` (run the "Workspace: Open Keymap" command); `solilog keymap defaults` prints the defaults.
+Everything is a command. Press `cmd-k` to open the command palette. The sidebar (`cmd-b`, `h` to focus it) lists saved views, projects and labels; `f` then a key edits the current filter (`f l` label, `f p` project, `f s` status, `f o` open only, `f c` clear), and `cmd-s` saves it as a view. Key bindings are customizable in `~/.config/solilog/keymap.json` (run the "Workspace: Open Keymap" command); `solilog keymap defaults` prints the defaults.
 
 ## Contributing
 

@@ -19,7 +19,9 @@
       "cmd-k": "command_palette::Toggle",
       "cmd-shift-p": "command_palette::Toggle",
       "cmd-n": "issue::New",
-      "cmd-b": "workspace::ToggleSidebar"
+      "cmd-b": "workspace::ToggleSidebar",
+      "cmd-s": "view::Save",
+      "cmd-shift-s": "view::SaveAs"
     }
   },
   {
@@ -42,6 +44,7 @@
       "f o": "filter::ToggleOpenOnly",
       "f n": "filter::ToggleNoProject",
       "f c": "filter::Clear",
+      "f r": "view::Revert",
       "h": "workspace::FocusSidebar",
       "left": "workspace::FocusSidebar",
       "j": "issue_list::SelectNext",

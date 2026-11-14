@@ -4,7 +4,7 @@
 use gpui::{Action, AppContext as _, Context, Window};
 use solilog_core::{IssueFilter, NewIssue, View};
 
-use super::{Modal, Workspace};
+use super::{CreateAction, Modal, Workspace};
 use crate::ui::actions::view;
 use crate::ui::picker::{Picker, PickerItem};
 
@@ -124,14 +124,159 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_creatable_action_picker(placeholder, entries, highlighted, None, window, cx);
+    }
+
+    /// Like [`Self::open_action_picker`], plus a "`label` “text”" row whose
+    /// action `create` builds from the typed text.
+    fn open_creatable_action_picker(
+        &mut self,
+        placeholder: &str,
+        entries: Vec<(PickerItem, Box<dyn Action>)>,
+        highlighted: usize,
+        create: Option<(&'static str, CreateAction)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (items, actions): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
-        let picker = cx.new(|cx| Picker::new(placeholder, items, highlighted, cx));
+        let create_label = create.as_ref().map(|(label, _)| *label);
+        let picker = cx.new(|cx| {
+            let picker = Picker::new(placeholder, items, highlighted, cx);
+            match create_label {
+                Some(label) => picker.creatable(label),
+                None => picker,
+            }
+        });
+        let create = create.map(|(_, build)| build);
         self.open_modal(
             picker,
-            |picker| Modal::ActionPicker { picker, actions },
+            |picker| Modal::ActionPicker {
+                picker,
+                actions,
+                create,
+            },
             window,
             cx,
         );
+    }
+
+    /// The saved view being shown, if any.
+    fn current_view(&mut self, cx: &mut Context<Self>) -> Option<View> {
+        match &self.scope.source {
+            Source::View(view) => Some(view.clone()),
+            _ => {
+                self.error = Some("Not showing a saved view".into());
+                cx.notify();
+                None
+            }
+        }
+    }
+
+    fn save_view(&mut self, name: &str, cx: &mut Context<Self>) {
+        let saved = self.db.save_view(name, &self.scope.filter);
+        if let Some(view) = self.report(saved, cx) {
+            self.scope = Scope::new(Source::View(view));
+            self.reload(cx);
+            self.sidebar_cursor = self.active_sidebar_item();
+        }
+    }
+
+    pub(super) fn on_save_view(
+        &mut self,
+        action: &view::Save,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match (&action.name, &self.scope.source) {
+            (Some(name), _) => self.save_view(&name.clone(), cx),
+            (None, Source::View(view)) => self.save_view(&view.name.clone(), cx),
+            (None, _) => self.on_save_view_as(&view::SaveAs, window, cx),
+        }
+    }
+
+    pub(super) fn on_save_view_as(
+        &mut self,
+        _: &view::SaveAs,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entries = self
+            .views
+            .iter()
+            .map(|v| {
+                let item = PickerItem::new(v.name.clone()).hint(Some("replace"));
+                let action = view::Save {
+                    name: Some(v.name.clone()),
+                };
+                (item, Box::new(action) as Box<dyn Action>)
+            })
+            .collect();
+        let create: CreateAction = Box::new(|name| Box::new(view::Save { name: Some(name) }));
+        self.open_creatable_action_picker(
+            "Save view as…",
+            entries,
+            0,
+            Some(("New view", create)),
+            window,
+            cx,
+        );
+    }
+
+    pub(super) fn on_revert_view(
+        &mut self,
+        _: &view::Revert,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scope.filter = self.scope.source.filter();
+        self.error = None;
+        self.reload(cx);
+    }
+
+    pub(super) fn on_rename_view(
+        &mut self,
+        action: &view::Rename,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(view) = self.current_view(cx) else {
+            return;
+        };
+        let Some(new_name) = &action.name else {
+            let create: CreateAction = Box::new(|name| Box::new(view::Rename { name: Some(name) }));
+            let placeholder = format!("Rename “{}” to…", view.name);
+            return self.open_creatable_action_picker(
+                &placeholder,
+                Vec::new(),
+                0,
+                Some(("Rename to", create)),
+                window,
+                cx,
+            );
+        };
+        if let Some(renamed) = self.report(self.db.rename_view(&view.name, new_name), cx) {
+            // Keep any unsaved edits.
+            self.scope.source = Source::View(renamed);
+            self.reload(cx);
+            self.sidebar_cursor = self.active_sidebar_item();
+        }
+    }
+
+    pub(super) fn on_delete_view(
+        &mut self,
+        _: &view::Delete,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(view) = self.current_view(cx) else {
+            return;
+        };
+        if self.report(self.db.delete_view(&view.name), cx).is_some() {
+            // Keep showing the same issues, now as an unsaved filter.
+            self.scope.source = Source::All;
+            self.reload(cx);
+            self.sidebar_cursor = self.active_sidebar_item();
+        }
     }
 
     pub(super) fn on_show_all(

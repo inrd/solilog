@@ -53,8 +53,12 @@ enum Modal {
     ActionPicker {
         picker: Entity<Picker>,
         actions: Vec<Box<dyn Action>>,
+        /// Builds the action for the "Create …" row from the typed text.
+        create: Option<CreateAction>,
     },
 }
+
+type CreateAction = Box<dyn Fn(String) -> Box<dyn Action>>;
 
 /// A change to an issue's labels or projects, each an action that picks the
 /// label or project interactively when not given one.
@@ -342,6 +346,15 @@ impl Workspace {
             }
             (Modal::ActionPicker { actions, .. }, PickerEvent::Confirmed(ix)) => {
                 window.dispatch_action(actions[*ix].boxed_clone(), cx);
+            }
+            (
+                Modal::ActionPicker {
+                    create: Some(create),
+                    ..
+                },
+                PickerEvent::Create(text),
+            ) => {
+                window.dispatch_action(create(text.clone()), cx);
             }
             (_, PickerEvent::Create(_)) => {}
         }
@@ -785,6 +798,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_toggle_open_only))
             .on_action(cx.listener(Self::on_toggle_no_project))
             .on_action(cx.listener(Self::on_clear_filter))
+            .on_action(cx.listener(Self::on_save_view))
+            .on_action(cx.listener(Self::on_save_view_as))
+            .on_action(cx.listener(Self::on_revert_view))
+            .on_action(cx.listener(Self::on_rename_view))
+            .on_action(cx.listener(Self::on_delete_view))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
             .on_action(cx.listener(Self::on_reload_keymap))
