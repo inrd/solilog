@@ -791,6 +791,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_open_project))
             .on_action(cx.listener(Self::on_open_label))
             .on_action(cx.listener(Self::on_toggle_closed_projects))
+            .on_action(cx.listener(Self::on_move_project))
             .on_action(cx.listener(Self::on_toggle_label_filter))
             .on_action(cx.listener(Self::on_exclude_label_filter))
             .on_action(cx.listener(Self::on_toggle_project_filter))

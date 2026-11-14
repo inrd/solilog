@@ -69,7 +69,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
   (`planned`, `active`, `done`, `archived`), description. Issues can be in any number of projects, or none; being outside a
   project is normal. A project's default labels are added to issues when they
   join it and kept when they leave. Done/archived projects are hidden from
-  pickers and default listings.
+  pickers and default listings. Projects have a user-defined order (new ones
+  go last; `Db::move_project`, drag and drop in the sidebar); listings show
+  open projects first, each section in that order.
 - **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
   must match), labels to exclude, projects (any may match) or no project).
   Renaming a label or project updates views; deleting one makes the views

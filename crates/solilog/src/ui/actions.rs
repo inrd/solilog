@@ -55,6 +55,39 @@ pub mod sidebar {
     );
 }
 
+/// Reordering projects. The order is shared by the sidebar, pickers and
+/// `solilog project list`.
+pub mod project {
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+
+    actions!(
+        project,
+        [
+            /// Move the highlighted sidebar project up.
+            MoveUp,
+            /// Move the highlighted sidebar project down.
+            MoveDown,
+        ]
+    );
+
+    /// Move a project right before or right after another one (give exactly
+    /// one of `before` and `after`). Dragging a project in the sidebar does this.
+    ///
+    /// Keymap example: `"cmd-t": ["project::Move", { "name": "Triage", "before": "Website" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct Move {
+        pub name: String,
+        #[serde(default)]
+        pub before: Option<String>,
+        #[serde(default)]
+        pub after: Option<String>,
+    }
+}
+
 pub mod command_palette {
     use gpui::actions;
 

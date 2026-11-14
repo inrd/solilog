@@ -3,17 +3,18 @@
 //! archived projects sit in a collapsed section.
 //!
 //! Key context: `Sidebar`. Each row stands for an action (e.g. `view::Open`);
-//! confirming a row, by key or click, dispatches it.
+//! confirming a row, by key or click, dispatches it. Projects can be dragged
+//! to reorder them, within their section (open or closed).
 
 use gpui::{
     Action, ClickEvent, Context, FontWeight, IntoElement, SharedString, Window, div, prelude::*,
     px, rgb,
 };
-use solilog_core::IssueFilter;
+use solilog_core::{IssueFilter, ProjectPlacement};
 
 use super::Workspace;
 use super::scope::Source;
-use crate::ui::actions::{sidebar, view, workspace};
+use crate::ui::actions::{project, sidebar, view, workspace};
 use crate::ui::theme;
 
 pub const CONTEXT: &str = "Sidebar";
@@ -46,6 +47,32 @@ impl SidebarItem {
                 name: Some(name.clone()),
             }),
         }
+    }
+}
+
+/// The payload of a project being dragged in the sidebar; also renders the
+/// row that follows the mouse.
+#[derive(Clone)]
+struct DraggedProject {
+    name: String,
+    /// Index in `Workspace::projects`.
+    index: usize,
+    closed: bool,
+}
+
+impl Render for DraggedProject {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w(px(WIDTH - 8.))
+            .px_2()
+            .py(px(2.))
+            .rounded_sm()
+            .bg(rgb(theme::HIGHLIGHT))
+            .text_size(px(14.))
+            .line_height(px(20.))
+            .text_color(rgb(theme::TEXT))
+            .truncate()
+            .child(self.name.clone())
     }
 }
 
@@ -228,8 +255,149 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The project's index in `self.projects`, and whether it is closed.
+    fn project_slot(&self, name: &str) -> Option<(usize, bool)> {
+        self.projects
+            .iter()
+            .position(|p| p.name == name)
+            .map(|ix| (ix, self.projects[ix].status.is_closed()))
+    }
+
+    /// Moves the highlighted project past its neighbor in the same section.
+    fn move_highlighted_project(
+        &mut self,
+        down: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let SidebarItem::Project(name) = &self.sidebar_cursor else {
+            return;
+        };
+        let Some((ix, closed)) = self.project_slot(name) else {
+            return;
+        };
+        let same_section = |p: &&solilog_core::Project| p.status.is_closed() == closed;
+        let neighbor = if down {
+            self.projects[ix + 1..].iter().find(same_section)
+        } else {
+            self.projects[..ix].iter().rev().find(same_section)
+        };
+        if let Some(neighbor) = neighbor {
+            let (before, after) = if down {
+                (None, Some(neighbor.name.clone()))
+            } else {
+                (Some(neighbor.name.clone()), None)
+            };
+            let action = project::Move {
+                name: name.clone(),
+                before,
+                after,
+            };
+            window.dispatch_action(Box::new(action), cx);
+        }
+    }
+
+    fn on_move_project_up(
+        &mut self,
+        _: &project::MoveUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_highlighted_project(false, window, cx);
+    }
+
+    fn on_move_project_down(
+        &mut self,
+        _: &project::MoveDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_highlighted_project(true, window, cx);
+    }
+
+    pub(super) fn on_move_project(
+        &mut self,
+        action: &project::Move,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let placement = match (&action.before, &action.after) {
+            (Some(before), None) => ProjectPlacement::Before(before.clone()),
+            (None, Some(after)) => ProjectPlacement::After(after.clone()),
+            _ => {
+                let err =
+                    anyhow::anyhow!("project::Move needs exactly one of `before` and `after`");
+                self.report::<()>(Err(err), cx);
+                return;
+            }
+        };
+        if self
+            .report(self.db.move_project(&action.name, &placement), cx)
+            .is_some()
+        {
+            self.reload(cx);
+        }
+    }
+
     fn on_sidebar_open(&mut self, _: &sidebar::Open, window: &mut Window, cx: &mut Context<Self>) {
         window.dispatch_action(self.sidebar_cursor.action(), cx);
+    }
+
+    /// Makes a project row draggable, and a drop target for the projects of
+    /// its section. The dropped project takes the target's place: it goes
+    /// after the target when moving down, before it when moving up.
+    fn project_drag_and_drop(
+        &self,
+        row: gpui::Stateful<gpui::Div>,
+        target: DraggedProject,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let accepts = {
+            let target = target.clone();
+            move |dragged: &DraggedProject| {
+                dragged.closed == target.closed && dragged.name != target.name
+            }
+        };
+        row.on_drag(target.clone(), |dragged, _, _, cx| {
+            cx.new(|_| dragged.clone())
+        })
+        .can_drop({
+            let accepts = accepts.clone();
+            move |value, _, _| value.downcast_ref().is_some_and(&accepts)
+        })
+        .drag_over::<DraggedProject>({
+            let (accepts, index) = (accepts.clone(), target.index);
+            move |style, dragged, _, _| {
+                if !accepts(dragged) {
+                    return style;
+                }
+                // A line where the project will land; the padding it
+                // replaces keeps the row height.
+                let style = style.rounded_none().border_color(rgb(theme::ACCENT));
+                if dragged.index < index {
+                    style.border_b_2().pb(px(0.))
+                } else {
+                    style.border_t_2().pt(px(0.))
+                }
+            }
+        })
+        .on_drop(cx.listener(move |_, dragged: &DraggedProject, window, cx| {
+            if !accepts(dragged) {
+                return;
+            }
+            let anchor = Some(target.name.clone());
+            let (before, after) = if dragged.index < target.index {
+                (None, anchor)
+            } else {
+                (anchor, None)
+            };
+            let action = project::Move {
+                name: dragged.name.clone(),
+                before,
+                after,
+            };
+            window.dispatch_action(Box::new(action), cx);
+        }))
     }
 
     pub(super) fn render_sidebar(
@@ -272,6 +440,17 @@ impl Workspace {
                     };
                     let action = item.action();
                     let muted = item == SidebarItem::ClosedProjects;
+                    let dragged = match &item {
+                        SidebarItem::Project(name) => {
+                            self.project_slot(name)
+                                .map(|(index, closed)| DraggedProject {
+                                    name: name.clone(),
+                                    index,
+                                    closed,
+                                })
+                        }
+                        _ => None,
+                    };
                     div()
                         .id(("sidebar", ix))
                         .flex()
@@ -292,6 +471,9 @@ impl Workspace {
                             window.focus(&this.list_focus);
                             window.dispatch_action(action.boxed_clone(), cx);
                         }))
+                        .when_some(dragged, |row, target| {
+                            self.project_drag_and_drop(row, target, cx)
+                        })
                         .child(
                             div()
                                 .flex_1()
@@ -326,6 +508,8 @@ impl Workspace {
                 .on_action(cx.listener(Self::on_sidebar_next))
                 .on_action(cx.listener(Self::on_sidebar_previous))
                 .on_action(cx.listener(Self::on_sidebar_open))
+                .on_action(cx.listener(Self::on_move_project_up))
+                .on_action(cx.listener(Self::on_move_project_down))
                 .w(px(WIDTH))
                 .flex_none()
                 .h_full()

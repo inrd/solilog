@@ -3,6 +3,10 @@
 //! An issue can be in any number of projects, or none. A project can have
 //! default labels: issues get them when they join the project, and keep them
 //! when they leave it. Projects are identified by name (case-insensitive).
+//!
+//! Projects have a user-defined order (rearranged with [`Db::move_project`]).
+//! New projects go last; listings show open projects before closed ones, each
+//! in that order.
 
 use std::fmt;
 use std::str::FromStr;
@@ -141,6 +145,13 @@ pub struct ProjectUpdate {
     pub description: Option<String>,
 }
 
+/// Where [`Db::move_project`] puts a project, relative to another one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectPlacement {
+    Before(String),
+    After(String),
+}
+
 fn normalize_project_name(name: &str) -> Result<String> {
     let name = name.trim();
     anyhow::ensure!(!name.is_empty(), "project name cannot be empty");
@@ -172,14 +183,14 @@ fn project_from_row(row: &Row) -> rusqlite::Result<(i64, Project)> {
 }
 
 impl Db {
-    /// Active, then planned, then (if `include_closed`) done and archived
-    /// projects; by name.
+    /// Open projects, then (if `include_closed`) done and archived ones, each
+    /// in the user-defined order.
     pub fn list_projects(&self, include_closed: bool) -> Result<Vec<Project>> {
         let rows: Vec<(i64, Project)> = self
             .conn
             .prepare_cached(&format!(
                 "SELECT {PROJECT_COLUMNS} FROM projects p
-                 ORDER BY p.name COLLATE NOCASE"
+                 ORDER BY p.position, p.id"
             ))?
             .query_map([], project_from_row)?
             .collect::<rusqlite::Result<_>>()?;
@@ -190,7 +201,7 @@ impl Db {
                 projects.push(project);
             }
         }
-        projects.sort_by_key(|p| ProjectStatus::ALL.iter().position(|s| *s == p.status));
+        projects.sort_by_key(|p| p.status.is_closed());
         Ok(projects)
     }
 
@@ -218,7 +229,8 @@ impl Db {
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
         self.conn.execute(
-            "INSERT INTO projects (name, status, description) VALUES (?1, ?2, ?3)",
+            "INSERT INTO projects (name, status, description, position)
+             VALUES (?1, ?2, ?3, (SELECT coalesce(max(position), 0) + 1 FROM projects))",
             params![name, new.status, new.description.trim()],
         )?;
         let id = self.conn.last_insert_rowid();
@@ -272,6 +284,39 @@ impl Db {
         }
         tx.commit()?;
         self.get_project(&name)
+    }
+
+    /// Moves a project before or after another one in the user-defined order.
+    /// Returns the moved project.
+    pub fn move_project(&self, name: &str, placement: &ProjectPlacement) -> Result<Project> {
+        let id = self.project_id(name)?;
+        let (anchor, after) = match placement {
+            ProjectPlacement::Before(anchor) => (anchor, false),
+            ProjectPlacement::After(anchor) => (anchor, true),
+        };
+        let anchor = self.project_id(anchor)?;
+        let tx = self.conn.unchecked_transaction()?;
+        let mut order: Vec<i64> = self
+            .conn
+            .prepare_cached("SELECT id FROM projects ORDER BY position, id")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        if anchor != id {
+            order.retain(|&p| p != id);
+            let ix = order
+                .iter()
+                .position(|&p| p == anchor)
+                .context("project vanished while moving")?;
+            order.insert(ix + usize::from(after), id);
+            let mut update = self
+                .conn
+                .prepare_cached("UPDATE projects SET position = ?2 WHERE id = ?1")?;
+            for (position, project) in order.iter().enumerate() {
+                update.execute(params![project, position as i64 + 1])?;
+            }
+        }
+        tx.commit()?;
+        self.get_project(&self.project_name_by_id(id)?)
     }
 
     /// Deletes a project. Its issues stay, with their labels. Returns the
@@ -473,16 +518,47 @@ mod tests {
             .unwrap();
         };
         mk("b", ProjectStatus::Planned);
+        mk("d", ProjectStatus::Archived);
         mk("c", ProjectStatus::Active);
         mk("a", ProjectStatus::Active);
-        mk("d", ProjectStatus::Archived);
-        let names: Vec<_> = db
-            .list_projects(true)
-            .unwrap()
-            .into_iter()
-            .map(|p| p.name)
-            .collect();
-        assert_eq!(names, ["a", "c", "b", "d"]);
+        let names = |all| -> Vec<String> {
+            db.list_projects(all)
+                .unwrap()
+                .into_iter()
+                .map(|p| p.name)
+                .collect()
+        };
+        // Creation order, open projects first.
+        assert_eq!(names(true), ["b", "c", "a", "d"]);
+        assert_eq!(names(false), ["b", "c", "a"]);
+
+        let before = |p: &str| ProjectPlacement::Before(p.into());
+        let after = |p: &str| ProjectPlacement::After(p.into());
+        assert_eq!(db.move_project("A", &before("b")).unwrap().name, "a");
+        assert_eq!(names(true), ["a", "b", "c", "d"]);
+        db.move_project("a", &after("c")).unwrap();
+        assert_eq!(names(true), ["b", "c", "a", "d"]);
+        db.move_project("b", &after("a")).unwrap();
+        assert_eq!(names(true), ["c", "a", "b", "d"]);
+        db.move_project("b", &after("b")).unwrap();
+        assert_eq!(names(true), ["c", "a", "b", "d"]);
+        assert!(db.move_project("b", &after("nope")).is_err());
+        assert!(db.move_project("nope", &after("b")).is_err());
+
+        // Closing a project keeps its place among the closed ones.
+        db.move_project("d", &before("c")).unwrap();
+        assert_eq!(names(true), ["c", "a", "b", "d"]);
+        db.update_project(
+            "a",
+            &ProjectUpdate {
+                status: Some(ProjectStatus::Done),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(names(true), ["c", "b", "d", "a"]);
+        mk("e", ProjectStatus::Active);
+        assert_eq!(names(true), ["c", "b", "e", "d", "a"]);
     }
 
     #[test]

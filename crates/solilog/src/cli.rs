@@ -14,8 +14,8 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Project, ProjectStatus,
-    ProjectUpdate, Status, View,
+    Db, Issue, IssueFilter, IssueId, Label, NewIssue, NewProject, Project, ProjectPlacement,
+    ProjectStatus, ProjectUpdate, Status, View,
 };
 
 #[derive(Parser)]
@@ -126,7 +126,8 @@ pub enum IssueCommand {
 
 #[derive(Subcommand)]
 pub enum ProjectCommand {
-    /// List projects: active, then planned, by name.
+    /// List projects: open ones, then (with `--all`) closed ones, each in the
+    /// user-defined order (see `project move`).
     #[command(visible_alias = "ls")]
     List {
         /// Include done and archived projects.
@@ -161,6 +162,18 @@ pub enum ProjectCommand {
         /// New description; `-` reads it from stdin.
         #[arg(long, short)]
         description: Option<String>,
+    },
+    /// Move a project before or after another one in the project order (used
+    /// by `project list` and the GUI sidebar), and print it. New projects go last.
+    #[command(group = clap::ArgGroup::new("placement").required(true))]
+    Move {
+        name: String,
+        /// Put it right before this project.
+        #[arg(long, value_name = "PROJECT", group = "placement")]
+        before: Option<String>,
+        /// Put it right after this project.
+        #[arg(long, value_name = "PROJECT", group = "placement")]
+        after: Option<String>,
     },
     /// Delete a project and print it. Its issues stay, with their labels.
     #[command(visible_alias = "rm")]
@@ -364,6 +377,18 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                             .transpose()?,
                     };
                     out.project(&db.update_project(&name, &update)?)
+                }
+                ProjectCommand::Move {
+                    name,
+                    before,
+                    after,
+                } => {
+                    let placement = match (before, after) {
+                        (Some(before), _) => ProjectPlacement::Before(before),
+                        (None, Some(after)) => ProjectPlacement::After(after),
+                        (None, None) => unreachable!("clap requires --before or --after"),
+                    };
+                    out.project(&db.move_project(&name, &placement)?)
                 }
                 ProjectCommand::Delete { name } => out.project(&db.delete_project(&name)?),
                 ProjectCommand::AddLabel { name, labels } => {

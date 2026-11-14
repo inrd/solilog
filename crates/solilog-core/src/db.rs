@@ -73,6 +73,17 @@ const MIGRATIONS: &[&str] = &[
     );",
     // 6: projects no longer have a target date.
     "ALTER TABLE projects DROP COLUMN target_date;",
+    // 7: projects are listed in a user-defined order: `position` ascending.
+    // Existing projects start out active, then planned, then closed, by name.
+    "ALTER TABLE projects ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    UPDATE projects SET position = ranked.position
+    FROM (
+        SELECT id, row_number() OVER (ORDER BY
+            CASE status WHEN 'active' THEN 0 WHEN 'planned' THEN 1 WHEN 'done' THEN 2 ELSE 3 END,
+            name COLLATE NOCASE) AS position
+        FROM projects
+    ) AS ranked
+    WHERE ranked.id = projects.id;",
 ];
 
 /// Label names per issue.
