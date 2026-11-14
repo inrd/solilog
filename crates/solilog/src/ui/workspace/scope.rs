@@ -20,17 +20,23 @@ pub enum Source {
 }
 
 impl Source {
-    /// The filter this source stands for.
+    /// The filter this source stands for. Apart from saved views, which
+    /// keep their own, done and cancelled issues are hidden at first.
     pub fn filter(&self) -> IssueFilter {
         match self {
-            Source::All => IssueFilter::default(),
+            Source::All => IssueFilter {
+                open_only: true,
+                ..Default::default()
+            },
             Source::View(view) => view.filter.clone(),
             Source::Project(name) => IssueFilter {
                 projects: vec![name.clone()],
+                open_only: true,
                 ..Default::default()
             },
             Source::Label(name) => IssueFilter {
                 labels: vec![name.clone()],
+                open_only: true,
                 ..Default::default()
             },
         }
@@ -45,11 +51,17 @@ impl Source {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Scope {
     pub source: Source,
     /// The filter in effect.
     pub filter: IssueFilter,
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Self::new(Source::All)
+    }
 }
 
 impl Scope {

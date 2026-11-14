@@ -941,6 +941,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_toggle_open_only))
             .on_action(cx.listener(Self::on_toggle_no_project))
             .on_action(cx.listener(Self::on_clear_filter))
+            .on_action(cx.listener(Self::on_all_statuses))
             .on_action(cx.listener(Self::on_save_view))
             .on_action(cx.listener(Self::on_save_view_as))
             .on_action(cx.listener(Self::on_revert_view))
@@ -1044,10 +1045,12 @@ impl Workspace {
                                 .px_4()
                                 .py_2()
                                 .text_color(rgb(theme::TEXT_MUTED))
-                                .child(if self.scope.source != scope::Source::All {
-                                    "No issues here."
-                                } else {
+                                .child(if self.scope.filter == IssueFilter::default() {
                                     "No issues yet. Type a title above and press Enter."
+                                } else if self.scope.filter == scope::Source::All.filter() {
+                                    "No open issues. Type a title above and press Enter."
+                                } else {
+                                    "No issues here."
                                 }),
                         )
                     }),

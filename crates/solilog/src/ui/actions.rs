@@ -396,6 +396,9 @@ pub mod filter {
             ToggleNoProject,
             /// Remove every filter criterion.
             Clear,
+            /// Show issues of every status: drops the status and "open only"
+            /// criteria, keeping the rest of the filter.
+            AllStatuses,
         ]
     );
 

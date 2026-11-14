@@ -45,6 +45,7 @@
       "f o": "filter::ToggleOpenOnly",
       "f n": "filter::ToggleNoProject",
       "f c": "filter::Clear",
+      "f a": "filter::AllStatuses",
       "f r": "view::Revert",
       "h": "workspace::FocusSidebar",
       "left": "workspace::FocusSidebar",

@@ -45,21 +45,8 @@ struct Criterion {
 }
 
 fn criteria(filter: &IssueFilter) -> Vec<Criterion> {
+    // Statuses and "open only" are shown by the status bar instead.
     let mut out = Vec::new();
-    if filter.open_only {
-        out.push(Criterion {
-            text: "open".into(),
-            remove: Box::new(filter::ToggleOpenOnly),
-        });
-    }
-    for &status in &filter.statuses {
-        out.push(Criterion {
-            text: format!("status: {}", status.label()),
-            remove: Box::new(filter::ToggleStatus {
-                status: Some(status),
-            }),
-        });
-    }
     for label in &filter.labels {
         out.push(Criterion {
             text: format!("label: {label}"),
@@ -223,7 +210,13 @@ impl Workspace {
                     Some(ix) => {
                         f.statuses.remove(ix);
                     }
-                    None => f.statuses.push(status),
+                    None => {
+                        f.statuses.push(status);
+                        // Asking for a closed status means showing closed issues.
+                        if status.is_closed() {
+                            f.open_only = false;
+                        }
+                    }
                 },
                 cx,
             ),
@@ -252,7 +245,25 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.edit_filter(|f| f.open_only = !f.open_only, cx);
+        self.edit_filter(
+            |f| {
+                f.open_only = !f.open_only;
+                if f.open_only {
+                    f.statuses.retain(|s| !s.is_closed());
+                } else if !f.statuses.is_empty() {
+                    // Closed issues come back alongside the chosen statuses.
+                    for status in Status::ALL {
+                        if status.is_closed() && !f.statuses.contains(&status) {
+                            f.statuses.push(status);
+                        }
+                    }
+                    if f.statuses.len() == Status::ALL.len() {
+                        f.statuses.clear();
+                    }
+                }
+            },
+            cx,
+        );
     }
 
     pub(super) fn on_toggle_no_project(
@@ -270,6 +281,21 @@ impl Workspace {
         );
     }
 
+    pub(super) fn on_all_statuses(
+        &mut self,
+        _: &filter::AllStatuses,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_filter(
+            |f| {
+                f.open_only = false;
+                f.statuses.clear();
+            },
+            cx,
+        );
+    }
+
     pub(super) fn on_clear_filter(
         &mut self,
         _: &filter::Clear,
@@ -279,7 +305,7 @@ impl Workspace {
         self.edit_filter(|f| *f = IssueFilter::default(), cx);
     }
 
-    /// Scope title, filter chips (click × to remove), issue count.
+    /// Scope title, filter chips (click × to remove), status bar, issue count.
     pub(super) fn render_filter_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let edited = self.filter_edited();
         let title = self.scope.source.title().to_string();
@@ -303,9 +329,9 @@ impl Workspace {
                 s.child(div().text_color(rgb(theme::TEXT_MUTED)).child("edited"))
             })
             .children(chips)
+            .child(status_bar(&self.scope.filter, cx))
             .child(
                 div()
-                    .ml_auto()
                     .flex_none()
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(self.issues.len().to_string()),
@@ -341,4 +367,90 @@ fn filter_chip(ix: usize, criterion: Criterion, cx: &mut Context<Workspace>) -> 
                 .child("×"),
         )
         .into_any_element()
+}
+
+/// "All" and "Open", plus one button per status, each toggling that part of
+/// the filter.
+/// A status whose issues are filtered out is dimmed; one the filter asks for
+/// is highlighted.
+fn status_bar(filter: &IssueFilter, cx: &mut Context<Workspace>) -> impl IntoElement + use<> {
+    let every_status = !filter.open_only && filter.statuses.is_empty();
+    let all = toggle_pill(
+        "filter-all-statuses",
+        "All",
+        every_status,
+        Box::new(filter::AllStatuses),
+        cx,
+    );
+    let open = toggle_pill(
+        "filter-open-only",
+        "Open",
+        filter.open_only,
+        Box::new(filter::ToggleOpenOnly),
+        cx,
+    );
+    let statuses = Status::ALL.into_iter().map(|status| {
+        let chosen = filter.statuses.contains(&status);
+        let shown = (filter.statuses.is_empty() || chosen)
+            && !(filter.open_only && status.is_closed());
+        div()
+            .id(SharedString::from(format!("filter-status-{}", status.key())))
+            .size(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded_sm()
+            .cursor_pointer()
+            .when(chosen, |s| s.bg(rgb(theme::HIGHLIGHT)))
+            .when(!shown, |s| s.opacity(0.35))
+            .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).opacity(1.))
+            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                let action = filter::ToggleStatus {
+                    status: Some(status),
+                };
+                window.dispatch_action(action.boxed_clone(), cx);
+            }))
+            .child(status_icon(status))
+    });
+    div()
+        .ml_auto()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .child(all)
+        .child(open)
+        .children(statuses)
+}
+
+/// A small text button, highlighted when `on`, that dispatches `action`.
+fn toggle_pill(
+    id: &'static str,
+    text: &'static str,
+    on: bool,
+    action: Box<dyn Action>,
+    cx: &mut Context<Workspace>,
+) -> impl IntoElement + use<> {
+    div()
+        .id(id)
+        .flex_none()
+        .px_2()
+        .rounded_full()
+        .border_1()
+        .border_color(rgb(theme::BORDER))
+        .line_height(px(18.))
+        .cursor_pointer()
+        .map(|s| {
+            if on {
+                s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT))
+            } else {
+                s.text_color(rgb(theme::TEXT_MUTED))
+            }
+        })
+        .hover(|s| s.text_color(rgb(theme::TEXT)))
+        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+            window.dispatch_action(action.boxed_clone(), cx);
+        }))
+        .child(text)
 }
