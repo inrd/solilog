@@ -6,8 +6,12 @@
 //! scope and the sidebar cursor follow renames, so the list keeps showing
 //! the same thing (with any unsaved filter edits).
 
-use gpui::{Action, AppContext as _, Context, Pixels, Point, Window, px};
-use solilog_core::{IssueFilter, ProjectStatus, ProjectUpdate, label_matches, renamed_label};
+use gpui::{
+    Action, AppContext as _, Context, IntoElement, Pixels, Point, Styled as _, Window, div, px, rgb,
+};
+use solilog_core::{
+    IssueFilter, LabelColor, ProjectStatus, ProjectUpdate, label_matches, renamed_label,
+};
 
 use super::scope::Source;
 use super::sidebar::SidebarItem;
@@ -15,6 +19,12 @@ use super::{CreateAction, MenuEntry, MenuTarget, Modal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view};
 use crate::ui::picker::{Picker, PickerItem};
 use crate::ui::status_icon::project_status_icon;
+use crate::ui::theme;
+
+/// A small round swatch, for the color picker.
+fn color_dot(color: u32) -> impl IntoElement {
+    div().size(px(10.)).rounded_full().bg(rgb(color))
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -143,6 +153,14 @@ fn menu_entries(item: &SidebarItem) -> Vec<MenuEntry> {
                     Box::new(label::Rename {
                         name: name.clone(),
                         new_name: None,
+                    }),
+                ),
+                (
+                    "Set Color…",
+                    Box::new(label::SetColor {
+                        name: name.clone(),
+                        color: None,
+                        reset: false,
                     }),
                 ),
                 (
@@ -510,6 +528,56 @@ impl Workspace {
         };
         if let Some(label) = self.report(self.db.rename_label(&name, new_name), cx) {
             self.follow_rename(Kind::Label, &name, &label.name, cx);
+        }
+    }
+
+    pub(super) fn on_set_label_color(
+        &mut self,
+        action: &label::SetColor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.target(Kind::Label, action.name.as_ref(), cx) else {
+            return;
+        };
+        if action.color.is_none() && !action.reset {
+            let current = self
+                .labels
+                .iter()
+                .find(|l| l.name == name)
+                .and_then(|l| l.color);
+            let set = |color, reset| -> Box<dyn Action> {
+                Box::new(label::SetColor {
+                    name: Some(name.clone()),
+                    color,
+                    reset,
+                })
+            };
+            let mut entries: Vec<(PickerItem, Box<dyn Action>)> = LabelColor::ALL
+                .into_iter()
+                .map(|color| {
+                    let rgb = theme::label_color(Some(color));
+                    (
+                        PickerItem::new(color.label()).icon(move || color_dot(rgb)),
+                        set(Some(color), false),
+                    )
+                })
+                .collect();
+            entries.push((
+                PickerItem::new("Default").icon(|| color_dot(theme::label_color(None))),
+                set(None, true),
+            ));
+            let highlighted = current
+                .and_then(|c| LabelColor::ALL.iter().position(|a| *a == c))
+                .unwrap_or(LabelColor::ALL.len());
+            let placeholder = format!("Set color of “{name}”…");
+            return self.open_action_picker(&placeholder, entries, highlighted, window, cx);
+        }
+        if self
+            .report(self.db.set_label_color(&name, action.color), cx)
+            .is_some()
+        {
+            self.reload(cx);
         }
     }
 

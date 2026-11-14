@@ -125,6 +125,8 @@ enum Row {
         trailing: Option<&'static str>,
         /// Shown as an indicator before the label.
         status: Option<ProjectStatus>,
+        /// A label's color, shown as a dot before it.
+        color: Option<u32>,
     },
 }
 
@@ -145,6 +147,7 @@ impl Workspace {
             count: self.open_count(&IssueFilter::default()),
             trailing: None,
             status: None,
+            color: None,
         }];
         if !self.views.is_empty() {
             rows.push(Row::Heading("Views"));
@@ -155,6 +158,7 @@ impl Workspace {
                 count: self.open_count(&v.filter),
                 trailing: None,
                 status: None,
+                color: None,
             }));
         }
 
@@ -167,6 +171,7 @@ impl Workspace {
                 count: self.open_count(&Source::Project(p.name.clone()).filter()),
                 trailing: None,
                 status: Some(p.status),
+                color: None,
             };
             let (closed, open): (Vec<_>, Vec<_>) =
                 self.sidebar_projects().partition(|p| p.status.is_closed());
@@ -183,6 +188,7 @@ impl Workspace {
                         "▸"
                     }),
                     status: None,
+                    color: None,
                 });
                 if self.show_closed_projects {
                     rows.extend(closed.into_iter().map(|p| match project_row(p) {
@@ -199,6 +205,7 @@ impl Workspace {
                             count,
                             trailing: None,
                             status,
+                            color: None,
                         },
                         heading => heading,
                     }));
@@ -217,6 +224,7 @@ impl Workspace {
                     count: self.open_count(&Source::Label(l.name.clone()).filter()),
                     trailing: None,
                     status: None,
+                    color: l.color.map(|c| theme::label_color(Some(c))),
                 }
             }));
         }
@@ -518,6 +526,7 @@ impl Workspace {
                     count,
                     trailing,
                     status,
+                    color,
                 } => {
                     let highlight = if (focused && item == self.sidebar_cursor)
                         || menu_item.as_ref() == Some(&item)
@@ -562,6 +571,9 @@ impl Workspace {
                             self.drag_and_drop(row, target, cx)
                         })
                         .when_some(status, |s, status| s.child(project_status_icon(status)))
+                        .when_some(color, |s, color| {
+                            s.child(div().flex_none().size(px(8.)).rounded_full().bg(rgb(color)))
+                        })
                         .child(
                             div()
                                 .flex_1()

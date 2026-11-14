@@ -14,3 +14,20 @@ pub const TEXT: u32 = 0xe6e6e6;
 pub const TEXT_MUTED: u32 = 0x7a7a85;
 pub const ACCENT: u32 = 0x7c8cff;
 pub const ERROR: u32 = 0xeb5757;
+
+/// Chip color of a label: its own, or muted when it has none.
+pub fn label_color(color: Option<solilog_core::LabelColor>) -> u32 {
+    use solilog_core::LabelColor::*;
+    match color {
+        None => TEXT_MUTED,
+        Some(Red) => 0xeb6f6f,
+        Some(Orange) => 0xeb9a5c,
+        Some(Yellow) => 0xe5c453,
+        Some(Green) => 0x62c47a,
+        Some(Teal) => 0x4cc0b6,
+        Some(Blue) => 0x5aa0ee,
+        Some(Purple) => 0xa27cf0,
+        Some(Pink) => 0xe377b6,
+        Some(Gray) => 0xa0a0aa,
+    }
+}

@@ -14,8 +14,8 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Db, Issue, IssueEdit, IssueFilter, IssueId, Label, NewIssue, NewProject, Placement, Project,
-    ProjectStatus, ProjectUpdate, Status, View,
+    Db, Issue, IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue, NewProject, Placement,
+    Project, ProjectStatus, ProjectUpdate, Status, View,
 };
 
 #[derive(Parser)]
@@ -306,6 +306,18 @@ pub enum LabelCommand {
         #[arg(long, value_name = "LABEL", group = "placement")]
         after: Option<String>,
     },
+    /// Set the color of a label's chips and print the label. Sublabels keep
+    /// their own color. Colors: red, orange, yellow, green, teal, blue,
+    /// purple, pink, gray. Use `--reset` for the default color.
+    #[command(group = clap::ArgGroup::new("color_or_reset").required(true))]
+    Color {
+        name: String,
+        #[arg(group = "color_or_reset")]
+        color: Option<LabelColor>,
+        /// Go back to the default color.
+        #[arg(long, group = "color_or_reset")]
+        reset: bool,
+    },
     /// Delete a label and its sublabels, removing them from all issues.
     /// Prints the deleted labels.
     #[command(visible_alias = "rm")]
@@ -465,6 +477,9 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
                 } => {
                     let placement = Placement::from_options(before, after)?;
                     out.label(&db.move_label(&name, &placement)?)
+                }
+                LabelCommand::Color { name, color, .. } => {
+                    out.label(&db.set_label_color(&name, color)?)
                 }
                 LabelCommand::Delete { name } => out.labels(&db.delete_label(&name)?),
             }
@@ -644,7 +659,10 @@ fn project_line(project: &Project) -> String {
 
 /// Full path and issue count.
 fn label_line(label: &Label) -> String {
-    format!("{} ({})", label.name, label.issue_count)
+    match label.color {
+        Some(color) => format!("{} ({}) {color}", label.name, label.issue_count),
+        None => format!("{} ({})", label.name, label.issue_count),
+    }
 }
 
 /// Indented tree: each label shows its last segment under its parent.
@@ -657,7 +675,12 @@ fn label_tree(labels: &[Label]) -> String {
                 .rsplit(solilog_core::LABEL_SEPARATOR)
                 .next()
                 .unwrap_or("");
-            format!("{}{leaf} ({})", "  ".repeat(l.depth()), l.issue_count)
+            let color = l.color.map(|c| format!(" {c}")).unwrap_or_default();
+            format!(
+                "{}{leaf} ({}){color}",
+                "  ".repeat(l.depth()),
+                l.issue_count
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")

@@ -19,7 +19,8 @@ use gpui::{
     div, prelude::*, px, rgb,
 };
 use solilog_core::{
-    Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Project, Status, View,
+    Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Project, Status,
+    View,
 };
 
 use super::actions::{
@@ -802,7 +803,10 @@ impl Workspace {
         let edit = IssueEdit {
             title: Some(title.clone()),
         };
-        if self.report(self.db.edit_issue(issue.id, &edit), cx).is_some() {
+        if self
+            .report(self.db.edit_issue(issue.id, &edit), cx)
+            .is_some()
+        {
             self.reload(cx);
         }
     }
@@ -1095,8 +1099,18 @@ impl Workspace {
                 issue
                     .labels
                     .iter()
-                    .map(|label| chip(label.clone(), theme::TEXT_MUTED)),
+                    .map(|label| chip(label.clone(), self.label_chip_color(label))),
             )
+    }
+
+    /// Chip color of an issue's label.
+    pub(super) fn label_chip_color(&self, name: &str) -> u32 {
+        let color = self
+            .labels
+            .iter()
+            .find(|l| l.name.eq_ignore_ascii_case(name))
+            .and_then(|l| l.color);
+        theme::label_color(color)
     }
 
     /// Highlights the issue at `ix` to act on it with the mouse: within the
@@ -1225,6 +1239,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_set_project_status))
             .on_action(cx.listener(Self::on_delete_project))
             .on_action(cx.listener(Self::on_rename_label))
+            .on_action(cx.listener(Self::on_set_label_color))
             .on_action(cx.listener(Self::on_delete_label))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))

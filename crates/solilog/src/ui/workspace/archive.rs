@@ -386,7 +386,7 @@ impl Workspace {
                     issue
                         .labels
                         .iter()
-                        .map(|label| chip(label.clone(), theme::TEXT_MUTED)),
+                        .map(|label| chip(label.clone(), self.label_chip_color(label))),
                 )
                 .into_any_element()
             }

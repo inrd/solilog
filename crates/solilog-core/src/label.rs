@@ -11,19 +11,109 @@
 //! Labels are listed as a tree, siblings in a user-defined order (rearranged
 //! with [`Db::move_label`]). New labels go last among their siblings.
 
+use std::fmt;
+use std::str::FromStr;
+
 use anyhow::{Context as _, Result};
 use rusqlite::{OptionalExtension as _, params};
-use serde::Serialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::Db;
 use crate::order::{Ordered, Placement};
 
 pub const LABEL_SEPARATOR: char = '/';
 
+/// A label's color, from a fixed palette. The GUI picks the exact shade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Teal,
+    Blue,
+    Purple,
+    Pink,
+    Gray,
+}
+
+impl LabelColor {
+    /// All colors, in display order.
+    pub const ALL: [LabelColor; 9] = [
+        LabelColor::Red,
+        LabelColor::Orange,
+        LabelColor::Yellow,
+        LabelColor::Green,
+        LabelColor::Teal,
+        LabelColor::Blue,
+        LabelColor::Purple,
+        LabelColor::Pink,
+        LabelColor::Gray,
+    ];
+
+    /// Stable identifier, used in the database, JSON and on the command line.
+    pub fn key(self) -> &'static str {
+        match self {
+            LabelColor::Red => "red",
+            LabelColor::Orange => "orange",
+            LabelColor::Yellow => "yellow",
+            LabelColor::Green => "green",
+            LabelColor::Teal => "teal",
+            LabelColor::Blue => "blue",
+            LabelColor::Purple => "purple",
+            LabelColor::Pink => "pink",
+            LabelColor::Gray => "gray",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LabelColor::Red => "Red",
+            LabelColor::Orange => "Orange",
+            LabelColor::Yellow => "Yellow",
+            LabelColor::Green => "Green",
+            LabelColor::Teal => "Teal",
+            LabelColor::Blue => "Blue",
+            LabelColor::Purple => "Purple",
+            LabelColor::Pink => "Pink",
+            LabelColor::Gray => "Gray",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.key() == key)
+    }
+}
+
+impl fmt::Display for LabelColor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.key())
+    }
+}
+
+impl FromStr for LabelColor {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_key(&s.trim().to_lowercase()).ok_or_else(|| {
+            let keys: Vec<_> = Self::ALL.iter().map(|c| c.key()).collect();
+            format!(
+                "unknown label color {s:?} (expected one of: {})",
+                keys.join(", ")
+            )
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Label {
     /// Full path, e.g. `acme/reverb`.
     pub name: String,
+    /// Color of the label's chips; `None` for the default one. Sublabels
+    /// don't inherit it.
+    pub color: Option<LabelColor>,
     /// Open and closed issues carrying this label or one of its sublabels
     /// (archived ones excepted).
     pub issue_count: i64,
@@ -81,6 +171,16 @@ impl Db {
             .prepare_cached("SELECT name, position, id FROM labels")?
             .query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?))))?
             .collect::<rusqlite::Result<_>>()?;
+        let colors: std::collections::HashMap<String, LabelColor> = self
+            .conn
+            .prepare_cached("SELECT name, color FROM labels WHERE color IS NOT NULL")?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(name, color)| Some((name, LabelColor::from_key(&color)?)))
+            .collect();
         // Sort by the (position, id) of every ancestor, then of the label:
         // parents come before their children, siblings by position.
         let rank: std::collections::HashMap<String, (i64, i64)> = rows
@@ -120,6 +220,7 @@ impl Db {
                 issues.dedup();
                 Label {
                     issue_count: issues.len() as i64,
+                    color: colors.get(&name).copied(),
                     name,
                 }
             })
@@ -145,6 +246,17 @@ impl Db {
         let tx = self.conn.unchecked_transaction()?;
         self.ensure_label(&name)?;
         tx.commit()?;
+        self.get_label(&name)
+    }
+
+    /// Sets a label's color, or resets it to the default with `None`.
+    /// Sublabels keep their own. Returns the label.
+    pub fn set_label_color(&self, name: &str, color: Option<LabelColor>) -> Result<Label> {
+        let name = self.label_name(name)?;
+        self.conn.execute(
+            "UPDATE labels SET color = ?2 WHERE name = ?1",
+            params![name, color.map(LabelColor::key)],
+        )?;
         self.get_label(&name)
     }
 
@@ -381,6 +493,29 @@ mod tests {
         assert!(label_matches("acme", "acme"));
         assert!(!label_matches("acmeish", "acme"));
         assert!(!label_matches("acme", "acme/reverb"));
+    }
+
+    #[test]
+    fn colors() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_label("acme/reverb").unwrap();
+        assert_eq!(db.get_label("acme").unwrap().color, None);
+        let label = db.set_label_color("ACME", Some(LabelColor::Blue)).unwrap();
+        assert_eq!(
+            (label.name.as_str(), label.color),
+            ("acme", Some(LabelColor::Blue))
+        );
+        assert_eq!(db.get_label("acme/reverb").unwrap().color, None);
+        // The color survives a rename.
+        db.rename_label("acme", "globex").unwrap();
+        assert_eq!(
+            db.get_label("globex").unwrap().color,
+            Some(LabelColor::Blue)
+        );
+        let label = db.set_label_color("globex", None).unwrap();
+        assert_eq!(label.color, None);
+        assert!("nope".parse::<LabelColor>().is_err());
+        assert_eq!("Red".parse::<LabelColor>().unwrap(), LabelColor::Red);
     }
 
     #[test]

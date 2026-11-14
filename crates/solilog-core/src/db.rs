@@ -94,6 +94,8 @@ const MIGRATIONS: &[&str] = &[
     WHERE ranked.id = labels.id;",
     // 9: archived issues are out of the way: hidden from listings and counts.
     "ALTER TABLE issues ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1));",
+    // 10: labels can have a color (a `LabelColor` key).
+    "ALTER TABLE labels ADD COLUMN color TEXT;",
 ];
 
 /// Label names per issue.
@@ -416,7 +418,9 @@ mod tests {
     #[test]
     fn edit_title() {
         let db = Db::open_in_memory().unwrap();
-        let issue = db.create_issue(&NewIssue::new("old").labels(["bug"])).unwrap();
+        let issue = db
+            .create_issue(&NewIssue::new("old").labels(["bug"]))
+            .unwrap();
         let edit = |title: &str| IssueEdit {
             title: Some(title.into()),
         };

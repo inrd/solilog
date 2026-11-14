@@ -166,6 +166,23 @@ pub mod label {
         pub new_name: Option<String>,
     }
 
+    /// Set the color of a label's chips (sublabels keep their own). Without
+    /// a `color` (and without `reset`), opens the color picker; `reset`
+    /// goes back to the default color.
+    ///
+    /// Keymap example: `"cmd-b": ["label::SetColor", { "color": "blue" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetColor {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub color: Option<solilog_core::LabelColor>,
+        #[serde(default)]
+        pub reset: bool,
+    }
+
     /// Delete a label and its sublabels, removing them from every issue.
     /// Asks for confirmation unless `confirmed` is true.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]

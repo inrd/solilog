@@ -14,7 +14,9 @@ mod view;
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
 pub use issue::{ISSUE_PREFIX, Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status};
-pub use label::{LABEL_SEPARATOR, Label, label_matches, normalize_label_name, renamed_label};
+pub use label::{
+    LABEL_SEPARATOR, Label, LabelColor, label_matches, normalize_label_name, renamed_label,
+};
 pub use order::Placement;
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
 pub use view::View;
