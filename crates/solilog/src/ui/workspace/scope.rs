@@ -272,10 +272,7 @@ impl Workspace {
             return;
         };
         if self.report(self.db.delete_view(&view.name), cx).is_some() {
-            // Keep showing the same issues, now as an unsaved filter.
-            self.scope.source = Source::All;
-            self.reload(cx);
-            self.sidebar_cursor = self.active_sidebar_item();
+            self.show(Ok(Source::All), cx);
         }
     }
 

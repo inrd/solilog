@@ -203,7 +203,7 @@ pub mod view {
             /// Discard unsaved changes to the filter of the current view,
             /// project or label.
             Revert,
-            /// Delete the current view. Its filter stays in effect, unsaved.
+            /// Delete the current view and show all issues.
             Delete,
         ]
     );
