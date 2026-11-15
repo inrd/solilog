@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-15
+
 ### Added
 
 - Desktop app (macOS, Linux) and `solilog` command line over one local SQLite
