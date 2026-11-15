@@ -11,25 +11,27 @@
 //! unless it has unsaved edits.
 //!
 //! Issue ids in the description (`SOL-12`) link to their issues, shown as
-//! their titles except while the cursor is on them.
+//! their titles except while the cursor is on them; web addresses open in
+//! the browser.
 
 mod attachments;
 mod checklist;
 mod preview;
 
+use std::ops::Range;
 use std::time::Duration;
 
 use gpui::{
     Action, ClickEvent, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
     IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
 };
-use solilog_core::{Issue, IssueEdit, IssueId, issue_mentions, normalize_description};
+use solilog_core::{Issue, IssueEdit, IssueId, issue_mentions, normalize_description, web_links};
 
 use super::{Workspace, chip};
 use crate::ui::actions::{
     attachment,
     issue::{self, SetStatus},
-    issue_detail,
+    issue_detail, workspace,
 };
 use crate::ui::status_icon::status_icon;
 use crate::ui::text_input::{Changed, Link, Submit, TextInput};
@@ -95,7 +97,7 @@ impl Workspace {
                 .links(move |text, cx| {
                     workspace
                         .upgrade()
-                        .map(|w| w.read(cx).issue_links(text))
+                        .map(|w| w.read(cx).description_links(text))
                         .unwrap_or_default()
                 });
             input.reset_text(issue.description.clone(), cx);
@@ -140,11 +142,19 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Links to the issues mentioned in `text` (archived ones too), shown as
-    /// their titles; mentions of issues that don't exist stay plain text.
-    fn issue_links(&self, text: &str) -> Vec<Link> {
-        issue_mentions(text)
+    /// The links in a description: web addresses, opened in the browser,
+    /// and the issues mentioned (archived ones too), shown as their titles.
+    /// Mentions of issues that don't exist stay plain text, and so do those
+    /// within a web address.
+    fn description_links(&self, text: &str) -> Vec<Link> {
+        let web = web_links(text);
+        let in_web_link = |range: &Range<usize>| {
+            web.iter()
+                .any(|w| w.start < range.end && range.start < w.end)
+        };
+        let issues = issue_mentions(text)
             .into_iter()
+            .filter(|(range, _)| !in_web_link(range))
             .filter_map(|(range, id)| {
                 let issue = self
                     .all_issues
@@ -157,8 +167,21 @@ impl Workspace {
                     strikethrough: issue.status.is_closed(),
                     action: Box::new(issue::Open { id: Some(id) }),
                 })
+            });
+        let mut links: Vec<Link> = web
+            .iter()
+            .map(|range| Link {
+                range: range.clone(),
+                label: None,
+                strikethrough: false,
+                action: Box::new(workspace::OpenUrl {
+                    url: text[range.clone()].to_string(),
+                }),
             })
-            .collect()
+            .chain(issues)
+            .collect();
+        links.sort_by_key(|link| link.range.start);
+        links
     }
 
     fn schedule_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {

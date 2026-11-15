@@ -30,7 +30,7 @@ use super::actions::{
     self, command_palette, humanize_action_name,
     issue::{self, AddLabel, AddToProject, Edit, RemoveFromProject, RemoveLabel, SetStatus},
     issue_list, view,
-    workspace::{OpenDatabaseDirectory, OpenKeymap, ReloadKeymap},
+    workspace::{OpenDatabaseDirectory, OpenKeymap, OpenUrl, ReloadKeymap},
 };
 use super::keymap;
 use super::picker::{Picker, PickerEvent, PickerItem};
@@ -904,6 +904,10 @@ impl Workspace {
         );
     }
 
+    fn on_open_url(&mut self, action: &OpenUrl, _: &mut Window, cx: &mut Context<Self>) {
+        cx.open_url(&action.url);
+    }
+
     fn on_copy_issue_id(&mut self, _: &issue::CopyId, _: &mut Window, cx: &mut Context<Self>) {
         let issues = self.target_issues(cx);
         if issues.is_empty() {
@@ -1551,6 +1555,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_edit_issue))
             .on_action(cx.listener(Self::on_open_issue))
             .on_action(cx.listener(Self::on_copy_issue_id))
+            .on_action(cx.listener(Self::on_open_url))
             .on_action(cx.listener(Self::on_add_checklist_item))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))

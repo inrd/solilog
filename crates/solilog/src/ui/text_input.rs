@@ -73,7 +73,8 @@ actions!(
         Paste,
         Cut,
         Copy,
-        /// Open the link the cursor is on (e.g. an issue id in a description).
+        /// Open the link the cursor is on (e.g. an issue id or a web address in a
+        /// description).
         OpenLink,
     ]
 );

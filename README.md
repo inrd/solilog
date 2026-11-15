@@ -111,7 +111,7 @@ Title, description and checklist are edited in place and saved as you type. `Esc
 | `alt-up` / `alt-down` | Move the item (or drag its handle) |
 | `shift-a` | Attach a file |
 
-An issue id in the description (`SOL-12`) links to that issue and shows its title. Click it to open the issue; while editing, `cmd`-click it or press `alt-enter` with the cursor on it.
+An issue id in the description (`SOL-12`) links to that issue and shows its title; a web address (`https://…`) links to that page. Click a link to open it (the issue, or the page in your browser); while editing, `cmd`-click it or press `alt-enter` with the cursor on it.
 
 To delete a checklist item, empty it. Files dropped on the issue, or pasted with `cmd-v` (screenshots too), become attachments. Click an image to preview it (`←` / `→` for the issue's other images, `r` to show it in the file manager); other files open in the file manager.
 

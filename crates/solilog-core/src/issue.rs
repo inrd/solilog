@@ -219,6 +219,54 @@ pub fn issue_mentions(text: &str) -> Vec<(Range<usize>, IssueId)> {
     mentions
 }
 
+/// Web addresses in a text (`https://…` or `http://…`, any case), as byte
+/// ranges, in order. An address starts a word and runs to the next space,
+/// `<`, `>`, `"` or `` ` ``; punctuation at its end (`.`, `,`, `)` closing a
+/// parenthesis opened before it…) is left out, so `(see https://x.org/a).`
+/// gives `https://x.org/a`.
+pub fn web_links(text: &str) -> Vec<Range<usize>> {
+    const SCHEMES: [&str; 2] = ["https://", "http://"];
+    let is_end = |c: char| c.is_whitespace() || c.is_control() || "<>\"`".contains(c);
+    let mut links = Vec::new();
+    let mut from = 0;
+    while let Some(start) = text[from..].find(['h', 'H']).map(|i| from + i) {
+        from = start + 1;
+        let Some(scheme) = SCHEMES.iter().find(|s| {
+            text.get(start..start + s.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(s))
+        }) else {
+            continue;
+        };
+        if text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric)
+        {
+            continue;
+        }
+        let rest = &text[start..];
+        let mut link = &rest[..rest.find(is_end).unwrap_or(rest.len())];
+        loop {
+            let unbalanced = |open, close| {
+                link.ends_with(close) && link.matches(open).count() < link.matches(close).count()
+            };
+            if link.ends_with(['.', ',', ';', ':', '!', '?', '\'', '*'])
+                || unbalanced('(', ')')
+                || unbalanced('[', ']')
+            {
+                link = &link[..link.len() - 1];
+            } else {
+                break;
+            }
+        }
+        if link.len() > scheme.len() {
+            links.push(start..start + link.len());
+            from = start + link.len();
+        }
+    }
+    links
+}
+
 /// Cleans up a description without changing its meaning as text or as
 /// Markdown: line endings become `\n`, trailing whitespace on each line and
 /// blank lines at both ends are dropped. Indentation is kept.
@@ -385,6 +433,35 @@ mod tests {
         assert_eq!(found, [("SOL-12", 12), ("sol-3", 3), ("SOL-4", 4)]);
         assert_eq!(issue_mentions("é-SOL-8"), [(3..8, IssueId(8))]);
         assert!(issue_mentions("").is_empty());
+    }
+
+    #[test]
+    fn web_links_in_text() {
+        let found = |text: &str| -> Vec<String> {
+            web_links(text)
+                .into_iter()
+                .map(|range| text[range].to_string())
+                .collect()
+        };
+        assert_eq!(
+            found("See https://example.org/a?b=1#c, HTTP://x.y and http://z.com."),
+            ["https://example.org/a?b=1#c", "HTTP://x.y", "http://z.com"]
+        );
+        assert_eq!(
+            found(
+                "(see https://en.wikipedia.org/wiki/Rust_(language)) or [doc](https://x.org/doc)!"
+            ),
+            [
+                "https://en.wikipedia.org/wiki/Rust_(language)",
+                "https://x.org/doc"
+            ]
+        );
+        assert_eq!(
+            found("<https://x.org/é> \"https://y.org\"\n`https://z.org`"),
+            ["https://x.org/é", "https://y.org", "https://z.org"]
+        );
+        assert!(found("xhttps://x.org https:// http://. ftp://x.org h").is_empty());
+        assert_eq!(found("é https://x.org/SOL-12"), ["https://x.org/SOL-12"]);
     }
 
     #[test]

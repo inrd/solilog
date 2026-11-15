@@ -28,7 +28,7 @@ pub use db::{Db, default_path};
 pub use filter::IssueFilter;
 pub use issue::{
     ISSUE_PREFIX, Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status, issue_mentions,
-    normalize_description,
+    normalize_description, web_links,
 };
 pub use label::{
     LABEL_SEPARATOR, Label, LabelColor, label_matches, normalize_label_name, renamed_label,

@@ -20,7 +20,20 @@ pub const PALETTE_HIDDEN_NAMESPACES: &[&str] = &[
 ];
 
 pub mod workspace {
-    use gpui::actions;
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+
+    /// Open a web address in the default browser. Clicking a link in a
+    /// description does this.
+    ///
+    /// Keymap example: `"g h": ["workspace::OpenUrl", { "url": "https://example.org" }]`
+    #[derive(Clone, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = workspace)]
+    #[serde(deny_unknown_fields)]
+    pub struct OpenUrl {
+        pub url: String,
+    }
 
     actions!(
         workspace,
