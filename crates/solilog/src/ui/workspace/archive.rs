@@ -13,7 +13,7 @@ use gpui::{
 };
 use solilog_core::{Issue, IssueChange, IssueId, Project, ProjectStatus};
 
-use super::{MenuEntry, MenuTarget, Modal, OpenModal, Workspace, chip};
+use super::{MIN_TITLE_WIDTH, MenuEntry, MenuTarget, Modal, OpenModal, Workspace};
 use crate::ui::actions::{archive, issue, project, workspace};
 use crate::ui::picker::PickerItem;
 use crate::ui::status_icon::{project_status_icon, status_icon};
@@ -381,19 +381,14 @@ impl Workspace {
                         .text_color(rgb(theme::TEXT_MUTED))
                         .child(id.to_string()),
                 )
-                .child(div().flex_1().truncate().child(issue.title.clone()))
-                .children(
-                    issue
-                        .projects
-                        .iter()
-                        .map(|project| chip(project.clone(), theme::ACCENT)),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(MIN_TITLE_WIDTH))
+                        .truncate()
+                        .child(issue.title.clone()),
                 )
-                .children(
-                    issue
-                        .labels
-                        .iter()
-                        .map(|label| chip(label.clone(), self.label_chip_color(label))),
-                )
+                .child(self.issue_chips(issue))
                 .into_any_element()
             }
         }

@@ -1250,6 +1250,7 @@ impl Workspace {
             .child(
                 div()
                     .flex_1()
+                    .min_w(px(MIN_TITLE_WIDTH))
                     .truncate()
                     .when(issue.status.is_closed(), |s| {
                         s.text_color(rgb(theme::TEXT_MUTED))
@@ -1267,6 +1268,18 @@ impl Workspace {
                     .checklist_progress()
                     .map(|(done, total)| checklist_badge(done, total)),
             )
+            .child(self.issue_chips(issue))
+    }
+
+    /// An issue's project and label chips, in a row that gives way to the
+    /// title: chips that don't fit are cut off.
+    pub(super) fn issue_chips(&self, issue: &Issue) -> impl IntoElement + use<> {
+        div()
+            .flex()
+            .flex_shrink()
+            .min_w_0()
+            .overflow_hidden()
+            .gap_3()
             .children(
                 issue
                     .projects
@@ -1398,6 +1411,9 @@ fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
         }))
         .child(format!("✓ {done}/{total}"))
 }
+
+/// The width an issue title keeps in a list row, however many chips follow it.
+pub(super) const MIN_TITLE_WIDTH: f32 = 160.;
 
 /// A small rounded tag, used for projects and labels.
 fn chip(text: String, color: u32) -> impl IntoElement {
