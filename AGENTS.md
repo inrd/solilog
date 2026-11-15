@@ -170,7 +170,8 @@ One concept, one name, consistent across surfaces:
   `~/.claude/skills/solilog/` and `~/.agents/skills/solilog/` (Codex, Cursor,
   OpenCode, pi); its frontmatter marker (`managed-by: solilog`) is how it
   recognizes its own files, and it never overwrites others. Its `version` is
-  the crate version, filled in when installed.
+  the crate version, filled in when installed. On start, the app updates it
+  where an older version installed it (`update_outdated_skills`), nowhere else.
 
 ## Versions and releases
 

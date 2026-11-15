@@ -14,6 +14,9 @@ the scheme in AGENTS.md ("Versions and releases").
 - macOS: "Workspace: Install Command Line Tool" in the command palette puts
   the `solilog` command on the PATH (`/usr/local/bin`) and installs the agent
   skill, for an app that wasn't installed with `make install`.
+- When a new version of the app starts, it updates the agent skill wherever
+  an older version installed it (and says so in the footer). It doesn't
+  install the skill where it isn't, or touch a skill Solilog didn't write.
 
 ## [0.1.0] - 2026-11-15
 

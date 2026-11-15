@@ -14,6 +14,7 @@ mod filter;
 mod manage;
 mod scope;
 mod sidebar;
+mod skill_update;
 
 use std::collections::{BTreeSet, HashSet};
 use std::time::Duration;
@@ -208,6 +209,7 @@ pub struct Workspace {
     notice: Option<String>,
     _poll: Task<()>,
     _auto_backups: Task<()>,
+    _skill_update: Task<()>,
 }
 
 impl Workspace {
@@ -288,6 +290,7 @@ impl Workspace {
             notice: None,
             _poll: poll,
             _auto_backups: Self::auto_backups(cx),
+            _skill_update: Self::update_skills(cx),
         };
         this.reload(cx);
         if this.issues.is_empty() {

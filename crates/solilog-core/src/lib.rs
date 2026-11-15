@@ -43,6 +43,6 @@ pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
 pub use skill::{
     Agent, SKILL_NAME, SKILL_VERSION, SkillAction, SkillChange, SkillEnv, SkillLocation,
     SkillState, SkillStatus, install_skill, outdated_skills, skill_md, skill_status,
-    uninstall_skill,
+    uninstall_skill, update_outdated_skills,
 };
 pub use view::View;

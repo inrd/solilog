@@ -346,6 +346,30 @@ pub fn install_skill(env: &SkillEnv, agents: &[Agent]) -> Result<Vec<SkillChange
     Ok(changes)
 }
 
+/// Updates the skill where Solilog installed it from an older version, as
+/// when a new version starts. Never installs it where it is missing, touches
+/// a `SKILL.md` Solilog didn't write, or replaces a skill from the same or a
+/// newer version (an older app, or a development build, leaves it alone).
+/// Returns the locations it updated.
+pub fn update_outdated_skills(env: &SkillEnv) -> Result<Vec<SkillChange>> {
+    let content = skill_md();
+    let mut changes = Vec::new();
+    for location in SkillLocation::ALL {
+        // Read each in turn: two locations can be the same folder (a symlink).
+        let status = status_at(env, location)?;
+        let older = status
+            .installed_version
+            .as_deref()
+            .is_none_or(|v| version_older(v, SKILL_VERSION));
+        if status.state == SkillState::Outdated && older {
+            fs::write(&status.path, &content)
+                .with_context(|| format!("writing {}", status.path.display()))?;
+            changes.push(change(status, SkillAction::Updated));
+        }
+    }
+    Ok(changes)
+}
+
 /// Removes the skill from the locations the given agents read (every
 /// location if `agents` is empty). Only Solilog's own `SKILL.md` is removed,
 /// then its folder if nothing else is in it; other files are left alone.
@@ -379,6 +403,20 @@ pub fn uninstall_skill(env: &SkillEnv, agents: &[Agent]) -> Result<Vec<SkillChan
         });
     }
     Ok(changes)
+}
+
+/// Whether version `a` comes before `b` (`MAJOR.MINOR.PATCH`; a pre-release
+/// suffix is ignored). A version that doesn't parse counts as older.
+fn version_older(a: &str, b: &str) -> bool {
+    fn parse(v: &str) -> Option<Vec<u64>> {
+        let core = v.trim().split(['-', '+']).next()?;
+        core.split('.').map(|n| n.parse().ok()).collect()
+    }
+    match (parse(a), parse(b)) {
+        (Some(a), Some(b)) => a < b,
+        (None, _) => true,
+        (Some(_), None) => false,
+    }
 }
 
 fn change(status: SkillStatus, action: SkillAction) -> SkillChange {
@@ -643,6 +681,94 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), skill_md());
         assert!(outdated_skills(&env).is_empty());
+    }
+
+    #[test]
+    fn updates_only_outdated_skills() {
+        let home = TempHome::new("update-only");
+        let env = home.env();
+        home.agent(Agent::Claude).agent(Agent::Codex);
+        assert!(
+            update_outdated_skills(&env).unwrap().is_empty(),
+            "nothing installed"
+        );
+        assert_eq!(states(&env), [SkillState::Missing, SkillState::Missing]);
+
+        // Claude's is Solilog's but old; the shared folder's is someone else's.
+        install_skill(&env, &[Agent::Claude]).unwrap();
+        let claude = home.skill(SkillLocation::Claude);
+        fs::write(&claude, old_skill()).unwrap();
+        let foreign = home.skill(SkillLocation::Agents);
+        fs::create_dir_all(foreign.parent().unwrap()).unwrap();
+        let mine = "---\nname: solilog\ndescription: mine\n---\n";
+        fs::write(&foreign, mine).unwrap();
+
+        let changes = update_outdated_skills(&env).unwrap();
+        assert_eq!(
+            actions(&changes),
+            [(SkillLocation::Claude, SkillAction::Updated)]
+        );
+        assert_eq!(fs::read_to_string(&claude).unwrap(), skill_md());
+        assert_eq!(fs::read_to_string(&foreign).unwrap(), mine);
+        assert!(update_outdated_skills(&env).unwrap().is_empty(), "current");
+
+        // A missing location stays missing.
+        fs::remove_dir_all(foreign.parent().unwrap()).unwrap();
+        fs::write(&claude, old_skill()).unwrap();
+        update_outdated_skills(&env).unwrap();
+        assert_eq!(states(&env), [SkillState::Current, SkillState::Missing]);
+    }
+
+    #[test]
+    fn leaves_a_skill_from_the_same_or_a_newer_version() {
+        let home = TempHome::new("update-newer");
+        let env = home.env();
+        install_skill(&env, &[Agent::Claude]).unwrap();
+        let path = home.skill(SkillLocation::Claude);
+        for text in [
+            // A development build with edited text.
+            skill_md() + "\nEdited.\n",
+            skill_md().replace(SKILL_VERSION, "999.0.0"),
+        ] {
+            fs::write(&path, &text).unwrap();
+            assert_eq!(states(&env)[0], SkillState::Outdated);
+            assert!(update_outdated_skills(&env).unwrap().is_empty());
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn compares_versions() {
+        assert!(version_older("0.1.0", "0.2.0"));
+        assert!(version_older("0.9.0", "0.10.0"));
+        assert!(version_older("garbage", "0.1.0"));
+        assert!(!version_older("0.2.0", "0.2.0"));
+        assert!(!version_older("1.0.0", "0.9.9"));
+        assert!(!version_older("0.2.0-dev", "0.2.0"));
+    }
+
+    /// Solilog's skill as an older version installed it.
+    fn old_skill() -> String {
+        skill_md().replace(&format!("\"{SKILL_VERSION}\""), "\"0.0.1\"") + "\nOld text.\n"
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn updates_a_linked_skill_once() {
+        let home = TempHome::new("update-link");
+        let env = home.env();
+        install_skill(&env, &[Agent::Codex]).unwrap();
+        let link = env.skill_dir(SkillLocation::Claude);
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(env.skill_dir(SkillLocation::Agents), &link).unwrap();
+        fs::write(home.skill(SkillLocation::Agents), old_skill()).unwrap();
+
+        let changes = update_outdated_skills(&env).unwrap();
+        assert_eq!(
+            actions(&changes),
+            [(SkillLocation::Claude, SkillAction::Updated)]
+        );
+        assert_eq!(states(&env), [SkillState::Current, SkillState::Current]);
     }
 
     #[test]
