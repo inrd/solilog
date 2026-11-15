@@ -1376,7 +1376,7 @@ impl Workspace {
         let projects = issue
             .projects
             .iter()
-            .map(|project| chip(project.clone(), theme::ACCENT).into_any_element());
+            .map(|project| project_chip(project.clone()).into_any_element());
         let labels = issue
             .labels
             .iter()
@@ -1548,8 +1548,8 @@ fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
 /// The width an issue title keeps in a list row, however many chips follow it.
 pub(super) const MIN_TITLE_WIDTH: f32 = 160.;
 
-/// A small rounded tag, used for projects and labels.
-fn chip(text: String, color: u32) -> impl IntoElement {
+/// A small rounded tag, used for labels (outlined, text in `color`).
+fn chip(text: String, color: u32) -> gpui::Div {
     div()
         .flex_none()
         .px_2()
@@ -1560,6 +1560,13 @@ fn chip(text: String, color: u32) -> impl IntoElement {
         .line_height(px(18.))
         .text_color(rgb(color))
         .child(text)
+}
+
+/// A project's chip: filled, to tell it apart from label chips.
+fn project_chip(name: String) -> gpui::Div {
+    chip(name, theme::BACKGROUND)
+        .border_color(rgb(theme::ACCENT))
+        .bg(rgb(theme::ACCENT))
 }
 
 /// An issue being dragged to reorder it; also renders what follows the mouse.

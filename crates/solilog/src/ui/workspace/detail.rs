@@ -27,7 +27,7 @@ use gpui::{
 };
 use solilog_core::{Issue, IssueEdit, IssueId, issue_mentions, normalize_description, web_links};
 
-use super::{Workspace, chip};
+use super::{Workspace, chip, project_chip};
 use crate::ui::actions::{
     attachment,
     issue::{self, SetStatus},
@@ -434,7 +434,7 @@ impl Workspace {
             issue
                 .projects
                 .iter()
-                .map(|project| chip(project.clone(), theme::ACCENT).into_any_element())
+                .map(|project| project_chip(project.clone()).into_any_element())
                 .chain(issue.labels.iter().map(|label| {
                     chip(label.clone(), self.label_chip_color(label)).into_any_element()
                 }))
