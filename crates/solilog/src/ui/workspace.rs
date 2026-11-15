@@ -8,6 +8,7 @@
 mod archive;
 mod backup;
 mod chip_row;
+mod cli_install;
 mod detail;
 mod filter;
 mod manage;
@@ -1740,6 +1741,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_focus_sidebar))
             .on_action(cx.listener(Self::on_open_archive))
+            .when(cfg!(target_os = "macos"), |d| {
+                d.on_action(cx.listener(Self::on_install_command_line_tool))
+            })
             .size_full()
             .flex()
             .flex_col()

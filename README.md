@@ -16,6 +16,8 @@ make uninstall    # removes them; your database is kept
 
 `BIN_DIR=…`, `APP_DIR=…` (macOS) and `DATA_DIR=…` (Linux) change where they go. `make` lists the other targets (tests, lints, bundle only, …).
 
+With only `Solilog.app` (not built with `make install`), move it to Applications, open it, and run **Workspace: Install Command Line Tool** from the command palette: it links the `solilog` command into `/usr/local/bin` (asking for an administrator password if needed) and installs the agent skill. Run it again after moving the app.
+
 On Linux, building needs a C compiler and the development packages of GPUI's dependencies (as for [Zed](https://zed.dev/docs/development/linux)): on Debian/Ubuntu, `sudo apt install build-essential pkg-config libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev`; a build error names any other missing package. Running it needs Vulkan (`libvulkan1` and a driver; Mesa provides one for most GPUs).
 
 ## Command line

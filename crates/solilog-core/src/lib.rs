@@ -6,6 +6,7 @@
 mod attachment;
 mod backup;
 mod checklist;
+mod cli_link;
 mod db;
 mod filter;
 mod issue;
@@ -24,6 +25,10 @@ pub use backup::{
     format_utc,
 };
 pub use checklist::{ChecklistItem, ChecklistItemId, checklist_progress, normalize_item_text};
+pub use cli_link::{
+    CLI_LINK_PATH, CliLinkState, NOT_A_LINK_EXIT, admin_script, app_bundle_binary,
+    applescript_string, cli_link_state, install_cli_link,
+};
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
 pub use issue::{

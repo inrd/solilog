@@ -11,6 +11,7 @@ every domain command is also scriptable from the CLI (primarily for AI agents).
 crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast to build/test.
   assets/skill/SKILL.md  the agent skill, compiled in (`solilog skill`)
   src/skill.rs         installing it into agents' skills folders (no DB: in core to test without gpui)
+  src/cli_link.rs      the macOS app's /usr/local/bin/solilog link (same reason)
   tests/upgrades.rs    every release's database (tests/fixtures/v*.db) opens and keeps its data
 crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   assets/keymap.json   default key bindings

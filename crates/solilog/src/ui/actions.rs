@@ -53,6 +53,11 @@ pub mod workspace {
             OpenArchive,
             /// Show the database file and its attachments in the file manager.
             OpenDatabaseDirectory,
+            /// Put the `solilog` command on the PATH (a link in
+            /// /usr/local/bin to this app, which may ask for an administrator
+            /// password) and install or update the skill that tells coding
+            /// agents how to use it. macOS only.
+            InstallCommandLineTool,
         ]
     );
 }

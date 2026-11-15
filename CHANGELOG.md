@@ -11,6 +11,9 @@ the scheme in AGENTS.md ("Versions and releases").
 - Before a new version upgrades the database, it backs it up ("before
   upgrade to …" in the backup list), and that backup is kept at least 90
   days.
+- macOS: "Workspace: Install Command Line Tool" in the command palette puts
+  the `solilog` command on the PATH (`/usr/local/bin`) and installs the agent
+  skill, for an app that wasn't installed with `make install`.
 
 ## [0.1.0] - 2026-11-15
 
