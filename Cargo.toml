@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["vendor"]
 default-members = ["crates/solilog"]
 
 [workspace.package]
@@ -24,3 +25,8 @@ serde_json = "1"
 serde_json_lenient = "0.2"
 unicode-segmentation = "1.13.3"
 zip = { version = "9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+# xattr 0.2.3 (via gpui's HTTP client) uses `libc::ENOATTR`, which libc
+# 0.2.190 removed on Linux. The copy in vendor/xattr uses `ENODATA` there.
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
