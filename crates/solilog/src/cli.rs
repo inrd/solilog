@@ -7,7 +7,7 @@
 //! - issue ids are accepted as `SOL-12` or `12`;
 //! - labels are `/`-separated paths (`acme/reverb`), matched case-insensitively.
 
-use std::io::{Read as _, Write as _};
+use std::io::{IsTerminal as _, Read as _, Write as _};
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
@@ -15,9 +15,10 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Attachment, AttachmentId, Backup, BackupDir, BackupReason, ChecklistItemId, Db, Issue,
+    Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, ChecklistItemId, Db, Issue,
     IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue, NewProject, Placement, Project,
-    ProjectStatus, ProjectUpdate, Status, View, format_size, format_utc,
+    ProjectStatus, ProjectUpdate, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv, SkillState,
+    SkillStatus, Status, View, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -103,6 +104,55 @@ pub enum Command {
     /// backups are thinned out or moved; the directory can be shared.
     #[command(subcommand)]
     Backup(BackupCommand),
+    /// Teach coding agents (Claude Code, Codex, Cursor, OpenCode, pi) to use
+    /// Solilog.
+    ///
+    /// The skill is a `SKILL.md` built into this binary: it tells an agent
+    /// when to use the `solilog` command (issue ids like SOL-12, "my
+    /// issues", …) and how. `skill install` puts it where agents look:
+    /// `~/.claude/skills/solilog/` for Claude Code, and
+    /// `~/.agents/skills/solilog/` for Codex, Cursor, OpenCode and pi. After
+    /// upgrading Solilog, run `skill install` again to update it. Files
+    /// Solilog did not write are never overwritten or removed.
+    #[command(subcommand)]
+    Skill(SkillCommand),
+}
+
+#[derive(Subcommand)]
+pub enum SkillCommand {
+    /// Print the skill's SKILL.md.
+    Show,
+    /// Install or update the skill and print what was written where.
+    ///
+    /// Without `--agent`, installs it for every agent whose configuration
+    /// folder exists (`~/.claude`, `~/.codex`, `~/.cursor`,
+    /// `~/.config/opencode`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`). Fails
+    /// without writing anything if a target holds a skill Solilog did not
+    /// write.
+    Install {
+        #[command(flatten)]
+        agents: AgentArgs,
+    },
+    /// Remove the skill (all agents unless `--agent` is given) and print
+    /// what was removed. Files Solilog did not write are left alone.
+    Uninstall {
+        #[command(flatten)]
+        agents: AgentArgs,
+    },
+    /// Show where the skill is installed and whether it matches this binary
+    /// (`missing`, `current`, `outdated` or `foreign`).
+    Status {
+        #[command(flatten)]
+        agents: AgentArgs,
+    },
+}
+
+#[derive(Args)]
+pub struct AgentArgs {
+    /// Only for this agent (repeatable): claude, codex, cursor, opencode or
+    /// pi. Codex, Cursor, OpenCode and pi share one folder.
+    #[arg(long, value_name = "AGENT")]
+    agent: Vec<Agent>,
 }
 
 #[derive(Subcommand)]
@@ -491,6 +541,7 @@ enum KeymapCommand {
 
 pub fn run(cli: Cli, command: Command) -> Result<()> {
     let out = Output { json: cli.json };
+    let hint_skill = !cli.json && !matches!(command, Command::Skill(_));
     let mut opened = None;
     let result = run_command(&out, command, &mut opened);
     // Changes made from the CLI (e.g. by agents) are backed up too.
@@ -501,7 +552,25 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
     {
         eprintln!("warning: automatic backup failed: {err:#}");
     }
+    if hint_skill && result.is_ok() && std::io::stderr().is_terminal() {
+        hint_outdated_skill();
+    }
     result
+}
+
+/// For people at a terminal (agents and scripts don't see it): a nudge to
+/// update the agent skill after upgrading Solilog.
+fn hint_outdated_skill() {
+    let Ok(env) = SkillEnv::from_env() else {
+        return;
+    };
+    if let Some(path) = solilog_core::outdated_skills(&env).first() {
+        eprintln!(
+            "note: the Solilog skill for AI agents in {} is out of date; \
+             run `solilog skill install` to update it",
+            path.parent().unwrap_or(path).display()
+        );
+    }
 }
 
 fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Result<()> {
@@ -792,6 +861,39 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
                 }
             }
         }
+        Command::Skill(cmd) => match cmd {
+            SkillCommand::Show => {
+                let content = solilog_core::skill_md();
+                if out.json {
+                    out.print(
+                        &json!({ "name": SKILL_NAME, "version": SKILL_VERSION, "content": content }),
+                        String::new,
+                    )
+                } else {
+                    print!("{content}");
+                    Ok(())
+                }
+            }
+            SkillCommand::Install { agents } => {
+                let env = SkillEnv::from_env()?;
+                out.skill_changes(&solilog_core::install_skill(&env, &agents.agent)?)
+            }
+            SkillCommand::Uninstall { agents } => {
+                let env = SkillEnv::from_env()?;
+                out.skill_changes(&solilog_core::uninstall_skill(&env, &agents.agent)?)
+            }
+            SkillCommand::Status { agents } => {
+                let env = SkillEnv::from_env()?;
+                let statuses = solilog_core::skill_status(&env, &agents.agent)?;
+                out.print(&statuses, || {
+                    statuses
+                        .iter()
+                        .map(skill_status_line)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+            }
+        },
     }
 }
 
@@ -926,6 +1028,27 @@ impl Output {
         self.print(labels, || label_tree(labels))
     }
 
+    fn skill_changes(&self, changes: &[SkillChange]) -> Result<()> {
+        self.print(changes, || {
+            changes
+                .iter()
+                .map(|c| {
+                    let mut line = format!(
+                        "{:<13} {}  (for {})",
+                        c.action.key(),
+                        c.path.display(),
+                        agent_list(&c.agents)
+                    );
+                    if !c.kept.is_empty() {
+                        line.push_str("\n              kept the folder: it has other files");
+                    }
+                    line
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
     fn issues(&self, issues: &[Issue]) -> Result<()> {
         self.print(issues, || {
             issues.iter().map(issue_line).collect::<Vec<_>>().join("\n")
@@ -989,6 +1112,27 @@ fn backup_line(backup: &Backup) -> String {
 fn backup_dir_line(dir: &BackupDir) -> String {
     let default = if dir.is_default { " (default)" } else { "" };
     format!("{}{default}", dir.path.display())
+}
+
+fn skill_status_line(status: &SkillStatus) -> String {
+    let state = match (status.state, &status.installed_version) {
+        (SkillState::Outdated, Some(v)) => format!("outdated ({v}; this is {SKILL_VERSION})"),
+        (SkillState::Foreign, _) => "foreign (not written by Solilog)".to_owned(),
+        (state, _) => state.key().to_owned(),
+    };
+    format!(
+        "{state:<10} {}  (for {})",
+        status.path.display(),
+        agent_list(&status.agents)
+    )
+}
+
+fn agent_list(agents: &[Agent]) -> String {
+    agents
+        .iter()
+        .map(|a| a.key())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn view_line(view: &View) -> String {

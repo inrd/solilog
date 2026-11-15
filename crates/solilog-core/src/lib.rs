@@ -12,6 +12,7 @@ mod issue;
 mod label;
 mod order;
 mod project;
+mod skill;
 mod view;
 
 pub use attachment::{
@@ -34,4 +35,9 @@ pub use label::{
 };
 pub use order::Placement;
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
+pub use skill::{
+    Agent, SKILL_NAME, SKILL_VERSION, SkillAction, SkillChange, SkillEnv, SkillLocation,
+    SkillState, SkillStatus, install_skill, outdated_skills, skill_md, skill_status,
+    uninstall_skill,
+};
 pub use view::View;

@@ -9,6 +9,8 @@ every domain command is also scriptable from the CLI (primarily for AI agents).
 
 ```
 crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast to build/test.
+  assets/skill/SKILL.md  the agent skill, compiled in (`solilog skill`)
+  src/skill.rs         installing it into agents' skills folders (no DB: in core to test without gpui)
 crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   assets/keymap.json   default key bindings
   src/ui/actions.rs    every GUI action, grouped by namespace
@@ -63,7 +65,11 @@ writing SQL or validation in `crates/solilog`, move it to core.
    `default_keymap_is_valid` test checks that every name/argument/keystroke there is valid.
    If a binding is added, changed or removed, update the key tables in the
    README's "Keyboard" section to match (they list the main bindings, not all of them).
-6. Mouse interactions must go through the same actions (e.g. click → select →
+6. **Agent skill**: if the change affects how an agent would work with
+   Solilog (a new workflow, a renamed command or flag, a changed rule), update
+   `crates/solilog-core/assets/skill/SKILL.md`. Keep it to when and how to use
+   Solilog; command details belong in `--help`.
+7. Mouse interactions must go through the same actions (e.g. click → select →
    `window.dispatch_action(...)`), never through separate logic.
 
 ## Data model
@@ -147,6 +153,11 @@ One concept, one name, consistent across surfaces:
   (`{"error": "..."}` with `--json`). Usage errors come from clap (exit 2).
 - Long text can come from stdin with `-`.
 - Respect `SOLILOG_DB` (database path); tests and agents use it for isolation.
+- `solilog skill install` puts the agent skill (`SKILL.md`, compiled in) in
+  `~/.claude/skills/solilog/` and `~/.agents/skills/solilog/` (Codex, Cursor,
+  OpenCode, pi); its frontmatter marker (`managed-by: solilog`) is how it
+  recognizes its own files, and it never overwrites others. Its `version` is
+  the crate version, filled in when installed.
 
 ## Data & state
 

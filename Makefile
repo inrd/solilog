@@ -4,6 +4,9 @@
 #   into the app, so both stay in sync.
 # - Linux: installs the binary in BIN_DIR, plus a desktop entry and an icon
 #   in DATA_DIR, so the app shows up in the desktop's app launcher.
+# Both then install or update the agent skill (`solilog skill install`), as
+# anyone with only the binary would; it fails harmlessly when no coding
+# agent is installed.
 
 UNAME    ?= $(shell uname -s)
 APP_ID   := dev.solilog.Solilog
@@ -64,6 +67,7 @@ install: bundle ## Install the app and the `solilog` command
 	ditto $(APP) "$(APP_DIR)/Solilog.app"
 	mkdir -p "$(BIN_DIR)"
 	ln -sf "$(APP_DIR)/Solilog.app/Contents/MacOS/solilog" "$(BIN_DIR)/solilog"
+	-"$(BIN_DIR)/solilog" skill install
 	@case ":$$PATH:" in *":$(BIN_DIR):"*) ;; *) echo "note: $(BIN_DIR) is not on your PATH";; esac
 else
 install: release
@@ -76,6 +80,7 @@ install: release
 	@# Refresh the launcher's caches, where the desktop keeps them.
 	@if command -v update-desktop-database >/dev/null; then update-desktop-database "$(dir $(DESKTOP))"; fi
 	@if command -v gtk-update-icon-cache >/dev/null; then gtk-update-icon-cache -q -t "$(DATA_DIR)/icons/hicolor"; fi
+	-"$(BIN_DIR)/solilog" skill install
 	@case ":$$PATH:" in *":$(BIN_DIR):"*) ;; *) echo "note: $(BIN_DIR) is not on your PATH";; esac
 endif
 
