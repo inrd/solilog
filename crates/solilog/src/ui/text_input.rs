@@ -1398,7 +1398,10 @@ mod tests {
             strikethrough: None,
         };
         let runs = underline(vec![run(4), run(6)], 2..7);
-        let parts: Vec<_> = runs.iter().map(|r| (r.len, r.underline.is_some())).collect();
+        let parts: Vec<_> = runs
+            .iter()
+            .map(|r| (r.len, r.underline.is_some()))
+            .collect();
         assert_eq!(parts, [(2, false), (2, true), (3, true), (3, false)]);
     }
 }

@@ -89,7 +89,11 @@ pub fn read(cx: &gpui::App) -> Option<Attachable> {
 /// `cut`) lines, which are skipped.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn files_from_text(text: &str) -> Option<Vec<PathBuf>> {
-    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty()).peekable();
+    let mut lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .peekable();
     if lines.next_if_eq(&"x-special/nautilus-clipboard").is_some() {
         lines.next_if(|l| matches!(*l, "copy" | "cut"));
     }
@@ -133,7 +137,10 @@ mod tests {
 
     #[test]
     fn decode() {
-        assert_eq!(percent_decode("/a%20b/%C3%A9t%C3%A9").as_deref(), Some("/a b/été"));
+        assert_eq!(
+            percent_decode("/a%20b/%C3%A9t%C3%A9").as_deref(),
+            Some("/a b/été")
+        );
         assert_eq!(percent_decode("/plain").as_deref(), Some("/plain"));
         assert_eq!(percent_decode("/bad%2"), None);
         assert_eq!(percent_decode("/bad%zz"), None);
@@ -148,12 +155,20 @@ mod tests {
         std::fs::write(&a, "").unwrap();
         std::fs::write(&b, "").unwrap();
         let uri = |p: &PathBuf| {
-            let s = p.to_str().unwrap().replace(' ', "%20").replace('é', "%C3%A9");
+            let s = p
+                .to_str()
+                .unwrap()
+                .replace(' ', "%20")
+                .replace('é', "%C3%A9");
             format!("file://{s}")
         };
 
         // GNOME Files, other file managers (URIs), and plain paths.
-        let nautilus = format!("x-special/nautilus-clipboard\ncopy\n{}\n{}\n", uri(&a), uri(&b));
+        let nautilus = format!(
+            "x-special/nautilus-clipboard\ncopy\n{}\n{}\n",
+            uri(&a),
+            uri(&b)
+        );
         assert_eq!(files_from_text(&nautilus), Some(vec![a.clone(), b.clone()]));
         let uris = format!("{}\r\n{}", uri(&a), uri(&b));
         assert_eq!(files_from_text(&uris), Some(vec![a.clone(), b.clone()]));

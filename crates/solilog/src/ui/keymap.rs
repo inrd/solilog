@@ -81,7 +81,9 @@ const OS_NAMES: [&str; 3] = ["macos", "linux", "windows"];
 impl BindingSpec {
     /// Whether the binding applies on the system the app runs on.
     fn applies_here(&self) -> bool {
-        self.os.as_deref().is_none_or(|os| os == std::env::consts::OS)
+        self.os
+            .as_deref()
+            .is_none_or(|os| os == std::env::consts::OS)
     }
 }
 

@@ -108,11 +108,9 @@ impl WindowFrame {
                             window.zoom_window()
                         }))
                     })
-                    .child(window_button(
-                        "close",
-                        assets::WINDOW_CLOSE,
-                        |window, _| window.remove_window(),
-                    )),
+                    .child(window_button("close", assets::WINDOW_CLOSE, |window, _| {
+                        window.remove_window()
+                    })),
             )
     }
 }
