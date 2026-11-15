@@ -215,7 +215,9 @@ impl Workspace {
     }
 
     /// After a reload: shows the issue as it now is. Fields with unsaved
-    /// edits keep them. Closes the detail if the issue is gone.
+    /// edits keep them, and so do fields that differ from the saved text
+    /// only by the whitespace saving drops (a space just typed at the end
+    /// must stay). Closes the detail if the issue is gone.
     pub(super) fn refresh_detail(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.detail.as_ref().map(|d| d.issue.id) else {
             return;
@@ -229,7 +231,7 @@ impl Workspace {
             return;
         };
         let title = detail.title.read(cx).text();
-        if !title_changed(title, &detail.issue.title) && title != issue.title {
+        if !title_changed(title, &detail.issue.title) && title_changed(title, &issue.title) {
             let text = issue.title.clone();
             detail
                 .title
@@ -237,7 +239,7 @@ impl Workspace {
         }
         let description = detail.description.read(cx).text();
         if !description_changed(description, &detail.issue.description)
-            && description != issue.description
+            && description_changed(description, &issue.description)
         {
             let text = issue.description.clone();
             detail

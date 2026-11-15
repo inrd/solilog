@@ -191,7 +191,7 @@ impl Workspace {
             let row = match old.remove(&item.id) {
                 Some(mut row) => {
                     let text = row.input.read(cx).text();
-                    if !item_changed(text, &row.item.text) && text != item.text {
+                    if !item_changed(text, &row.item.text) && item_changed(text, &item.text) {
                         let text = item.text.clone();
                         row.input.update(cx, |input, cx| input.reset_text(text, cx));
                     }
