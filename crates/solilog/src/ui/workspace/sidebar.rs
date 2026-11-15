@@ -5,7 +5,8 @@
 //! Key context: `Sidebar`. Each row stands for an action (e.g. `view::Open`);
 //! confirming a row, by key or click, dispatches it. Projects and labels can
 //! be dragged to reorder them: projects within their section (open or
-//! closed), labels among their siblings. Views, projects and labels have a
+//! closed), labels among their siblings. A label's sublabels can be
+//! collapsed (`label::ToggleCollapsed`). Views, projects and labels have a
 //! context menu (right click, or `sidebar::ShowContextMenu`).
 
 use gpui::{
@@ -17,6 +18,7 @@ use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement, ProjectStatus};
 use super::scope::Source;
 use super::{MenuTarget, Modal, OpenModal, Workspace};
 use crate::ui::actions::{label, project, sidebar, view, workspace};
+use crate::ui::assets;
 use crate::ui::status_icon::project_status_icon;
 use crate::ui::theme;
 
@@ -127,6 +129,8 @@ enum Row {
         status: Option<ProjectStatus>,
         /// A label's color, shown as a dot before it.
         color: Option<u32>,
+        /// For labels: whether its sublabels are hidden, `None` without any.
+        collapsed: Option<bool>,
     },
 }
 
@@ -148,6 +152,7 @@ impl Workspace {
             trailing: None,
             status: None,
             color: None,
+            collapsed: None,
         }];
         if !self.views.is_empty() {
             rows.push(Row::Heading("Views"));
@@ -159,6 +164,7 @@ impl Workspace {
                 trailing: None,
                 status: None,
                 color: None,
+                collapsed: None,
             }));
         }
 
@@ -172,6 +178,7 @@ impl Workspace {
                 trailing: None,
                 status: Some(p.status),
                 color: None,
+                collapsed: None,
             };
             let (closed, open): (Vec<_>, Vec<_>) =
                 self.sidebar_projects().partition(|p| p.status.is_closed());
@@ -189,6 +196,7 @@ impl Workspace {
                     }),
                     status: None,
                     color: None,
+                    collapsed: None,
                 });
                 if self.show_closed_projects {
                     rows.extend(closed.into_iter().map(|p| match project_row(p) {
@@ -206,6 +214,7 @@ impl Workspace {
                             trailing: None,
                             status,
                             color: None,
+                            collapsed: None,
                         },
                         heading => heading,
                     }));
@@ -215,20 +224,76 @@ impl Workspace {
 
         if !self.labels.is_empty() {
             rows.push(Row::Heading("Labels"));
-            rows.extend(self.labels.iter().map(|l| {
-                let leaf = l.name.rsplit(solilog_core::LABEL_SEPARATOR).next();
-                Row::Item {
-                    item: SidebarItem::Label(l.name.clone()),
-                    label: leaf.unwrap_or(&l.name).to_string().into(),
-                    depth: l.depth(),
-                    count: self.open_count(&Source::Label(l.name.clone()).filter()),
-                    trailing: None,
-                    status: None,
-                    color: l.color.map(|c| theme::label_color(Some(c))),
-                }
-            }));
+            let labels = self.labels.iter().enumerate();
+            rows.extend(
+                labels
+                    .filter(|(_, l)| !self.label_hidden(l))
+                    .map(|(ix, l)| {
+                        let leaf = l.name.rsplit(LABEL_SEPARATOR).next();
+                        // Sublabels directly follow their parent.
+                        let has_children = self.labels.get(ix + 1).is_some_and(|next| {
+                            next.parent()
+                                .is_some_and(|p| p.eq_ignore_ascii_case(&l.name))
+                        });
+                        Row::Item {
+                            item: SidebarItem::Label(l.name.clone()),
+                            label: leaf.unwrap_or(&l.name).to_string().into(),
+                            depth: l.depth(),
+                            count: self.open_count(&Source::Label(l.name.clone()).filter()),
+                            trailing: None,
+                            status: None,
+                            color: l.display_color.map(|c| theme::label_color(Some(c))),
+                            collapsed: has_children.then_some(l.collapsed),
+                        }
+                    }),
+            );
         }
         rows
+    }
+
+    /// Whether a label is inside a collapsed one.
+    fn label_hidden(&self, label: &solilog_core::Label) -> bool {
+        self.labels.iter().any(|l| {
+            l.collapsed
+                && l.name.len() < label.name.len()
+                && solilog_core::label_matches(&label.name, &l.name)
+        })
+    }
+
+    pub(super) fn on_toggle_label_collapsed(
+        &mut self,
+        action: &label::ToggleCollapsed,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = match (&action.name, &self.sidebar_cursor) {
+            (Some(name), _) => name.clone(),
+            (None, SidebarItem::Label(name)) if self.sidebar_focus.is_focused(window) => {
+                name.clone()
+            }
+            _ => match &self.scope.source {
+                Source::Label(name) => name.clone(),
+                _ => {
+                    self.report::<()>(Err(anyhow::anyhow!("Not showing a label")), cx);
+                    return;
+                }
+            },
+        };
+        let collapsed = self
+            .labels
+            .iter()
+            .any(|l| l.collapsed && l.name.eq_ignore_ascii_case(&name));
+        let Some(label) = self.report(self.db.set_label_collapsed(&name, !collapsed), cx) else {
+            return;
+        };
+        // The cursor can't stay on a row that is now hidden.
+        if let SidebarItem::Label(cursor) = &self.sidebar_cursor
+            && label.collapsed
+            && solilog_core::label_matches(cursor, &label.name)
+        {
+            self.sidebar_cursor = SidebarItem::Label(label.name);
+        }
+        self.reload(cx);
     }
 
     /// The selectable items, in display order.
@@ -483,6 +548,49 @@ impl Workspace {
         }))
     }
 
+    /// The arrow before a label that collapses or expands its sublabels; an
+    /// empty space of the same width, to keep labels aligned, for a label
+    /// without any.
+    fn collapse_toggle(
+        &self,
+        ix: usize,
+        name: String,
+        collapsed: Option<bool>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let toggle = div()
+            .id(("sidebar-collapse", ix))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(14.));
+        match collapsed {
+            None => toggle,
+            Some(collapsed) => toggle
+                .child(
+                    gpui::svg()
+                        .path(if collapsed {
+                            assets::CHEVRON_RIGHT
+                        } else {
+                            assets::CHEVRON_DOWN
+                        })
+                        .size(px(14.))
+                        .text_color(rgb(theme::TEXT_MUTED)),
+                )
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    // Toggling doesn't open the label.
+                    cx.stop_propagation();
+                    window.dispatch_action(
+                        Box::new(label::ToggleCollapsed {
+                            name: Some(name.clone()),
+                        }),
+                        cx,
+                    );
+                })),
+        }
+    }
+
     pub(super) fn render_sidebar(
         &self,
         window: &mut Window,
@@ -527,6 +635,7 @@ impl Workspace {
                     trailing,
                     status,
                     color,
+                    collapsed,
                 } => {
                     let highlight = if (focused && item == self.sidebar_cursor)
                         || menu_item.as_ref() == Some(&item)
@@ -540,6 +649,10 @@ impl Workspace {
                     let action = item.action();
                     let muted = item == SidebarItem::ClosedProjects;
                     let reorderable = self.reorderable(&item);
+                    let label_name = match &item {
+                        SidebarItem::Label(name) => Some(name.clone()),
+                        _ => None,
+                    };
                     div()
                         .id(("sidebar", ix))
                         .flex()
@@ -571,6 +684,9 @@ impl Workspace {
                             self.drag_and_drop(row, target, cx)
                         })
                         .when_some(status, |s, status| s.child(project_status_icon(status)))
+                        .when_some(label_name, |s, name| {
+                            s.child(self.collapse_toggle(ix, name, collapsed, cx))
+                        })
                         .when_some(color, |s, color| {
                             s.child(div().flex_none().size(px(8.)).rounded_full().bg(rgb(color)))
                         })

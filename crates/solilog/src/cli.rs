@@ -505,9 +505,10 @@ pub enum LabelCommand {
         #[arg(long, value_name = "LABEL", group = "placement")]
         after: Option<String>,
     },
-    /// Set the color of a label's chips and print the label. Sublabels keep
-    /// their own color. Colors: red, orange, yellow, green, teal, blue,
-    /// purple, pink, gray. Use `--reset` for the default color.
+    /// Set the color of a label's chips and print the label. Sublabels
+    /// without a color of their own are shown in it (`display_color` in
+    /// JSON). Colors: red, orange, yellow, green, teal, blue, purple, pink,
+    /// gray. Use `--reset` for the default color.
     #[command(group = clap::ArgGroup::new("color_or_reset").required(true))]
     Color {
         name: String,
@@ -517,6 +518,12 @@ pub enum LabelCommand {
         #[arg(long, group = "color_or_reset")]
         reset: bool,
     },
+    /// Hide a label's sublabels in the GUI sidebar (display only: issues and
+    /// filters are unaffected). Prints the label.
+    Collapse { name: String },
+    /// Show a collapsed label's sublabels again in the GUI sidebar. Prints
+    /// the label.
+    Expand { name: String },
     /// Delete a label and its sublabels, removing them from all issues.
     /// Prints the deleted labels.
     #[command(visible_alias = "rm")]
@@ -770,6 +777,8 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
                 LabelCommand::Color { name, color, .. } => {
                     out.label(&db.set_label_color(&name, color)?)
                 }
+                LabelCommand::Collapse { name } => out.label(&db.set_label_collapsed(&name, true)?),
+                LabelCommand::Expand { name } => out.label(&db.set_label_collapsed(&name, false)?),
                 LabelCommand::Delete { name } => out.labels(&db.delete_label(&name)?),
             }
         }

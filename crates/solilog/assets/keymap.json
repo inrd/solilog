@@ -89,6 +89,7 @@
       "down": "sidebar::SelectNext",
       "up": "sidebar::SelectPrevious",
       "enter": "sidebar::Open",
+      "space": "label::ToggleCollapsed",
       "shift-j": "sidebar::MoveDown",
       "shift-k": "sidebar::MoveUp",
       "alt-down": "sidebar::MoveDown",

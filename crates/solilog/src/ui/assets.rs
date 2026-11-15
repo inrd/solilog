@@ -7,12 +7,22 @@ use gpui::{AssetSource, SharedString};
 
 /// Paths of the icons, as given to `svg().path(…)`.
 pub const PAPERCLIP: &str = "icons/paperclip.svg";
+pub const CHEVRON_RIGHT: &str = "icons/chevron-right.svg";
+pub const CHEVRON_DOWN: &str = "icons/chevron-down.svg";
 pub const WINDOW_MINIMIZE: &str = "icons/window-minimize.svg";
 pub const WINDOW_MAXIMIZE: &str = "icons/window-maximize.svg";
 pub const WINDOW_RESTORE: &str = "icons/window-restore.svg";
 pub const WINDOW_CLOSE: &str = "icons/window-close.svg";
 
 const ASSETS: &[(&str, &[u8])] = &[
+    (
+        CHEVRON_RIGHT,
+        include_bytes!("../../assets/icons/chevron-right.svg"),
+    ),
+    (
+        CHEVRON_DOWN,
+        include_bytes!("../../assets/icons/chevron-down.svg"),
+    ),
     (
         PAPERCLIP,
         include_bytes!("../../assets/icons/paperclip.svg"),

@@ -1287,7 +1287,7 @@ impl Workspace {
             .labels
             .iter()
             .find(|l| l.name.eq_ignore_ascii_case(name))
-            .and_then(|l| l.color);
+            .and_then(|l| l.display_color);
         theme::label_color(color)
     }
 
@@ -1566,6 +1566,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_open_project))
             .on_action(cx.listener(Self::on_open_label))
             .on_action(cx.listener(Self::on_toggle_closed_projects))
+            .on_action(cx.listener(Self::on_toggle_label_collapsed))
             .on_action(cx.listener(Self::on_move_project))
             .on_action(cx.listener(Self::on_move_label))
             .on_action(cx.listener(Self::on_toggle_label_filter))

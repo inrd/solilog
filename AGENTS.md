@@ -105,7 +105,10 @@ writing SQL or validation in `crates/solilog`, move it to core.
   Labels are listed as a tree with siblings in a user-defined order (new ones
   go last; `Db::move_label` reorders among siblings only, sublabels follow).
   A label can have a color from a fixed palette (`LabelColor`, `Db::set_label_color`);
-  its chips and sidebar dot use it. Sublabels do not inherit it.
+  its chips and sidebar dot use it. Sublabels without a color of their own
+  are shown in their nearest colored ancestor's (`Label::display_color`).
+  The sidebar can collapse a label's sublabels (`label::ToggleCollapsed`;
+  `Db::set_label_collapsed`, saved in the database).
 - **Project**: a body of work with a goal (`reverb v1.1`): status
   (`planned`, `active`, `done`, `archived`), description. Issues can be in any number of projects, or none; being outside a
   project is normal. A project's default labels are added to issues when they

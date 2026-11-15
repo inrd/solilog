@@ -227,9 +227,9 @@ pub mod label {
         pub new_name: Option<String>,
     }
 
-    /// Set the color of a label's chips (sublabels keep their own). Without
-    /// a `color` (and without `reset`), opens the color picker; `reset`
-    /// goes back to the default color.
+    /// Set the color of a label's chips; sublabels without a color of their
+    /// own are shown in it. Without a `color` (and without `reset`), opens
+    /// the color picker; `reset` goes back to the default color.
     ///
     /// Keymap example: `"secondary-b": ["label::SetColor", { "color": "blue" }]`
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
@@ -242,6 +242,17 @@ pub mod label {
         pub color: Option<solilog_core::LabelColor>,
         #[serde(default)]
         pub reset: bool,
+    }
+
+    /// Collapse or expand a label's sublabels in the sidebar. Without a
+    /// `name`, acts on the highlighted label when the sidebar has focus,
+    /// else on the label being shown.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
+    #[serde(deny_unknown_fields)]
+    pub struct ToggleCollapsed {
+        #[serde(default)]
+        pub name: Option<String>,
     }
 
     /// Delete a label and its sublabels, removing them from every issue.

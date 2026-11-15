@@ -111,9 +111,14 @@ impl FromStr for LabelColor {
 pub struct Label {
     /// Full path, e.g. `acme/reverb`.
     pub name: String,
-    /// Color of the label's chips; `None` for the default one. Sublabels
-    /// don't inherit it.
+    /// The label's own color; `None` when it has none.
     pub color: Option<LabelColor>,
+    /// The color it is shown in: its own, or else the nearest ancestor's
+    /// (`acme/reverb` without a color is shown in `acme`'s); `None` for the
+    /// default one.
+    pub display_color: Option<LabelColor>,
+    /// Whether its sublabels are hidden in the GUI sidebar.
+    pub collapsed: bool,
     /// Open and closed issues carrying this label or one of its sublabels
     /// (archived ones excepted).
     pub issue_count: i64,
@@ -166,11 +171,19 @@ impl Db {
     /// Every label, as a tree: each label is followed by its sublabels, and
     /// siblings are in the user-defined order.
     pub fn list_labels(&self) -> Result<Vec<Label>> {
-        let rows: Vec<(String, (i64, i64))> = self
+        let rows: Vec<(String, (i64, i64), bool)> = self
             .conn
-            .prepare_cached("SELECT name, position, id FROM labels")?
-            .query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?))))?
+            .prepare_cached("SELECT name, position, id, collapsed FROM labels")?
+            .query_map([], |row| {
+                Ok((row.get(0)?, (row.get(1)?, row.get(2)?), row.get(3)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
+        let collapsed: std::collections::HashSet<&str> = rows
+            .iter()
+            .filter(|(_, _, collapsed)| *collapsed)
+            .map(|(name, _, _)| name.as_str())
+            .collect();
+        // By lowercase name, to look up ancestors whatever their spelling.
         let colors: std::collections::HashMap<String, LabelColor> = self
             .conn
             .prepare_cached("SELECT name, color FROM labels WHERE color IS NOT NULL")?
@@ -179,13 +192,22 @@ impl Db {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
             .into_iter()
-            .filter_map(|(name, color)| Some((name, LabelColor::from_key(&color)?)))
+            .filter_map(|(name, color)| {
+                Some((name.to_ascii_lowercase(), LabelColor::from_key(&color)?))
+            })
             .collect();
+        let own_color = |name: &str| colors.get(&name.to_ascii_lowercase()).copied();
+        let display_color = |name: &str| {
+            std::iter::successors(Some(name), |n| {
+                n.rsplit_once(LABEL_SEPARATOR).map(|(p, _)| p)
+            })
+            .find_map(own_color)
+        };
         // Sort by the (position, id) of every ancestor, then of the label:
         // parents come before their children, siblings by position.
         let rank: std::collections::HashMap<String, (i64, i64)> = rows
             .iter()
-            .map(|(name, rank)| (name.to_ascii_lowercase(), *rank))
+            .map(|(name, rank, _)| (name.to_ascii_lowercase(), *rank))
             .collect();
         let path_rank = |name: &str| -> Vec<(i64, i64)> {
             let lower = name.to_ascii_lowercase();
@@ -196,7 +218,7 @@ impl Db {
                 .map(|path| rank.get(path).copied().unwrap_or_default())
                 .collect()
         };
-        let mut names: Vec<String> = rows.iter().map(|(name, _)| name.clone()).collect();
+        let mut names: Vec<String> = rows.iter().map(|(name, ..)| name.clone()).collect();
         names.sort_by_cached_key(|name| path_rank(name));
         let assigned: Vec<(i64, String)> = self
             .conn
@@ -220,7 +242,9 @@ impl Db {
                 issues.dedup();
                 Label {
                     issue_count: issues.len() as i64,
-                    color: colors.get(&name).copied(),
+                    color: own_color(&name),
+                    display_color: display_color(&name),
+                    collapsed: collapsed.contains(name.as_str()),
                     name,
                 }
             })
@@ -250,12 +274,24 @@ impl Db {
     }
 
     /// Sets a label's color, or resets it to the default with `None`.
-    /// Sublabels keep their own. Returns the label.
+    /// Sublabels without a color of their own are shown in it. Returns the
+    /// label.
     pub fn set_label_color(&self, name: &str, color: Option<LabelColor>) -> Result<Label> {
         let name = self.label_name(name)?;
         self.conn.execute(
             "UPDATE labels SET color = ?2 WHERE name = ?1",
             params![name, color.map(LabelColor::key)],
+        )?;
+        self.get_label(&name)
+    }
+
+    /// Collapses (hides) or expands a label's sublabels in the GUI sidebar.
+    /// Returns the label.
+    pub fn set_label_collapsed(&self, name: &str, collapsed: bool) -> Result<Label> {
+        let name = self.label_name(name)?;
+        self.conn.execute(
+            "UPDATE labels SET collapsed = ?2 WHERE name = ?1",
+            params![name, collapsed],
         )?;
         self.get_label(&name)
     }
@@ -505,7 +541,22 @@ mod tests {
             (label.name.as_str(), label.color),
             ("acme", Some(LabelColor::Blue))
         );
-        assert_eq!(db.get_label("acme/reverb").unwrap().color, None);
+        // Sublabels without a color are shown in their nearest ancestor's.
+        db.create_label("acme/reverb/eq").unwrap();
+        let shown = |name: &str| {
+            let l = db.get_label(name).unwrap();
+            (l.color, l.display_color)
+        };
+        assert_eq!(shown("acme/reverb"), (None, Some(LabelColor::Blue)));
+        assert_eq!(shown("acme/reverb/eq"), (None, Some(LabelColor::Blue)));
+        db.set_label_color("acme/reverb", Some(LabelColor::Red))
+            .unwrap();
+        assert_eq!(shown("acme/reverb/eq"), (None, Some(LabelColor::Red)));
+        assert_eq!(
+            shown("acme"),
+            (Some(LabelColor::Blue), Some(LabelColor::Blue))
+        );
+        db.set_label_color("acme/reverb", None).unwrap();
         // The color survives a rename.
         db.rename_label("acme", "globex").unwrap();
         assert_eq!(
@@ -516,6 +567,20 @@ mod tests {
         assert_eq!(label.color, None);
         assert!("nope".parse::<LabelColor>().is_err());
         assert_eq!("Red".parse::<LabelColor>().unwrap(), LabelColor::Red);
+    }
+
+    #[test]
+    fn collapsed() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_label("acme/reverb").unwrap();
+        assert!(!db.get_label("acme").unwrap().collapsed);
+        assert!(db.set_label_collapsed("ACME", true).unwrap().collapsed);
+        assert!(!db.get_label("acme/reverb").unwrap().collapsed);
+        // It survives a rename.
+        db.rename_label("acme", "globex").unwrap();
+        assert!(db.get_label("globex").unwrap().collapsed);
+        assert!(!db.set_label_collapsed("globex", false).unwrap().collapsed);
+        assert!(db.set_label_collapsed("nope", true).is_err());
     }
 
     #[test]

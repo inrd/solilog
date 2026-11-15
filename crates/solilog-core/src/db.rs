@@ -136,6 +136,8 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     ) WITHOUT ROWID;
     INSERT INTO settings (key, value) VALUES ('database_id', lower(hex(randomblob(4))));",
+    // 16: a label's sublabels can be collapsed (hidden) in the GUI sidebar.
+    "ALTER TABLE labels ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0 CHECK (collapsed IN (0, 1));",
 ];
 
 /// The schema version of a database with every migration applied.

@@ -127,7 +127,7 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 | `o` / `a` | Open issues only / all statuses |
 | `c` / `r` | Clear / revert to the saved view |
 
-`cmd-s` saves the filter as a view; `v` opens one. Saved views, projects and labels are in the sidebar.
+`cmd-s` saves the filter as a view; `v` opens one. Saved views, projects and labels are in the sidebar; there, `space` (or the arrow before a label) collapses or expands a label's sublabels.
 
 ### Your own bindings
 
