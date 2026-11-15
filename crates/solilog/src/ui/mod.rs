@@ -13,8 +13,8 @@ mod workspace;
 
 use anyhow::Result;
 use gpui::{
-    App, Application, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowDecorations,
-    WindowOptions, prelude::*, px, size,
+    App, Application, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions,
+    prelude::*, px, size,
 };
 use solilog_core::Db;
 
@@ -50,8 +50,7 @@ pub fn run(db: Db) -> Result<()> {
                         ..Default::default()
                     }),
                     app_id: Some(APP_ID.to_string()),
-                    // Drawn by the system when it can; else by `WindowFrame`.
-                    window_decorations: Some(WindowDecorations::Server),
+                    window_decorations: Some(window_frame::decorations()),
                     ..Default::default()
                 },
                 |window, cx| {

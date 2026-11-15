@@ -2,14 +2,15 @@
 //! app has to draw it itself.
 //!
 //! Solilog asks for server-side decorations (title bar and borders drawn by
-//! the system). macOS, X11 and most Wayland compositors provide them; some
-//! Wayland compositors (GNOME's) don't, and then the app draws a title bar
-//! with the window buttons, a border, and edges to resize the window.
+//! the system) where they exist: on macOS, X11 and most Wayland compositors.
+//! Some Wayland compositors (GNOME's) don't provide them, and then the app
+//! draws a title bar with the window buttons, a border, and edges to resize
+//! the window.
 
 use gpui::{
     AnyElement, App, ClickEvent, Context, CursorStyle, Decorations, Entity, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ResizeEdge, Tiling, Window, div,
-    prelude::*, px, rgb, svg,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ResizeEdge, Tiling, Window,
+    WindowDecorations, div, prelude::*, px, rgb, svg,
 };
 
 use super::workspace::Workspace;
@@ -20,6 +21,69 @@ const TITLE_BAR_HEIGHT: f32 = 34.;
 const RESIZE_EDGE: f32 = 5.;
 /// Size of the corner zones, which resize in both directions.
 const RESIZE_CORNER: f32 = 12.;
+
+/// The decorations to ask for when opening the window: server-side, unless
+/// the Wayland compositor can't draw them.
+///
+/// gpui can't tell: on Wayland it takes a request for server-side
+/// decorations as granted unless the compositor answers otherwise, and
+/// compositors without the decoration protocol (GNOME's) never answer, so
+/// the window would have no title bar at all. Ask the compositor first.
+pub fn decorations() -> WindowDecorations {
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    if wayland::lacks_server_decorations() {
+        return WindowDecorations::Client;
+    }
+    WindowDecorations::Server
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod wayland {
+    use wayland_client::globals::{GlobalListContents, registry_queue_init};
+    use wayland_client::protocol::wl_registry::{self, WlRegistry};
+    use wayland_client::{Connection, Dispatch, QueueHandle};
+
+    /// The protocol through which a client asks for server-side decorations.
+    const DECORATION_MANAGER: &str = "zxdg_decoration_manager_v1";
+
+    /// Whether the app runs on a Wayland compositor that doesn't offer
+    /// server-side decorations. False on X11, or when in doubt.
+    pub fn lacks_server_decorations() -> bool {
+        // gpui uses Wayland when `WAYLAND_DISPLAY` is set. A connection
+        // handed over in `WAYLAND_SOCKET` can only be opened once: leave it
+        // to gpui.
+        if std::env::var_os("WAYLAND_DISPLAY").is_none()
+            || std::env::var_os("WAYLAND_SOCKET").is_some()
+        {
+            return false;
+        }
+        let Ok(connection) = Connection::connect_to_env() else {
+            return false;
+        };
+        let Ok((globals, _queue)) = registry_queue_init::<Probe>(&connection) else {
+            return false;
+        };
+        !globals.contents().with_list(|list| {
+            list.iter()
+                .any(|global| global.interface == DECORATION_MANAGER)
+        })
+    }
+
+    /// Receives registry events; the global list is all we need.
+    struct Probe;
+
+    impl Dispatch<WlRegistry, GlobalListContents> for Probe {
+        fn event(
+            _: &mut Self,
+            _: &WlRegistry,
+            _: wl_registry::Event,
+            _: &GlobalListContents,
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+        }
+    }
+}
 
 pub struct WindowFrame {
     workspace: Entity<Workspace>,

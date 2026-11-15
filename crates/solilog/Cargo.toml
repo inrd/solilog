@@ -17,6 +17,9 @@ serde_json.workspace = true
 serde_json_lenient.workspace = true
 unicode-segmentation.workspace = true
 
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+wayland-client.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-app-kit.workspace = true

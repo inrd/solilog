@@ -5152,6 +5152,7 @@ dependencies = [
  "serde_json_lenient",
  "solilog-core",
  "unicode-segmentation",
+ "wayland-client",
 ]
 
 [[package]]
