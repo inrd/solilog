@@ -21,7 +21,7 @@ LINUX   := packaging/linux
 DESKTOP := $(DATA_DIR)/applications/$(APP_ID).desktop
 ICON    := $(DATA_DIR)/icons/hicolor/scalable/apps/$(APP_ID).svg
 
-.PHONY: help run demo screenshot test test-core clippy check release bundle install uninstall icon clean
+.PHONY: help run demo screenshot test test-core clippy check release cut-release bundle install uninstall icon clean
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -48,6 +48,10 @@ check: test clippy ## Tests and lints
 
 release: ## Release build of the binary
 	cargo build --release -p solilog
+
+cut-release: ## Version, commit and tag a release: make cut-release V=0.2.0 (see CHANGELOG.md)
+	@[ -n "$(V)" ] || { echo "usage: make cut-release V=0.2.0" >&2; exit 1; }
+	scripts/release.sh "$(V)"
 
 bundle: release ## Build target/release/Solilog.app (macOS)
 ifneq ($(UNAME),Darwin)

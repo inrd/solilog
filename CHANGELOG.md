@@ -1,0 +1,21 @@
+# Changelog
+
+Notable changes to Solilog, newest first. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+the scheme in AGENTS.md ("Versions and releases").
+
+## [Unreleased]
+
+### Added
+
+- Desktop app (macOS, Linux) and `solilog` command line over one local SQLite
+  database, usable at the same time.
+- Issues with a status, a description, a checklist and file attachments;
+  archiving, multiple selection and a user-defined order within each status.
+- Hierarchical labels with colors, projects with a status and default labels,
+  and saved views.
+- Everything is a command: command palette, rebindable keys in
+  `~/.config/solilog/keymap.json`, reloaded as it changes.
+- `--json` output on every CLI command, for scripts and AI agents, and a
+  built-in agent skill (`solilog skill install`).
+- Automatic backups of the database and attachments, with restore.

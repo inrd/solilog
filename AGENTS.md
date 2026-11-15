@@ -24,7 +24,8 @@ packaging/icon.svg     app icon, for both systems
 packaging/macos/       Solilog.icns (from icon.svg via icon.sh), Info.plist
 packaging/linux/       .desktop file (named after the app id, `APP_ID` in ui/mod.rs)
 Makefile               common tasks, install (macOS bundle; Linux desktop entry)
-scripts/               demo database, README screenshot
+CHANGELOG.md           user-visible changes per release; see "Versions and releases"
+scripts/               demo database, README screenshot, release.sh
 docs/screenshot.png    README image, generated: see "Screenshot"
 ```
 
@@ -71,6 +72,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
    Solilog; command details belong in `--help`.
 7. Mouse interactions must go through the same actions (e.g. click → select →
    `window.dispatch_action(...)`), never through separate logic.
+8. **Changelog**: add a line for user-visible changes under `## [Unreleased]`
+   in `CHANGELOG.md` (Added / Changed / Fixed / Removed), written for users.
 
 ## Data model
 
@@ -164,6 +167,26 @@ One concept, one name, consistent across surfaces:
   recognizes its own files, and it never overwrites others. Its `version` is
   the crate version, filled in when installed.
 
+## Versions and releases
+
+- Semver, `MAJOR.MINOR.PATCH`. The version lives only in the workspace
+  `Cargo.toml` (`[workspace.package]`); the crates, `solilog --version`, the
+  skill's `version` and the macOS bundle all take it from there.
+- 0.x until the database schema and the CLI JSON contract are considered
+  stable. In 0.x, a breaking release bumps the minor version (0.2.0 → 0.3.0)
+  and anything else the patch version (0.2.0 → 0.2.1).
+- **Breaking** means a change to the CLI JSON contract (renamed or removed
+  fields, commands, flags or enum keys; adding is never breaking), or a
+  release that can't open a database an earlier version made (an upgrade path
+  dropped). New migrations aren't breaking: they upgrade older databases in
+  place. Going back to an older version after that isn't supported (an older
+  binary refuses a newer schema); restore a backup instead.
+- A release is a tagged commit (`v0.2.0`) whose `CHANGELOG.md` has a section
+  for it. Cut one with `make cut-release V=0.2.0` (`scripts/release.sh`):
+  it needs a clean tree and notes under `## [Unreleased]`, runs `make check`,
+  turns those notes into the version's section, bumps `Cargo.toml` and
+  `Cargo.lock`, commits and tags. It doesn't push.
+
 ## Data & state
 
 - **The database is the source of truth.** In-memory GUI state is a cache: after
@@ -225,6 +248,7 @@ cargo run -- issue ls --json           # CLI
 SOLILOG_DB=/tmp/scratch.db cargo run -- issue create "test"   # isolated DB
 make bundle                            # target/release/Solilog.app
 make install                           # /Applications + CLI link in ~/.local/bin
+make cut-release V=0.2.0               # version, commit and tag a release
 ```
 
 Keep the build free of warnings and clippy lints.
