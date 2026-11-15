@@ -676,9 +676,14 @@ impl Workspace {
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             // Same action as confirming the row with the keyboard;
                             // the list keeps focus so mouse users stay in the list.
+                            // The action is dispatched from the sidebar: an action
+                            // goes up from the element focused when it is dispatched,
+                            // in the last rendered frame, where the list is missing
+                            // while an issue is open.
                             this.sidebar_cursor = item.clone();
-                            window.focus(&this.list_focus);
+                            window.focus(&this.sidebar_focus);
                             window.dispatch_action(action.boxed_clone(), cx);
+                            window.focus(&this.list_focus);
                         }))
                         .when_some(reorderable, |row, target| {
                             self.drag_and_drop(row, target, cx)
