@@ -17,13 +17,13 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    Action, App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    ContentMask, GlobalElementId, Hitbox, HitboxBehavior, KeyContext, LayoutId, ModifiersChangedEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ScrollHandle, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, UTF16Selection,
-    UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px, relative, rgb,
-    rgba, size,
+    Action, App, AvailableSpace, Bounds, ClipboardItem, ContentMask, Context, CursorStyle,
+    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    Focusable, GlobalElementId, Hitbox, HitboxBehavior, KeyContext, LayoutId,
+    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
+    Pixels, Point, ScrollHandle, SharedString, StrikethroughStyle, Style, TextAlign, TextRun,
+    UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px,
+    relative, rgb, rgba, size,
 };
 use unicode_segmentation::*;
 
@@ -1260,8 +1260,7 @@ impl Element for TextElement {
             .filter_map(|rect| {
                 // Parts scrolled out of view can't be clicked.
                 let rect = (rect + text_bounds.origin).intersect(&bounds);
-                (!rect.is_empty())
-                    .then(|| window.insert_hitbox(rect, HitboxBehavior::Normal))
+                (!rect.is_empty()).then(|| window.insert_hitbox(rect, HitboxBehavior::Normal))
             })
             .collect();
         let cursor_quad = selected_range.is_empty().then(|| {
