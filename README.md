@@ -80,6 +80,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `s` | Set status |
 | `l` / `shift-l` | Add / remove a label |
 | `p` / `shift-p` | Add to / remove from a project |
+| `y` | Copy the issue id (`SOL-12`) |
 | `alt-up` / `alt-down` | Reorder |
 
 ### An open issue
@@ -93,6 +94,8 @@ Title, description and checklist are edited in place and saved as you type. `Esc
 | `cmd-enter` | Check the item being edited |
 | `alt-up` / `alt-down` | Move the item (or drag its handle) |
 | `shift-a` | Attach a file |
+
+An issue id in the description (`SOL-12`) links to that issue and shows its title. Click it to open the issue; while editing, `cmd`-click it or press `alt-enter` with the cursor on it.
 
 To delete a checklist item, empty it. Files dropped on the issue, or pasted with `cmd-v` (screenshots too), become attachments. Click an image to preview it (`←` / `→` for the issue's other images, `r` to show it in the file manager); other files open in the file manager.
 

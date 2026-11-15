@@ -5,18 +5,27 @@
 //! one inserts a line break and wraps its text to its width. Key bindings
 //! live in the keymap (`assets/keymap.json`, context `TextInput`; multi-line
 //! inputs also have `multiline` in their context, for bindings like `up`).
+//!
+//! Parts of the text can be links ([`TextInput::links`]), shown in another
+//! color and possibly as other text (a label), except while the cursor is
+//! on them. Clicking a link runs its action; while the input is being
+//! edited, that takes a secondary-click (cmd on macOS, ctrl elsewhere).
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
-    App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, ElementId,
+    Action, App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    GlobalElementId, KeyContext, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PaintQuad, Pixels, Point, ScrollHandle, SharedString, Style, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px,
-    relative, rgb, rgba, size,
+    GlobalElementId, Hitbox, HitboxBehavior, KeyContext, LayoutId, ModifiersChangedEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    ScrollHandle, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, UTF16Selection,
+    UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px, relative, rgb,
+    rgba, size,
 };
 use unicode_segmentation::*;
+
+use crate::ui::theme;
 
 const CONTEXT: &str = "TextInput";
 /// Added to [`CONTEXT`] for multi-line inputs.
@@ -64,8 +73,25 @@ actions!(
         Paste,
         Cut,
         Copy,
+        /// Open the link the cursor is on (e.g. an issue id in a description).
+        OpenLink,
     ]
 );
+
+/// A part of the text shown as a link (see [`TextInput::links`]).
+pub struct Link {
+    /// Byte range in the text.
+    pub range: Range<usize>,
+    /// Shown in place of that text, except while the cursor is on it.
+    pub label: Option<SharedString>,
+    /// Struck through, e.g. a link to a finished issue.
+    pub strikethrough: bool,
+    /// Run when the link is clicked or opened with [`OpenLink`].
+    pub action: Box<dyn Action>,
+}
+
+/// Finds the links in a text, in order and not overlapping.
+type LinkFinder = Rc<dyn Fn(&str, &App) -> Vec<Link>>;
 
 /// Emitted when the user presses Enter in a single-line input.
 pub struct Submit;
@@ -86,6 +112,7 @@ pub struct TextInput {
     goal_x: Option<Pixels>,
     /// The scrolling container to scroll so that the cursor stays visible.
     autoscroll: Option<ScrollHandle>,
+    links: Option<LinkFinder>,
     /// The cursor moved since the last paint: scroll to it.
     cursor_moved: bool,
     last_layout: Option<TextLayout>,
@@ -108,6 +135,7 @@ impl TextInput {
             marked_range: None,
             goal_x: None,
             autoscroll: None,
+            links: None,
             cursor_moved: false,
             last_layout: None,
             last_bounds: None,
@@ -126,6 +154,13 @@ impl TextInput {
     /// the input.
     pub fn autoscroll(mut self, scroll: ScrollHandle) -> Self {
         self.autoscroll = Some(scroll);
+        self
+    }
+
+    /// Shows links in the text, as `find` finds them. It is called whenever
+    /// the input is drawn, so links follow the text and what they point to.
+    pub fn links(mut self, find: impl Fn(&str, &App) -> Vec<Link> + 'static) -> Self {
+        self.links = Some(Rc::new(find));
         self
     }
 
@@ -330,6 +365,14 @@ impl TextInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let editing = self.focus_handle.is_focused(window);
+        if (!editing || event.modifiers.secondary())
+            && let Some(action) = self.link_at(event.position)
+        {
+            cx.stop_propagation();
+            window.dispatch_action(action, cx);
+            return;
+        }
         window.focus(&self.focus_handle);
         self.is_selecting = true;
         if event.modifiers.shift {
@@ -346,6 +389,37 @@ impl TextInput {
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         if self.is_selecting {
             self.select_to(self.index_for_mouse_position(event.position), cx);
+        }
+    }
+
+    /// The action of the link drawn at `position`, if any.
+    fn link_at(&self, position: Point<Pixels>) -> Option<Box<dyn Action>> {
+        let (bounds, layout) = (self.last_bounds?, self.last_layout.as_ref()?);
+        let local = position - bounds.origin;
+        layout
+            .links
+            .iter()
+            .find(|link| {
+                layout
+                    .rects(link.display.clone(), bounds.size.width)
+                    .iter()
+                    .any(|rect| rect.contains(&local))
+            })
+            .map(|link| link.action.boxed_clone())
+    }
+
+    fn open_link(&mut self, _: &OpenLink, window: &mut Window, cx: &mut Context<Self>) {
+        let cursor = self.cursor_offset();
+        let link = self
+            .links
+            .as_ref()
+            .map(|find| find(&self.content, cx))
+            .unwrap_or_default()
+            .into_iter()
+            .find(|link| link.range.start <= cursor && cursor <= link.range.end);
+        match link {
+            Some(link) => window.dispatch_action(link.action, cx),
+            None => cx.propagate(),
         }
     }
 
@@ -687,16 +761,71 @@ impl EntityInputHandler for TextInput {
     }
 }
 
-/// Shaped text: one [`WrappedLine`] per line of the text (split at `\n`),
-/// each taking one or more visual lines.
-#[derive(Clone)]
+/// Maps offsets in the content to offsets in the text shown, which differs
+/// where links are shown as labels.
+#[derive(Default)]
+struct OffsetMap {
+    /// Content ranges shown as other text, with the range of that text in
+    /// the text shown, in order.
+    replaced: Vec<(Range<usize>, Range<usize>)>,
+}
+
+impl OffsetMap {
+    /// Offsets within a replaced range go to the start of its label.
+    fn to_display(&self, offset: usize) -> usize {
+        let mut shift = 0isize;
+        for (content, display) in &self.replaced {
+            if offset <= content.start {
+                break;
+            }
+            if offset < content.end {
+                return display.start;
+            }
+            shift = display.end as isize - content.end as isize;
+        }
+        offset.saturating_add_signed(shift)
+    }
+
+    /// Offsets within a label go to the nearest end of the range it replaces.
+    fn to_content(&self, offset: usize) -> usize {
+        let mut shift = 0isize;
+        for (content, display) in &self.replaced {
+            if offset <= display.start {
+                break;
+            }
+            if offset < display.end {
+                let closer_to_start = offset - display.start < display.end - offset;
+                return if closer_to_start {
+                    content.start
+                } else {
+                    content.end
+                };
+            }
+            shift = content.end as isize - display.end as isize;
+        }
+        offset.saturating_add_signed(shift)
+    }
+}
+
+/// A link as drawn.
+struct LaidOutLink {
+    /// Range in the text shown.
+    display: Range<usize>,
+    action: Box<dyn Action>,
+}
+
+/// Shaped text: one [`WrappedLine`] per line of the text shown (split at
+/// `\n`), each taking one or more visual lines. Offsets taken and returned
+/// are in the content; `display_*` ones, in the text shown.
 struct TextLayout {
     lines: Vec<WrappedLine>,
-    /// Byte offset where each line starts in the text.
+    /// Byte offset where each line starts in the text shown.
     starts: Vec<usize>,
     /// Distance from the top to each line.
     tops: Vec<Pixels>,
     line_height: Pixels,
+    map: OffsetMap,
+    links: Vec<LaidOutLink>,
 }
 
 impl TextLayout {
@@ -715,6 +844,8 @@ impl TextLayout {
             starts,
             tops,
             line_height,
+            map: OffsetMap::default(),
+            links: Vec::new(),
         }
     }
 
@@ -727,6 +858,15 @@ impl TextLayout {
 
     /// Top-left corner of the character at `offset`, from the top-left of the text.
     fn position_for_index(&self, offset: usize) -> Point<Pixels> {
+        self.display_position(self.map.to_display(offset))
+    }
+
+    /// The offset closest to `position` (from the top-left of the text).
+    fn index_for_position(&self, position: Point<Pixels>) -> usize {
+        self.map.to_content(self.display_index(position))
+    }
+
+    fn display_position(&self, offset: usize) -> Point<Pixels> {
         let ix = self
             .starts
             .partition_point(|s| *s <= offset)
@@ -741,8 +881,7 @@ impl TextLayout {
         point(pos.x, pos.y + self.tops[ix])
     }
 
-    /// The offset closest to `position` (from the top-left of the text).
-    fn index_for_position(&self, position: Point<Pixels>) -> usize {
+    fn display_index(&self, position: Point<Pixels>) -> usize {
         let ix = self
             .tops
             .partition_point(|top| *top <= position.y)
@@ -758,6 +897,28 @@ impl TextLayout {
         };
         self.starts[ix] + local.min(line.len())
     }
+
+    /// The area covered by a range of the text shown, one rectangle per
+    /// visual line, from the top-left of the text; `width` is the text's.
+    fn rects(&self, range: Range<usize>, width: Pixels) -> Vec<Bounds<Pixels>> {
+        let start = self.display_position(range.start);
+        let end = self.display_position(range.end);
+        let row = |top: Pixels, left: Pixels, right: Pixels| {
+            Bounds::from_corners(point(left, top), point(right, top + self.line_height))
+        };
+        if start.y == end.y {
+            return vec![row(start.y, start.x, end.x)];
+        }
+        // First row to the right edge, full rows, last row from the left edge.
+        let mut rects = vec![row(start.y, start.x, width)];
+        let mut top = start.y + self.line_height;
+        while top < end.y {
+            rects.push(row(top, px(0.), width));
+            top += self.line_height;
+        }
+        rects.push(row(end.y, px(0.), end.x));
+        rects
+    }
 }
 
 /// Low-level element that shapes and paints the text, selection and cursor.
@@ -769,6 +930,8 @@ struct PrepaintState {
     layout: Option<TextLayout>,
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
+    /// Where the pointer shows that a link can be clicked.
+    link_hitboxes: Vec<Hitbox>,
 }
 
 impl IntoElement for TextElement {
@@ -779,49 +942,152 @@ impl IntoElement for TextElement {
     }
 }
 
-/// Text, color and runs to shape: the content, or the placeholder when empty.
-fn display_runs(input: &TextInput, window: &Window) -> (SharedString, Vec<TextRun>) {
+/// What to shape: the content, with links shown as their labels unless
+/// the cursor is on them, or the placeholder when empty.
+struct Display {
+    text: SharedString,
+    runs: Vec<TextRun>,
+    map: OffsetMap,
+    links: Vec<LaidOutLink>,
+}
+
+fn display(input: &TextInput, window: &Window, cx: &App) -> Display {
     let style = window.text_style();
-    let (display_text, text_color) = if input.content.is_empty() {
-        (input.placeholder.clone(), style.color.opacity(0.35))
-    } else {
-        (input.content.clone(), style.color)
-    };
-    let run = TextRun {
-        len: display_text.len(),
+    let base = TextRun {
+        len: 0,
         font: style.font(),
-        color: text_color,
+        color: style.color,
         background_color: None,
         underline: None,
         // Inherited, e.g. for checked checklist items.
         strikethrough: style.strikethrough,
     };
-    let runs = match input.marked_range.as_ref() {
-        Some(marked_range) => [
-            TextRun {
-                len: marked_range.start,
+    if input.content.is_empty() {
+        return Display {
+            runs: vec![TextRun {
+                len: input.placeholder.len(),
+                color: style.color.opacity(0.35),
+                ..base
+            }],
+            text: input.placeholder.clone(),
+            map: OffsetMap::default(),
+            links: Vec::new(),
+        };
+    }
+    let content = input.content.as_str();
+    let links = input
+        .links
+        .as_ref()
+        .map(|find| find(content, cx))
+        .unwrap_or_default();
+    let editing = input.focus_handle.is_focused(window);
+    let selection = &input.selected_range;
+    let accent = rgb(theme::ACCENT).into();
+    let link_run = TextRun {
+        color: accent,
+        underline: Some(UnderlineStyle {
+            color: Some(accent),
+            thickness: px(1.),
+            wavy: false,
+        }),
+        ..base.clone()
+    };
+
+    let mut text = String::with_capacity(content.len());
+    let mut runs = Vec::new();
+    let mut map = OffsetMap::default();
+    let mut laid_out = Vec::new();
+    let mut push = |text: &mut String, shown: &str, run: &TextRun| {
+        if !shown.is_empty() {
+            text.push_str(shown);
+            runs.push(TextRun {
+                len: shown.len(),
                 ..run.clone()
-            },
-            TextRun {
-                len: marked_range.end - marked_range.start,
-                underline: Some(UnderlineStyle {
+            });
+        }
+    };
+    let mut done = 0;
+    for link in links {
+        let range = link.range.clone();
+        if range.start < done || content.get(range.clone()).is_none() {
+            continue;
+        }
+        push(&mut text, &content[done..range.start], &base);
+        let cursor_on_it = editing && selection.start <= range.end && range.start <= selection.end;
+        let label = link
+            .label
+            .filter(|label| !cursor_on_it && !label.is_empty() && !label.contains('\n'));
+        let start = text.len();
+        let run = TextRun {
+            strikethrough: link
+                .strikethrough
+                .then_some(StrikethroughStyle {
+                    thickness: px(1.),
+                    color: Some(accent),
+                })
+                .or(base.strikethrough),
+            ..link_run.clone()
+        };
+        let shown = label
+            .as_ref()
+            .map_or(&content[range.clone()], |l| l.as_str());
+        push(&mut text, shown, &run);
+        if label.is_some() {
+            map.replaced.push((range.clone(), start..text.len()));
+        }
+        laid_out.push(LaidOutLink {
+            display: start..text.len(),
+            action: link.action,
+        });
+        done = range.end;
+    }
+    push(&mut text, &content[done..], &base);
+
+    if let Some(marked) = &input.marked_range {
+        let marked = map.to_display(marked.start)..map.to_display(marked.end);
+        runs = underline(runs, marked);
+    }
+    Display {
+        text: text.into(),
+        runs,
+        map,
+        links: laid_out,
+    }
+}
+
+/// Underlines `range` (an IME composition) in `runs`, splitting them where needed.
+fn underline(runs: Vec<TextRun>, range: Range<usize>) -> Vec<TextRun> {
+    let mut split = Vec::with_capacity(runs.len() + 2);
+    let mut start = 0;
+    for run in runs {
+        let end = start + run.len;
+        let cuts = [
+            start,
+            range.start.clamp(start, end),
+            range.end.clamp(start, end),
+            end,
+        ];
+        for pair in cuts.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            if a == b {
+                continue;
+            }
+            let mut piece = TextRun {
+                len: b - a,
+                ..run.clone()
+            };
+            if range.start <= a && b <= range.end {
+                piece.underline = Some(UnderlineStyle {
                     color: Some(run.color),
                     thickness: px(1.0),
                     wavy: false,
-                }),
-                ..run.clone()
-            },
-            TextRun {
-                len: display_text.len() - marked_range.end,
-                ..run
-            },
-        ]
-        .into_iter()
-        .filter(|run| run.len > 0)
-        .collect(),
-        None => vec![run],
-    };
-    (display_text, runs)
+                });
+            }
+            split.push(piece);
+        }
+        start = end;
+    }
+    split
 }
 
 fn shape(
@@ -867,7 +1133,7 @@ impl Element for TextElement {
             return (window.request_layout(style, [], cx), ());
         }
         // Multi-line: as tall as the text, wrapped to the width given.
-        let (text, runs) = display_runs(input, window);
+        let Display { text, runs, .. } = display(input, window, cx);
         let layout_id =
             window.request_measured_layout(style, move |known, available, window, _| {
                 let width = known.width.or(match available.width {
@@ -892,41 +1158,32 @@ impl Element for TextElement {
         let input = self.input.read(cx);
         let selected_range = input.selected_range.clone();
         let cursor = input.cursor_offset();
-        let (text, runs) = display_runs(input, window);
+        let display = display(input, window, cx);
         let wrap_width = input.multiline.then_some(bounds.size.width);
-        let layout = shape(text, &runs, wrap_width, window);
+        let mut layout = shape(display.text, &display.runs, wrap_width, window);
+        layout.map = display.map;
+        layout.links = display.links;
         let line_height = layout.line_height;
-        let cursor_color = rgb(0x7c8cff);
+        let cursor_color = rgb(theme::ACCENT);
         let selection_color = rgba(0x7c8cff40);
 
         let selection = if selected_range.is_empty() {
             Vec::new()
         } else {
-            let start = layout.position_for_index(selected_range.start);
-            let end = layout.position_for_index(selected_range.end);
-            let row = |top: Pixels, left: Pixels, right: Pixels| {
-                fill(
-                    Bounds::from_corners(
-                        point(bounds.left() + left, bounds.top() + top),
-                        point(bounds.left() + right, bounds.top() + top + line_height),
-                    ),
-                    selection_color,
-                )
-            };
-            if start.y == end.y {
-                vec![row(start.y, start.x, end.x)]
-            } else {
-                // First row to the right edge, full rows, last row from the left edge.
-                let mut quads = vec![row(start.y, start.x, bounds.size.width)];
-                let mut top = start.y + line_height;
-                while top < end.y {
-                    quads.push(row(top, px(0.), bounds.size.width));
-                    top += line_height;
-                }
-                quads.push(row(end.y, px(0.), end.x));
-                quads
-            }
+            let range = layout.map.to_display(selected_range.start)
+                ..layout.map.to_display(selected_range.end);
+            layout
+                .rects(range, bounds.size.width)
+                .into_iter()
+                .map(|rect| fill(rect + bounds.origin, selection_color))
+                .collect()
         };
+        let link_hitboxes = layout
+            .links
+            .iter()
+            .flat_map(|link| layout.rects(link.display.clone(), bounds.size.width))
+            .map(|rect| window.insert_hitbox(rect + bounds.origin, HitboxBehavior::Normal))
+            .collect();
         let cursor_pos = layout.position_for_index(cursor);
         let cursor_quad = selected_range.is_empty().then(|| {
             fill(
@@ -965,6 +1222,7 @@ impl Element for TextElement {
             layout: Some(layout),
             cursor: cursor_quad,
             selection,
+            link_hitboxes,
         }
     }
 
@@ -1007,6 +1265,13 @@ impl Element for TextElement {
         let focused = focus_handle.is_focused(window);
         if focused && let Some(cursor) = prepaint.cursor.take() {
             window.paint_quad(cursor);
+        }
+        // While editing, the pointer is for the text unless a click would
+        // open the link.
+        if !focused || window.modifiers().secondary() {
+            for hitbox in &prepaint.link_hitboxes {
+                window.set_cursor_style(CursorStyle::PointingHand, hitbox);
+            }
         }
 
         self.input.update(cx, |input, _| {
@@ -1064,6 +1329,13 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::open_link))
+            // The pointer over links depends on the modifiers (see `paint`).
+            .when(self.links.is_some(), |s| {
+                s.on_modifiers_changed(
+                    cx.listener(|_, _: &ModifiersChangedEvent, _, cx| cx.notify()),
+                )
+            })
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -1095,5 +1367,38 @@ mod tests {
         assert_eq!(next_word_end(text, 7), 15);
         assert_eq!(next_word_end(text, 22), text.len());
         assert_eq!(next_word_end(text, text.len()), text.len());
+    }
+
+    #[test]
+    fn offset_map() {
+        // "see SOL-1 now" shown as "see Fix it now": 4..9 -> 4..10.
+        let map = OffsetMap {
+            replaced: vec![(4..9, 4..10)],
+        };
+        assert_eq!(map.to_display(2), 2);
+        assert_eq!(map.to_display(4), 4);
+        assert_eq!(map.to_display(6), 4);
+        assert_eq!(map.to_display(9), 10);
+        assert_eq!(map.to_display(13), 14);
+        assert_eq!(map.to_content(4), 4);
+        assert_eq!(map.to_content(6), 4);
+        assert_eq!(map.to_content(8), 9);
+        assert_eq!(map.to_content(10), 9);
+        assert_eq!(map.to_content(14), 13);
+    }
+
+    #[test]
+    fn underline_splits_runs() {
+        let run = |len| TextRun {
+            len,
+            font: gpui::font("Helvetica"),
+            color: gpui::black(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let runs = underline(vec![run(4), run(6)], 2..7);
+        let parts: Vec<_> = runs.iter().map(|r| (r.len, r.underline.is_some())).collect();
+        assert_eq!(parts, [(2, false), (2, true), (3, true), (3, false)]);
     }
 }

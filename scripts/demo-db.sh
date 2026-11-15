@@ -68,4 +68,6 @@ issue in_progress 1 "Search results page" -l feature -l platform/web -p "Public 
 issue in_progress 0 "Redesign the settings screen" -p "Design refresh" -l platform/desktop
 issue in_progress 2 "Sync conflicts lose the newest edit" -l bug -p "Offline mode" \
     -i "Reproduce with two devices" -i "Write a failing test" -i "Merge by paragraph" -i "Ship a fix" \
-    -d "Editing the same note on two devices while offline keeps the older version when they reconnect."
+    -d "Editing the same note on two devices while offline keeps the older version when they reconnect.
+
+Needed before SOL-7." # "Self-hosted sync server", the 7th issue created

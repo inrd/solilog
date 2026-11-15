@@ -17,9 +17,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::time::Duration;
 
 use gpui::{
-    Action, App, ClickEvent, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    MouseDownEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task, Window,
-    anchored, deferred, div, prelude::*, px, rgb, svg,
+    Action, App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding,
+    MouseButton, MouseDownEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task,
+    Window, anchored, deferred, div, prelude::*, px, rgb, svg,
 };
 use solilog_core::{
     Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement, Project,
@@ -858,6 +858,12 @@ impl Workspace {
             };
             entries.push(("Edit", Box::new(edit)));
         }
+        let copy = if issues.len() == 1 {
+            "Copy ID"
+        } else {
+            "Copy IDs"
+        };
+        entries.push((copy, Box::new(issue::CopyId)));
         entries.push(("Set Status…", Box::new(SetStatus::default())));
         entries.push(("Add Label…", Box::new(AddLabel::default())));
         if issues.iter().any(|i| !i.labels.is_empty()) {
@@ -896,6 +902,19 @@ impl Workspace {
             window,
             cx,
         );
+    }
+
+    fn on_copy_issue_id(&mut self, _: &issue::CopyId, _: &mut Window, cx: &mut Context<Self>) {
+        let issues = self.target_issues(cx);
+        if issues.is_empty() {
+            return;
+        }
+        let ids: Vec<String> = issues.iter().map(|i| i.id.to_string()).collect();
+        let ids = ids.join(", ");
+        cx.write_to_clipboard(ClipboardItem::new_string(ids.clone()));
+        self.error = None;
+        self.notice = Some(format!("Copied {ids}"));
+        cx.notify();
     }
 
     fn on_show_issue_menu(
@@ -1531,6 +1550,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_set_status))
             .on_action(cx.listener(Self::on_edit_issue))
             .on_action(cx.listener(Self::on_open_issue))
+            .on_action(cx.listener(Self::on_copy_issue_id))
             .on_action(cx.listener(Self::on_add_checklist_item))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))

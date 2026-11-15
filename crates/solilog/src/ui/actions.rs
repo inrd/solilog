@@ -288,6 +288,9 @@ pub mod issue {
             Archive,
             /// Bring the selected archived issue back from the archive.
             Unarchive,
+            /// Copy the ids of the selected issues (`SOL-12`). In a
+            /// description, an issue id links to that issue.
+            CopyId,
         ]
     );
 

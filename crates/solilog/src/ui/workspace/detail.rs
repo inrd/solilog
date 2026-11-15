@@ -9,6 +9,9 @@
 //! shortly after typing stops, when a field loses focus, and when the detail
 //! closes. Changes made elsewhere (e.g. from the CLI) show up in a field
 //! unless it has unsaved edits.
+//!
+//! Issue ids in the description (`SOL-12`) link to their issues, shown as
+//! their titles except while the cursor is on them.
 
 mod attachments;
 mod checklist;
@@ -20,7 +23,7 @@ use gpui::{
     Action, ClickEvent, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
     IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
 };
-use solilog_core::{Issue, IssueEdit, IssueId, normalize_description};
+use solilog_core::{Issue, IssueEdit, IssueId, issue_mentions, normalize_description};
 
 use super::{Workspace, chip};
 use crate::ui::actions::{
@@ -29,7 +32,7 @@ use crate::ui::actions::{
     issue_detail,
 };
 use crate::ui::status_icon::status_icon;
-use crate::ui::text_input::{Changed, Submit, TextInput};
+use crate::ui::text_input::{Changed, Link, Submit, TextInput};
 use crate::ui::theme;
 use checklist::Checklist;
 use preview::ImagePreview;
@@ -84,10 +87,17 @@ impl Workspace {
             input.reset_text(issue.title.clone(), cx);
             input
         });
+        let workspace = cx.weak_entity();
         let description = cx.new(|cx| {
             let mut input = TextInput::new("Add a description…", cx)
                 .multiline()
-                .autoscroll(scroll.clone());
+                .autoscroll(scroll.clone())
+                .links(move |text, cx| {
+                    workspace
+                        .upgrade()
+                        .map(|w| w.read(cx).issue_links(text))
+                        .unwrap_or_default()
+                });
             input.reset_text(issue.description.clone(), cx);
             input
         });
@@ -128,6 +138,27 @@ impl Workspace {
         self.error = None;
         self.sync_checklist(window, cx);
         cx.notify();
+    }
+
+    /// Links to the issues mentioned in `text` (archived ones too), shown as
+    /// their titles; mentions of issues that don't exist stay plain text.
+    fn issue_links(&self, text: &str) -> Vec<Link> {
+        issue_mentions(text)
+            .into_iter()
+            .filter_map(|(range, id)| {
+                let issue = self
+                    .all_issues
+                    .iter()
+                    .chain(&self.archived_issues)
+                    .find(|i| i.id == id)?;
+                Some(Link {
+                    range,
+                    label: Some(issue.title.clone().into()),
+                    strikethrough: issue.status.is_closed(),
+                    action: Box::new(issue::Open { id: Some(id) }),
+                })
+            })
+            .collect()
     }
 
     fn schedule_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {

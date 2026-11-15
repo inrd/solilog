@@ -1,6 +1,7 @@
 //! Domain types.
 
 use std::fmt;
+use std::ops::Range;
 use std::str::FromStr;
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -184,6 +185,40 @@ pub(crate) fn normalize_title(title: &str) -> anyhow::Result<&str> {
     Ok(title)
 }
 
+/// Mentions of issues in a text (`SOL-12`, any case), with their byte
+/// ranges, in order. A mention is a whole word: `XSOL-1` and `SOL-1a` are
+/// not mentions. Whether the issues exist is up to the caller.
+pub fn issue_mentions(text: &str) -> Vec<(Range<usize>, IssueId)> {
+    let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+    let prefix = ISSUE_PREFIX.len() + 1;
+    let mut mentions = Vec::new();
+    for (start, _) in text.match_indices('-') {
+        let Some(start) = start.checked_sub(ISSUE_PREFIX.len()) else {
+            continue;
+        };
+        let Some(head) = text.get(start..start + prefix) else {
+            continue;
+        };
+        if !head[..ISSUE_PREFIX.len()].eq_ignore_ascii_case(ISSUE_PREFIX)
+            || text[..start].chars().next_back().is_some_and(is_word_char)
+        {
+            continue;
+        }
+        let rest = &text[start + prefix..];
+        let digits = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        let end = start + prefix + digits;
+        if digits == 0 || text[end..].chars().next().is_some_and(is_word_char) {
+            continue;
+        }
+        if let Ok(id) = text[start..end].parse() {
+            mentions.push((start..end, id));
+        }
+    }
+    mentions
+}
+
 /// Cleans up a description without changing its meaning as text or as
 /// Markdown: line endings become `\n`, trailing whitespace on each line and
 /// blank lines at both ends are dropped. Indentation is kept.
@@ -338,6 +373,18 @@ mod tests {
         assert!("0".parse::<IssueId>().is_err());
         assert!("FOO-1".parse::<IssueId>().is_err());
         assert_eq!(IssueId(7).to_string(), "SOL-7");
+    }
+
+    #[test]
+    fn mentions() {
+        let text = "See SOL-12, (sol-3) and SOL-4.\nNot XSOL-5, SOL-6a, SOL-, SOL-0 or é-SOL-7_";
+        let found: Vec<_> = issue_mentions(text)
+            .into_iter()
+            .map(|(range, id)| (&text[range], id.0))
+            .collect();
+        assert_eq!(found, [("SOL-12", 12), ("sol-3", 3), ("SOL-4", 4)]);
+        assert_eq!(issue_mentions("é-SOL-8"), [(3..8, IssueId(8))]);
+        assert!(issue_mentions("").is_empty());
     }
 
     #[test]
