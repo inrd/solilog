@@ -18,27 +18,29 @@ make uninstall    # removes them; your database is kept
 
 On Linux, building needs a C compiler and the development packages of GPUI's dependencies (as for [Zed](https://zed.dev/docs/development/linux)): on Debian/Ubuntu, `sudo apt install build-essential pkg-config libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev`; a build error names any other missing package. Running it needs Vulkan (`libvulkan1` and a driver; Mesa provides one for most GPUs).
 
-## Run from source
+## Command line
+
+`solilog` with no arguments opens the app; with a command, it works on the same data from the terminal. `solilog --help` lists the commands.
 
 ```sh
-cargo run                       # desktop app
-cargo run -- --help             # CLI
-cargo run -- issue create "Fix the thing"
-cargo run -- issue ls --open --json
-cargo run -- issue set-status SOL-1 done
-pbpaste | cargo run -- issue edit SOL-1 -d -   # description from stdin
-cargo run -- checklist add SOL-1 "Write tests" "Update docs"
-cargo run -- checklist check 1            # item ids are shown by `issue show`
-cargo run -- attachment add SOL-1 crash.log  # copied next to the database
-cargo run -- issue create "Crash on load" -l acme/reverb -l bug
-cargo run -- issue ls -l acme             # also matches sublabels like acme/reverb
-cargo run -- label ls
-cargo run -- project create "Reverb v1.1" -l acme/reverb
-cargo run -- issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
-cargo run -- issue ls -l acme --no-project                 # work outside any project
-cargo run -- view save "Acme bugs" --open -l acme -l bug   # saved filter
-cargo run -- issue ls --view "acme bugs"
+solilog issue create "Fix the thing"
+solilog issue ls --open --json
+solilog issue set-status SOL-1 done
+pbpaste | solilog issue edit SOL-1 -d -    # description from stdin
+solilog checklist add SOL-1 "Write tests" "Update docs"
+solilog checklist check 1                  # item ids are shown by `issue show`
+solilog attachment add SOL-1 crash.log     # copied next to the database
+solilog issue create "Crash on load" -l acme/reverb -l bug
+solilog issue ls -l acme                   # also matches sublabels like acme/reverb
+solilog label ls
+solilog project create "Reverb v1.1" -l acme/reverb
+solilog issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
+solilog issue ls -l acme --no-project                  # work outside any project
+solilog view save "Acme bugs" --open -l acme -l bug    # saved filter
+solilog issue ls --view "acme bugs"
 ```
+
+The database is `~/Library/Application Support/Solilog/solilog.db` on macOS, `~/.local/share/Solilog/solilog.db` on Linux (`solilog db-path` prints it). Set `SOLILOG_DB` to use another file.
 
 ## Backups
 
@@ -130,3 +132,13 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 ### Your own bindings
 
 Every command can be bound. Run "Workspace: Open Keymap" from the palette to edit `~/.config/solilog/keymap.json` (changes apply when you save). `solilog keymap defaults` prints the default bindings and `solilog keymap actions` lists every command.
+
+## Development
+
+```sh
+make run                                  # the app, debug build
+make demo                                 # the app on a fresh demo database
+SOLILOG_DB=/tmp/scratch.db cargo run -- issue ls   # the CLI on a scratch database
+```
+
+`make` lists the other targets.
