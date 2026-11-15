@@ -3,7 +3,8 @@
 #
 # Needs a clean working tree and release notes under `## [Unreleased]` in
 # CHANGELOG.md. Moves those notes to a `## [0.2.0] - <date>` section, sets the
-# workspace version in Cargo.toml (and Cargo.lock), then commits
+# workspace version in Cargo.toml (and Cargo.lock), adds the release's
+# upgrade fixture (scripts/upgrade-fixture.sh), then commits
 # "Release v0.2.0" and tags it v0.2.0. The tests and lints run first. Nothing
 # is pushed.
 set -eu
@@ -52,7 +53,11 @@ awk -v v="$new" '
 # Records the new version of the workspace crates in Cargo.lock.
 cargo update --workspace --quiet
 
-git add CHANGELOG.md Cargo.toml Cargo.lock
+# A database made by this release, which later ones must keep opening.
+fixture="crates/solilog-core/tests/fixtures/v$new.db"
+scripts/upgrade-fixture.sh "$new"
+
+git add CHANGELOG.md Cargo.toml Cargo.lock "$fixture"
 git commit --quiet -m "Release $tag"
 git tag -a "$tag" -m "Solilog $new"
 

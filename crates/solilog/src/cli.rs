@@ -106,6 +106,10 @@ pub enum Command {
     /// of the last day is kept, then one per day for two weeks, one per week
     /// for three months and one per month for a year. Only this database's
     /// backups are thinned out or moved; the directory can be shared.
+    ///
+    /// A new version of Solilog that upgrades the database backs it up
+    /// first (`before_upgrade` in the JSON, with the schema from before);
+    /// those backups are kept at least 90 days.
     #[command(subcommand)]
     Backup(BackupCommand),
     /// Teach coding agents (Claude Code, Codex, Cursor, OpenCode, pi) to use
@@ -1156,7 +1160,7 @@ fn backup_line(backup: &Backup) -> String {
         "{}  {}  {:<14}  {} issues, {} attachments  {}{other}",
         backup.name,
         format_utc(backup.created_at),
-        backup.reason.label(),
+        backup.reason_label(),
         backup.issue_count,
         backup.attachment_count,
         format_size(backup.size),

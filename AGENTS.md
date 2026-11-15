@@ -11,6 +11,7 @@ every domain command is also scriptable from the CLI (primarily for AI agents).
 crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast to build/test.
   assets/skill/SKILL.md  the agent skill, compiled in (`solilog skill`)
   src/skill.rs         installing it into agents' skills folders (no DB: in core to test without gpui)
+  tests/upgrades.rs    every release's database (tests/fixtures/v*.db) opens and keeps its data
 crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   assets/keymap.json   default key bindings
   src/ui/actions.rs    every GUI action, grouped by namespace
@@ -25,7 +26,7 @@ packaging/macos/       Solilog.icns (from icon.svg via icon.sh), Info.plist
 packaging/linux/       .desktop file (named after the app id, `APP_ID` in ui/mod.rs)
 Makefile               common tasks, install (macOS bundle; Linux desktop entry)
 CHANGELOG.md           user-visible changes per release; see "Versions and releases"
-scripts/               demo database, README screenshot, release.sh
+scripts/               demo database, README screenshot, release.sh, upgrade-fixture.sh
 docs/screenshot.png    README image, generated: see "Screenshot"
 ```
 
@@ -50,7 +51,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 1. **Core**: add the operation as a `Db` method (plus types in `issue.rs` or a
    new module). Writes return the resulting object. Add unit tests (in-memory DB).
-   Schema changes: **append** to `MIGRATIONS`, never edit existing entries.
+   Schema changes: **append** to `MIGRATIONS`, never edit existing entries
+   (see "Migrations").
 2. **CLI**: add a subcommand in `cli.rs`. It must work with `--json` (serialize
    the core type) and print the result of writes. Doc comments become `--help`;
    write them for an agent who has never seen the code.
@@ -126,7 +128,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
   attachments, with a `manifest.json` (`backup.rs`). Made automatically
   (`Db::auto_backup`: after CLI writes, and every few minutes in the GUI)
   when the last one is an hour old and the data changed; each new backup
-  thins out the older ones (`to_prune`). The backup directory and the
+  thins out the older ones (`to_prune`). Opening a database with an older
+  schema backs it up first, whatever the last backup's age (reason
+  `before_upgrade`, kept at least 90 days). The backup directory and the
   database id are stored in the database (`settings` table; a restore keeps
   the current ones). The id is in backup file names: a shared directory
   (a synced folder) can hold other databases' backups, which are listed and
@@ -185,7 +189,35 @@ One concept, one name, consistent across surfaces:
   for it. Cut one with `make cut-release V=0.2.0` (`scripts/release.sh`):
   it needs a clean tree and notes under `## [Unreleased]`, runs `make check`,
   turns those notes into the version's section, bumps `Cargo.toml` and
-  `Cargo.lock`, commits and tags. It doesn't push.
+  `Cargo.lock`, adds the release's upgrade fixture, commits and tags. It
+  doesn't push.
+- Each release adds `crates/solilog-core/tests/fixtures/v<version>.db`, a
+  database made by that release (`scripts/upgrade-fixture.sh`); the
+  `upgrades` test opens every one with the current code. Never edit or
+  remove a fixture. When a feature adds data worth keeping, add it to the
+  script and check it in the test for the fixtures that have it.
+
+## Migrations
+
+Releases run migrations on real databases, so a migration must never lose
+data. `Db::migrate` backs the database up first, then runs every pending
+migration in one transaction (a failure applies none and leaves
+`user_version` as it was) with foreign keys **off**, and checks them
+(`PRAGMA foreign_key_check`) before committing.
+
+- Foreign keys are off because changing a column means rebuilding the table
+  (create `x_new` with the full definition, copy, drop `x`, rename): with
+  them on, dropping `x` cascade-deletes the rows that point to it
+  (`issue_labels`, `checklist_items`…). `PRAGMA foreign_keys` is a no-op
+  inside a transaction, so never set it in a migration; `migrate_with`
+  does it around the transaction.
+- So, in a migration, deleting rows doesn't cascade: delete the dependent
+  rows too, or the check fails.
+- A rebuilt table must keep its `PRIMARY KEY` and constraints
+  (`CREATE TABLE … AS SELECT` drops them; if other tables point to it,
+  the check fails).
+- The pre-upgrade backup reads the old schema (`Db::snapshot`): keep it
+  working with every schema since migration 15.
 
 ## Data & state
 

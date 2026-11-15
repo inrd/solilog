@@ -34,7 +34,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::Db;
-use crate::db::SCHEMA_VERSION;
+use crate::db::{MIGRATIONS, SCHEMA_VERSION};
 use crate::issue::IssueId;
 
 /// Minimum time between automatic backups, in seconds.
@@ -68,6 +68,10 @@ pub enum BackupReason {
     Manual,
     /// Made by [`Db::restore_backup`] before restoring.
     BeforeRestore,
+    /// Made before a new version of Solilog upgraded the database's schema
+    /// (the backup has the schema from before; its `app_version` is the
+    /// version that upgraded it). Kept longer than others (see [`to_prune`]).
+    BeforeUpgrade,
 }
 
 impl BackupReason {
@@ -76,6 +80,7 @@ impl BackupReason {
             BackupReason::Auto => "automatic",
             BackupReason::Manual => "manual",
             BackupReason::BeforeRestore => "before restore",
+            BackupReason::BeforeUpgrade => "before upgrade",
         }
     }
 }
@@ -116,6 +121,16 @@ pub struct Backup {
     pub app_version: String,
     pub issue_count: u64,
     pub attachment_count: u64,
+}
+
+impl Backup {
+    /// Why it was made, for display: `manual`, `before upgrade to 0.3.0`.
+    pub fn reason_label(&self) -> String {
+        match self.reason {
+            BackupReason::BeforeUpgrade => format!("before upgrade to {}", self.app_version),
+            reason => reason.label().to_owned(),
+        }
+    }
 }
 
 /// Where backups go.
@@ -313,6 +328,23 @@ impl Db {
         self.write_backup(reason, &snapshot)
     }
 
+    /// Backs up a database whose schema is about to be upgraded, however
+    /// recent the last backup. Called by the migrations, so it must work
+    /// with any schema since `FIRST_BACKUP_SCHEMA`. If the backup directory
+    /// can't be written to, the default one is tried, so that a missing
+    /// synced folder doesn't keep Solilog from opening the database.
+    pub(crate) fn backup_before_upgrade(&self) -> Result<Backup> {
+        let reason = BackupReason::BeforeUpgrade;
+        let snapshot = self.snapshot()?;
+        let dir = self.backup_dir()?;
+        match self.write_backup_in(&dir.path, reason, &snapshot) {
+            Err(_) if !dir.is_default => {
+                self.write_backup_in(&self.default_backup_dir()?, reason, &snapshot)
+            }
+            result => result,
+        }
+    }
+
     /// Backs up if the last backup of this database is an hour old (see
     /// [`AUTO_BACKUP_INTERVAL`]), or there is none, and the data changed
     /// since. Returns the new backup, if any.
@@ -375,7 +407,8 @@ impl Db {
             .restore(MAIN_DB, &db_file, None::<fn(Progress)>)
             .with_context(|| format!("restoring the database from {}", backup.name))?;
         self.conn.pragma_update(None, "journal_mode", "WAL")?;
-        self.migrate()?;
+        // No backup before upgrading it: the backup file is that.
+        self.migrate_with(MIGRATIONS, false)?;
         self.set_setting(DATABASE_ID, Some(&id))?;
         self.set_setting(BACKUP_DIR, backup_dir.as_deref())?;
 
@@ -422,6 +455,9 @@ impl Db {
             .context("copying the database")?;
         let fingerprint = format!("{:016x}", fnv1a(&fs::read(&file.0)?));
         let conn = Connection::open_with_flags(&file.0, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        // `VACUUM INTO` keeps it. Not `SCHEMA_VERSION`: before an upgrade,
+        // the database is older.
+        let schema_version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         let issue_count: i64 = conn.query_row("SELECT count(*) FROM issues", [], |r| r.get(0))?;
         let attachments = conn
             .prepare("SELECT issue_id, name FROM attachments ORDER BY issue_id, id")?
@@ -430,14 +466,23 @@ impl Db {
         Ok(Snapshot {
             file,
             fingerprint,
+            schema_version,
             issue_count: issue_count as u64,
             attachments,
         })
     }
 
     fn write_backup(&self, reason: BackupReason, snapshot: &Snapshot) -> Result<Backup> {
-        let dir = self.backup_dir()?.path;
-        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        self.write_backup_in(&self.backup_dir()?.path, reason, snapshot)
+    }
+
+    fn write_backup_in(
+        &self,
+        dir: &Path,
+        reason: BackupReason,
+        snapshot: &Snapshot,
+    ) -> Result<Backup> {
+        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         let id = self.database_id()?;
         // Names have the time to the second: a second backup within the
         // same second waits for the next.
@@ -454,7 +499,7 @@ impl Db {
         let mut manifest = Manifest {
             format: FORMAT,
             app_version: env!("CARGO_PKG_VERSION").into(),
-            schema_version: SCHEMA_VERSION,
+            schema_version: snapshot.schema_version,
             database_id: id.clone(),
             created_at,
             reason,
@@ -514,7 +559,7 @@ impl Db {
         fs::rename(&partial.0, &path).with_context(|| format!("creating {}", path.display()))?;
 
         // Best effort: the backup is made; thinning out runs again next time.
-        let _ = prune(&dir, &id);
+        let _ = prune(dir, &id);
         let size = fs::metadata(&path)?.len();
         Ok(backup_from(name, path, size, manifest, &id))
     }
@@ -524,6 +569,7 @@ impl Db {
 struct Snapshot {
     file: TempPath,
     fingerprint: String,
+    schema_version: i64,
     issue_count: u64,
     attachments: Vec<(IssueId, String)>,
 }
@@ -630,24 +676,39 @@ fn own_backup_files(dir: &Path, id: &str) -> Result<Vec<(i64, PathBuf)>> {
 
 /// Deletes the backups of database `id` in `dir` that [`to_prune`] picks.
 fn prune(dir: &Path, id: &str) -> Result<()> {
+    let now = now();
     let files = own_backup_files(dir, id)?;
-    let times: Vec<i64> = files.iter().map(|(t, _)| *t).collect();
-    for i in to_prune(&times, now()) {
+    let backups: Vec<(i64, bool)> = files
+        .iter()
+        .map(|(time, path)| {
+            // Only older ones can be pruned: no need to open the others.
+            let before_upgrade = now - time >= DAY
+                && read_manifest(path).is_ok_and(|m| m.reason == BackupReason::BeforeUpgrade);
+            (*time, before_upgrade)
+        })
+        .collect();
+    for i in to_prune(&backups, now) {
         remove_file_if_present(&files[i].1)?;
     }
     Ok(())
 }
 
-/// Which backups to delete, given their times (newest first): indices into
-/// `times`. Kept: every backup of the last day, then the newest of each day
-/// for two weeks, of each week for three months, and of each month for a
-/// year. The newest backup is always kept.
-fn to_prune(times: &[i64], now: i64) -> Vec<usize> {
+/// How long a backup made before an upgrade is kept whatever else there is:
+/// long enough for a migration bug to show.
+const BEFORE_UPGRADE_KEPT: i64 = 90 * DAY;
+
+/// Which backups to delete, given their times and whether they were made
+/// before an upgrade (newest first): indices into `backups`. Kept: every
+/// backup of the last day, then the newest of each day for two weeks, of
+/// each week for three months, and of each month for a year. The newest
+/// backup is always kept, and those made before an upgrade for
+/// [`BEFORE_UPGRADE_KEPT`] (without taking the place of another).
+fn to_prune(backups: &[(i64, bool)], now: i64) -> Vec<usize> {
     let mut buckets = HashSet::new();
     let mut prune = Vec::new();
-    for (i, &time) in times.iter().enumerate() {
+    for (i, &(time, before_upgrade)) in backups.iter().enumerate() {
         let age = now - time;
-        let bucket = if i == 0 || age < DAY {
+        let bucket = if i == 0 || age < DAY || (before_upgrade && age < BEFORE_UPGRADE_KEPT) {
             continue;
         } else if age < 14 * DAY {
             (0, time.div_euclid(DAY))
@@ -845,11 +906,11 @@ mod tests {
         let now = 1000 * DAY;
         let hour = 3600;
         // Hourly backups for 400 days.
-        let times: Vec<i64> = (0..400 * 24).map(|h| now - h * hour).collect();
+        let times: Vec<(i64, bool)> = (0..400 * 24).map(|h| (now - h * hour, false)).collect();
         let pruned: HashSet<usize> = to_prune(&times, now).into_iter().collect();
         let kept: Vec<i64> = (0..times.len())
             .filter(|i| !pruned.contains(i))
-            .map(|i| now - times[i])
+            .map(|i| now - times[i].0)
             .collect();
         let count = |from: i64, to: i64| kept.iter().filter(|a| (from..to).contains(*a)).count();
         assert_eq!(count(0, DAY), 24);
@@ -861,7 +922,10 @@ mod tests {
         assert!(kept.len() < 70);
 
         // The newest is kept however old.
-        assert_eq!(to_prune(&[now - 500 * DAY, now - 600 * DAY], now), [1]);
+        assert_eq!(
+            to_prune(&[(now - 500 * DAY, false), (now - 600 * DAY, false)], now),
+            [1]
+        );
     }
 
     #[test]
@@ -956,8 +1020,141 @@ mod tests {
 
     #[test]
     fn in_memory_databases_have_none() {
-        let db = Db::open_in_memory().unwrap();
+        let mut db = Db::open_in_memory().unwrap();
         assert!(db.create_backup(BackupReason::Manual).is_err());
         assert!(db.backup_dir().is_err());
+        // Nothing to back up before an upgrade: it goes ahead.
+        db.migrate_with(&with(&["CREATE TABLE extra (x)"]), true)
+            .unwrap();
+    }
+
+    /// The migrations, plus some that a newer version would add.
+    fn with(new: &[&'static str]) -> Vec<&'static str> {
+        MIGRATIONS.iter().chain(new).copied().collect()
+    }
+
+    fn before_upgrade(db: &Db) -> Vec<Backup> {
+        let backups = db.list_backups().unwrap();
+        backups
+            .into_iter()
+            .filter(|b| b.reason == BackupReason::BeforeUpgrade)
+            .collect()
+    }
+
+    fn has_table(db: &Db, name: &str) -> bool {
+        db.conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name = ?1",
+                [name],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0
+    }
+
+    #[test]
+    fn upgrades_back_up_first() {
+        let mut t = TempDb::new("upgrade");
+        t.db.create_issue(&NewIssue::new("kept")).unwrap();
+        // However recent the last backup.
+        t.db.create_backup(BackupReason::Manual).unwrap();
+        let migrations = with(&["CREATE TABLE extra (x)"]);
+        t.db.migrate_with(&migrations, true).unwrap();
+        assert!(has_table(&t.db, "extra"));
+
+        let backups = before_upgrade(&t.db);
+        assert_eq!(backups.len(), 1);
+        let backup = &backups[0];
+        assert_eq!(backup.schema_version, SCHEMA_VERSION, "the schema before");
+        assert_eq!(backup.issue_count, 1);
+        assert_eq!(
+            backup.reason_label(),
+            format!("before upgrade to {}", env!("CARGO_PKG_VERSION"))
+        );
+        // Up to date: no other.
+        t.db.migrate_with(&migrations, true).unwrap();
+        assert_eq!(before_upgrade(&t.db).len(), 1);
+    }
+
+    #[test]
+    fn failing_migrations_change_nothing() {
+        let mut t = TempDb::new("failing");
+        t.db.create_issue(&NewIssue::new("kept")).unwrap();
+        let migrations = with(&[
+            "CREATE TABLE fine (x)",
+            "INSERT INTO issues (title) VALUES ('ghost'); SELECT nope FROM nowhere",
+        ]);
+        let err = t.db.migrate_with(&migrations, true).unwrap_err();
+        assert!(format!("{err:#}").contains("migration 18"), "{err:#}");
+        assert_eq!(t.db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(!has_table(&t.db, "fine"));
+        assert_eq!(titles(&t.db), ["kept"]);
+        // The backup was made before.
+        assert_eq!(before_upgrade(&t.db).len(), 1);
+        // Still usable as it was.
+        t.db.create_issue(&NewIssue::new("later")).unwrap();
+        t.db.migrate().unwrap();
+    }
+
+    #[test]
+    fn upgrade_backup_falls_back_to_the_default_directory() {
+        let mut t = TempDb::new("fallback");
+        // A file where the backup directory should be.
+        let blocked = t.dir.join("blocked");
+        fs::write(&blocked, "").unwrap();
+        t.db.set_setting(BACKUP_DIR, Some(blocked.to_str().unwrap()))
+            .unwrap();
+        assert!(t.db.create_backup(BackupReason::Manual).is_err());
+        t.db.migrate_with(&with(&["CREATE TABLE extra (x)"]), true)
+            .unwrap();
+        let default = t.db.default_backup_dir().unwrap();
+        assert_eq!(
+            own_backup_files(&default, &t.db.database_id().unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn databases_without_settings_are_not_backed_up() {
+        // As made before migration 15 (no release made one).
+        let t = TempDb::new("old-schema");
+        let path = t.dir.join("old.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&MIGRATIONS[..14].join("\n")).unwrap();
+        conn.execute("INSERT INTO issues (title) VALUES ('old')", [])
+            .unwrap();
+        conn.pragma_update(None, "user_version", 14).unwrap();
+        drop(conn);
+        let db = Db::open(&path).unwrap();
+        assert_eq!(titles(&db), ["old"]);
+        assert!(db.list_backups().unwrap().is_empty());
+    }
+
+    #[test]
+    fn upgrade_backups_are_kept_longer() {
+        let now = 1000 * DAY;
+        let hour = 3600;
+        // Each with an automatic backup of the same day or month.
+        let recent = [
+            (now, false),
+            (now - 2 * DAY, false),
+            (now - 2 * DAY - hour, true),
+        ];
+        assert!(to_prune(&recent, now).is_empty());
+        let old = [
+            (now, false),
+            (now - 100 * DAY, false),
+            (now - 100 * DAY - hour, true),
+        ];
+        assert_eq!(to_prune(&old, now), [2]);
+        // It doesn't take the place of the automatic one.
+        let first = [
+            (now, false),
+            (now - 2 * DAY, true),
+            (now - 2 * DAY - hour, false),
+        ];
+        assert!(to_prune(&first, now).is_empty());
     }
 }

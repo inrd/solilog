@@ -6,6 +6,12 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- Before a new version upgrades the database, it backs it up ("before
+  upgrade to …" in the backup list), and that backup is kept at least 90
+  days.
+
 ## [0.1.0] - 2026-11-15
 
 ### Added

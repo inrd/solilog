@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, params};
+use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, TransactionBehavior, params};
 
 use crate::attachment::attachments_dir_for;
 use crate::checklist::normalize_item_text;
@@ -27,7 +27,7 @@ use crate::order::{Ordered, Placement};
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
 /// Never edit an existing entry; append a new one.
-const MIGRATIONS: &[&str] = &[
+pub(crate) const MIGRATIONS: &[&str] = &[
     // 1: issues
     "CREATE TABLE issues (
         id         INTEGER PRIMARY KEY,
@@ -143,6 +143,18 @@ const MIGRATIONS: &[&str] = &[
 /// The schema version of a database with every migration applied.
 pub(crate) const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
+/// The first schema version that can be backed up: it has the `settings`
+/// table (migration 15), which holds the database id and backup directory.
+const FIRST_BACKUP_SCHEMA: i64 = 15;
+
+fn ensure_supported(version: i64, latest: i64) -> Result<()> {
+    anyhow::ensure!(
+        version <= latest,
+        "database schema version {version} is newer than this build supports ({latest}); update solilog"
+    );
+    Ok(())
+}
+
 /// Label names per issue.
 const ISSUE_LABELS_SQL: &str =
     "SELECT il.issue_id, l.name FROM issue_labels il JOIN labels l ON l.id = il.label_id
@@ -194,27 +206,70 @@ impl Db {
         Ok(db)
     }
 
+    /// Brings the schema up to date. A database with data in it is backed
+    /// up first (see [`Db::backup_before_upgrade`]).
     pub(crate) fn migrate(&mut self) -> Result<()> {
-        let version: i64 = self
-            .conn
-            .pragma_query_value(None, "user_version", |row| row.get(0))?;
-        anyhow::ensure!(
-            version as usize <= MIGRATIONS.len(),
-            "database schema version {version} is newer than this build supports ({}); update solilog",
-            MIGRATIONS.len()
-        );
-        if version == SCHEMA_VERSION {
+        self.migrate_with(MIGRATIONS, true)
+    }
+
+    /// Runs the pending `migrations`, all in one transaction: if one fails,
+    /// none is applied and `user_version` stays as it was.
+    pub(crate) fn migrate_with(&mut self, migrations: &[&str], back_up: bool) -> Result<()> {
+        let latest = migrations.len() as i64;
+        let version = self.schema_version()?;
+        ensure_supported(version, latest)?;
+        if version == latest {
             // Nothing to write: other connections see no change.
             return Ok(());
         }
-        let tx = self.conn.transaction()?;
-        for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+        // Version 0 is a new, empty database; before migration 15 there is
+        // nowhere to keep backup settings (no release had such a database).
+        if back_up && version >= FIRST_BACKUP_SCHEMA && self.path().is_some() {
+            self.backup_before_upgrade()
+                .context("backing up before upgrading the database (nothing was changed)")?;
+        }
+        // Foreign keys off, so that rebuilding a table (SQLite's way to
+        // change a column: create, copy, drop, rename) doesn't cascade-delete
+        // the rows that point to it. The pragma has no effect inside a
+        // transaction, hence here; the references are checked before commit.
+        self.conn.pragma_update(None, "foreign_keys", "OFF")?;
+        let result = self.run_migrations(migrations, latest);
+        self.conn.pragma_update(None, "foreign_keys", "ON")?;
+        result
+    }
+
+    fn run_migrations(&mut self, migrations: &[&str], latest: i64) -> Result<()> {
+        // Immediate: another process (the GUI and the CLI, both upgraded)
+        // can't migrate at the same time; the version is read again under
+        // the lock, in case it just did.
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        ensure_supported(version, latest)?;
+        for (i, sql) in migrations.iter().enumerate().skip(version as usize) {
             tx.execute_batch(sql)
                 .with_context(|| format!("running migration {}", i + 1))?;
         }
-        tx.pragma_update(None, "user_version", MIGRATIONS.len() as i64)?;
+        let broken: Vec<String> = tx
+            .prepare("SELECT DISTINCT \"table\" || ' → ' || parent FROM pragma_foreign_key_check")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        anyhow::ensure!(
+            broken.is_empty(),
+            "the migrations left rows pointing nowhere ({}); nothing was changed",
+            broken.join(", ")
+        );
+        tx.pragma_update(None, "user_version", latest)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// `PRAGMA user_version`: how many migrations ran.
+    pub(crate) fn schema_version(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))?)
     }
 
     /// The database file, or `None` for an in-memory database.
@@ -771,6 +826,57 @@ mod tests {
         db.create_issue(&NewIssue::new("kept")).unwrap();
         db.migrate().unwrap();
         assert_eq!(db.list_issues(&IssueFilter::default()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migrations_can_rebuild_tables() {
+        let mut db = Db::open_in_memory().unwrap();
+        let issue = db
+            .create_issue(&NewIssue::new("kept").labels(["x"]).checklist(["step"]))
+            .unwrap();
+        // Changes a column the SQLite way: rebuilding `issues`, which other
+        // tables point to with ON DELETE CASCADE.
+        let rebuild = "CREATE TABLE issues_new (
+                id          INTEGER PRIMARY KEY,
+                title       TEXT    NOT NULL,
+                created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+                status      TEXT    NOT NULL DEFAULT 'todo',
+                archived    INTEGER NOT NULL DEFAULT 0,
+                description TEXT    NOT NULL DEFAULT '',
+                position    INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO issues_new SELECT * FROM issues;
+            DROP TABLE issues;
+            ALTER TABLE issues_new RENAME TO issues;";
+        let migrations: Vec<&str> = MIGRATIONS.iter().copied().chain([rebuild]).collect();
+        db.migrate_with(&migrations, true).unwrap();
+        assert_eq!(db.get_issue(issue.id).unwrap(), issue);
+        // Back on afterwards.
+        let fk: bool = db
+            .conn
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap();
+        assert!(fk);
+    }
+
+    #[test]
+    fn migrations_cannot_leave_broken_references() {
+        let mut db = Db::open_in_memory().unwrap();
+        let issue = db
+            .create_issue(&NewIssue::new("kept").labels(["x"]))
+            .unwrap();
+        let migrations: Vec<&str> = MIGRATIONS
+            .iter()
+            .copied()
+            .chain(["DELETE FROM labels"])
+            .collect();
+        let err = db.migrate_with(&migrations, true).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("issue_labels → labels"),
+            "{err:#}"
+        );
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(db.get_issue(issue.id).unwrap().labels, ["x"]);
     }
 
     #[test]

@@ -230,7 +230,7 @@ fn backup_summary(backup: &Backup) -> String {
         parts.push("another database".to_owned());
     }
     if backup.reason != BackupReason::Auto {
-        parts.push(backup.reason.label().to_owned());
+        parts.push(backup.reason_label());
     }
     let plural = if backup.issue_count == 1 { "" } else { "s" };
     parts.push(format!("{} issue{plural}", backup.issue_count));
