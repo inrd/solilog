@@ -85,7 +85,7 @@ impl Workspace {
         self.close_detail(cx);
         let scroll = ScrollHandle::new();
         let title = cx.new(|cx| {
-            let mut input = TextInput::new("Title", cx);
+            let mut input = TextInput::new("Title", cx).wrap();
             input.reset_text(issue.title.clone(), cx);
             input
         });
@@ -450,11 +450,14 @@ impl Workspace {
             .px_6()
             .py_5()
             .child(
-                div().flex().items_center().gap_2().child(status).child(
+                // The status stays by the title's first line.
+                div().flex().items_start().gap_2().child(status).child(
+                    // A column, so the wrapped title is measured at its width.
                     div()
+                        .flex()
+                        .flex_col()
                         .flex_1()
                         .min_w_0()
-                        .overflow_hidden()
                         .text_size(px(20.))
                         .line_height(px(28.))
                         .font_weight(FontWeight::SEMIBOLD)

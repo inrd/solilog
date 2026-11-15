@@ -2,7 +2,9 @@
 //!
 //! GPUI ships no input widget; this is adapted from gpui's `examples/input.rs`.
 //! A single-line input emits [`Submit`] when Enter is pressed; a multi-line
-//! one inserts a line break and wraps its text to its width. Key bindings
+//! one inserts a line break and wraps its text to its width. A single-line
+//! input scrolls sideways to keep the cursor in view, or wraps its text
+//! like a multi-line one ([`TextInput::wrap`]). Key bindings
 //! live in the keymap (`assets/keymap.json`, context `TextInput`; multi-line
 //! inputs also have `multiline` in their context, for bindings like `up`).
 //!
@@ -17,7 +19,7 @@ use std::rc::Rc;
 use gpui::{
     Action, App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    GlobalElementId, Hitbox, HitboxBehavior, KeyContext, LayoutId, ModifiersChangedEvent,
+    ContentMask, GlobalElementId, Hitbox, HitboxBehavior, KeyContext, LayoutId, ModifiersChangedEvent,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     ScrollHandle, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, UTF16Selection,
     UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px, relative, rgb,
@@ -30,6 +32,7 @@ use crate::ui::theme;
 const CONTEXT: &str = "TextInput";
 /// Added to [`CONTEXT`] for multi-line inputs.
 const MULTILINE: &str = "multiline";
+const CURSOR_WIDTH: Pixels = px(1.5);
 
 actions!(
     text_input,
@@ -105,6 +108,11 @@ pub struct TextInput {
     content: SharedString,
     placeholder: SharedString,
     multiline: bool,
+    /// Single-line, but wrapped to the input's width.
+    wrap: bool,
+    /// How far the text of a single-line input that doesn't wrap is
+    /// scrolled to the left, to keep the cursor in view.
+    scroll_x: Pixels,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -117,6 +125,8 @@ pub struct TextInput {
     /// The cursor moved since the last paint: scroll to it.
     cursor_moved: bool,
     last_layout: Option<TextLayout>,
+    /// Where the text was drawn: the input's bounds, moved by the
+    /// sideways scroll.
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
 }
@@ -131,6 +141,8 @@ impl TextInput {
             content: SharedString::default(),
             placeholder: placeholder.into(),
             multiline: false,
+            wrap: false,
+            scroll_x: px(0.),
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -149,6 +161,18 @@ impl TextInput {
     pub fn multiline(mut self) -> Self {
         self.multiline = true;
         self
+    }
+
+    /// Wraps the text of a single-line input to its width instead of
+    /// scrolling it sideways, so all of it shows. Enter still submits.
+    pub fn wrap(mut self) -> Self {
+        self.wrap = true;
+        self
+    }
+
+    /// Whether the text wraps to the input's width (else it is one row).
+    fn wraps(&self) -> bool {
+        self.multiline || self.wrap
     }
 
     /// Keeps the cursor visible by scrolling this container, which holds
@@ -929,6 +953,10 @@ struct TextElement {
 
 struct PrepaintState {
     layout: Option<TextLayout>,
+    /// The input's bounds, moved left by the sideways scroll: where the
+    /// text starts.
+    text_bounds: Bounds<Pixels>,
+    scroll_x: Pixels,
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
     /// Where the pointer shows that a link can be clicked.
@@ -1091,20 +1119,35 @@ fn underline(runs: Vec<TextRun>, range: Range<usize>) -> Vec<TextRun> {
     split
 }
 
+/// Font size and line height of the text, from the styles around the input.
+#[derive(Clone, Copy)]
+struct Metrics {
+    font_size: Pixels,
+    line_height: Pixels,
+}
+
+impl Metrics {
+    fn of(window: &Window) -> Self {
+        Self {
+            font_size: window.text_style().font_size.to_pixels(window.rem_size()),
+            line_height: window.line_height(),
+        }
+    }
+}
+
 fn shape(
     text: SharedString,
     runs: &[TextRun],
     wrap_width: Option<Pixels>,
+    metrics: Metrics,
     window: &Window,
 ) -> TextLayout {
-    let style = window.text_style();
-    let font_size = style.font_size.to_pixels(window.rem_size());
     let lines = window
         .text_system()
-        .shape_text(text, font_size, runs, wrap_width, None)
+        .shape_text(text, metrics.font_size, runs, wrap_width, None)
         .map(|lines| lines.into_vec())
         .unwrap_or_default();
-    TextLayout::new(lines, window.line_height())
+    TextLayout::new(lines, metrics.line_height)
 }
 
 impl Element for TextElement {
@@ -1129,19 +1172,22 @@ impl Element for TextElement {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
         let input = self.input.read(cx);
-        if !input.multiline {
+        if !input.wraps() {
             style.size.height = window.line_height().into();
             return (window.request_layout(style, [], cx), ());
         }
-        // Multi-line: as tall as the text, wrapped to the width given.
+        // Wrapping: as tall as the text, wrapped to the width given. The
+        // text is measured outside the styles around the input: take their
+        // metrics now.
         let Display { text, runs, .. } = display(input, window, cx);
+        let metrics = Metrics::of(window);
         let layout_id =
             window.request_measured_layout(style, move |known, available, window, _| {
                 let width = known.width.or(match available.width {
                     AvailableSpace::Definite(width) => Some(width),
                     _ => None,
                 });
-                let layout = shape(text.clone(), &runs, width, window);
+                let layout = shape(text.clone(), &runs, width, metrics, window);
                 size(width.unwrap_or_default(), layout.height())
             });
         (layout_id, ())
@@ -1159,14 +1205,42 @@ impl Element for TextElement {
         let input = self.input.read(cx);
         let selected_range = input.selected_range.clone();
         let cursor = input.cursor_offset();
+        let focused = input.focus_handle.is_focused(window);
         let display = display(input, window, cx);
-        let wrap_width = input.multiline.then_some(bounds.size.width);
-        let mut layout = shape(display.text, &display.runs, wrap_width, window);
+        let wrap_width = input.wraps().then_some(bounds.size.width);
+        let mut layout = shape(
+            display.text,
+            &display.runs,
+            wrap_width,
+            Metrics::of(window),
+            window,
+        );
         layout.map = display.map;
         layout.links = display.links;
         let line_height = layout.line_height;
         let cursor_color = rgb(theme::ACCENT);
         let selection_color = rgba(0x7c8cff40);
+        let cursor_pos = layout.position_for_index(cursor);
+
+        // A single row scrolls sideways to keep the cursor in view, and
+        // back to the start when not being edited.
+        let scroll_x = if input.wraps() || !focused {
+            px(0.)
+        } else {
+            // The input can be wider than what its container shows.
+            let right = bounds.right().min(window.content_mask().bounds.right());
+            let width = (right - bounds.left()).max(CURSOR_WIDTH);
+            let text_width = layout.lines.first().map_or(px(0.), |line| line.width());
+            let max = (text_width + CURSOR_WIDTH - width).max(px(0.));
+            let mut x = input.scroll_x;
+            if cursor_pos.x < x {
+                x = cursor_pos.x;
+            } else if cursor_pos.x + CURSOR_WIDTH > x + width {
+                x = cursor_pos.x + CURSOR_WIDTH - width;
+            }
+            x.clamp(px(0.), max)
+        };
+        let text_bounds = Bounds::new(bounds.origin - point(scroll_x, px(0.)), bounds.size);
 
         let selection = if selected_range.is_empty() {
             Vec::new()
@@ -1176,21 +1250,25 @@ impl Element for TextElement {
             layout
                 .rects(range, bounds.size.width)
                 .into_iter()
-                .map(|rect| fill(rect + bounds.origin, selection_color))
+                .map(|rect| fill(rect + text_bounds.origin, selection_color))
                 .collect()
         };
         let link_hitboxes = layout
             .links
             .iter()
             .flat_map(|link| layout.rects(link.display.clone(), bounds.size.width))
-            .map(|rect| window.insert_hitbox(rect + bounds.origin, HitboxBehavior::Normal))
+            .filter_map(|rect| {
+                // Parts scrolled out of view can't be clicked.
+                let rect = (rect + text_bounds.origin).intersect(&bounds);
+                (!rect.is_empty())
+                    .then(|| window.insert_hitbox(rect, HitboxBehavior::Normal))
+            })
             .collect();
-        let cursor_pos = layout.position_for_index(cursor);
         let cursor_quad = selected_range.is_empty().then(|| {
             fill(
                 Bounds::new(
-                    point(bounds.left() + cursor_pos.x, bounds.top() + cursor_pos.y),
-                    size(px(1.5), line_height),
+                    text_bounds.origin + cursor_pos,
+                    size(CURSOR_WIDTH, line_height),
                 ),
                 cursor_color,
             )
@@ -1198,7 +1276,7 @@ impl Element for TextElement {
 
         // Keep the cursor in view.
         if input.cursor_moved
-            && input.focus_handle.is_focused(window)
+            && focused
             && let Some(scroll) = &input.autoscroll
         {
             let view = scroll.bounds();
@@ -1221,6 +1299,8 @@ impl Element for TextElement {
 
         PrepaintState {
             layout: Some(layout),
+            text_bounds,
+            scroll_x,
             cursor: cursor_quad,
             selection,
             link_hitboxes,
@@ -1238,35 +1318,40 @@ impl Element for TextElement {
         cx: &mut App,
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
+        let text_bounds = prepaint.text_bounds;
         window.handle_input(
             &focus_handle,
-            ElementInputHandler::new(bounds, self.input.clone()),
+            ElementInputHandler::new(text_bounds, self.input.clone()),
             cx,
         );
-        for selection in prepaint.selection.drain(..) {
-            window.paint_quad(selection)
-        }
         let Some(layout) = prepaint.layout.take() else {
             return;
         };
-        for (line, top) in layout.lines.iter().zip(&layout.tops) {
-            let origin = point(bounds.left(), bounds.top() + *top);
-            // Painting only fails if a glyph can't be rasterized; skip it then.
-            line.paint(
-                origin,
-                layout.line_height,
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            )
-            .ok();
-        }
-
         let focused = focus_handle.is_focused(window);
-        if focused && let Some(cursor) = prepaint.cursor.take() {
-            window.paint_quad(cursor);
-        }
+        // Text scrolled sideways is cut off at the input's edges.
+        let wraps = self.input.read(cx).wraps();
+        let mask = (!wraps).then_some(ContentMask { bounds });
+        window.with_content_mask(mask, |window| {
+            for selection in prepaint.selection.drain(..) {
+                window.paint_quad(selection)
+            }
+            for (line, top) in layout.lines.iter().zip(&layout.tops) {
+                let origin = text_bounds.origin + point(px(0.), *top);
+                // Painting only fails if a glyph can't be rasterized; skip it then.
+                line.paint(
+                    origin,
+                    layout.line_height,
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
+            }
+            if focused && let Some(cursor) = prepaint.cursor.take() {
+                window.paint_quad(cursor);
+            }
+        });
         // While editing, the pointer is for the text unless a click would
         // open the link.
         if !focused || window.modifiers().secondary() {
@@ -1277,7 +1362,8 @@ impl Element for TextElement {
 
         self.input.update(cx, |input, _| {
             input.last_layout = Some(layout);
-            input.last_bounds = Some(bounds);
+            input.last_bounds = Some(text_bounds);
+            input.scroll_x = prepaint.scroll_x;
             if focused {
                 input.cursor_moved = false;
             }
@@ -1295,7 +1381,8 @@ impl Render for TextInput {
         div()
             .flex()
             .w_full()
-            .when(self.multiline, |s| s.flex_col().flex_1())
+            .when(self.wraps(), |s| s.flex_col())
+            .when(self.multiline, |s| s.flex_1())
             .key_context(context)
             .track_focus(&self.focus_handle(cx))
             .cursor(CursorStyle::IBeam)
