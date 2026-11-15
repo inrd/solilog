@@ -7,6 +7,7 @@
 
 mod archive;
 mod backup;
+mod chip_row;
 mod detail;
 mod filter;
 mod manage;
@@ -38,6 +39,7 @@ use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
 use super::{SHOW_IN_FILE_MANAGER, theme};
 use archive::ArchiveItem;
+use chip_row::chip_row;
 use detail::IssueDetail;
 use scope::Scope;
 use sidebar::SidebarItem;
@@ -1272,26 +1274,19 @@ impl Workspace {
     }
 
     /// An issue's project and label chips, in a row that gives way to the
-    /// title: chips that don't fit are cut off.
+    /// title: chips that don't fit are counted in a last "+N" chip.
     pub(super) fn issue_chips(&self, issue: &Issue) -> impl IntoElement + use<> {
-        div()
-            .flex()
-            .flex_shrink()
-            .min_w_0()
-            .overflow_hidden()
-            .gap_3()
-            .children(
-                issue
-                    .projects
-                    .iter()
-                    .map(|project| chip(project.clone(), theme::ACCENT)),
-            )
-            .children(
-                issue
-                    .labels
-                    .iter()
-                    .map(|label| chip(label.clone(), self.label_chip_color(label))),
-            )
+        let projects = issue
+            .projects
+            .iter()
+            .map(|project| chip(project.clone(), theme::ACCENT).into_any_element());
+        let labels = issue
+            .labels
+            .iter()
+            .map(|label| chip(label.clone(), self.label_chip_color(label)).into_any_element());
+        chip_row(projects.chain(labels).collect(), |hidden| {
+            chip(format!("+{hidden}"), theme::TEXT_MUTED).into_any_element()
+        })
     }
 
     /// Chip color of an issue's label.
