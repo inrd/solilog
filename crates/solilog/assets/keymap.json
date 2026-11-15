@@ -78,6 +78,8 @@
       "alt-down": "issue_list::MoveDown",
       "alt-up": "issue_list::MoveUp",
       "m": "issue_list::ShowContextMenu",
+      "z": "status::ToggleCollapsed",
+      "shift-z": "status::ExpandAll",
       "shift-f10": "issue_list::ShowContextMenu"
     }
   },

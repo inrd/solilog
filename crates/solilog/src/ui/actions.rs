@@ -762,6 +762,36 @@ pub mod filter {
     }
 }
 
+/// The issue list's status sections.
+pub mod status {
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::Status;
+
+    /// Collapse or expand a status's section in the issue list: a collapsed
+    /// section only shows its header and issue count. Without a `status`,
+    /// asks which section, starting from the highlighted issue's. Clicking
+    /// a section header does this.
+    ///
+    /// Keymap example: `"z d": ["status::ToggleCollapsed", { "status": "done" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = status)]
+    #[serde(deny_unknown_fields)]
+    pub struct ToggleCollapsed {
+        #[serde(default)]
+        pub status: Option<Status>,
+    }
+
+    actions!(
+        status,
+        [
+            /// Expand every collapsed section of the issue list.
+            ExpandAll,
+        ]
+    );
+}
+
 pub mod issue_list {
     use gpui::actions;
 

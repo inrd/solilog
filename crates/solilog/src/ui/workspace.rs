@@ -30,14 +30,14 @@ use solilog_core::{
 use super::actions::{
     self, command_palette, humanize_action_name,
     issue::{self, AddLabel, AddToProject, Edit, RemoveFromProject, RemoveLabel, SetStatus},
-    issue_list, view,
+    issue_list, status, view,
     workspace::{OpenDatabaseDirectory, OpenKeymap, OpenUrl, ReloadKeymap},
 };
 use super::keymap;
 use super::picker::{Picker, PickerEvent, PickerItem};
 use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
-use super::{SHOW_IN_FILE_MANAGER, theme};
+use super::{SHOW_IN_FILE_MANAGER, assets, theme};
 use archive::ArchiveItem;
 use chip_row::chip_row;
 use detail::IssueDetail;
@@ -155,8 +155,14 @@ struct OpenModal {
 
 pub struct Workspace {
     db: Db,
-    /// Cache of the database; reloaded whenever it changes. Newest first.
+    /// Cache of the database; reloaded whenever it changes. The listed
+    /// issues, as shown: grouped by status, without collapsed sections.
     issues: Vec<Issue>,
+    /// The list's status sections, in list order, with their number of
+    /// issues; `issues` leaves out those of collapsed sections.
+    sections: Vec<(Status, usize)>,
+    /// Statuses whose issue list section is collapsed.
+    collapsed_statuses: Vec<Status>,
     /// Every issue but archived ones, for the sidebar's counts.
     all_issues: Vec<Issue>,
     /// Newest first.
@@ -214,6 +220,10 @@ impl Workspace {
             // On failure the text stays in the input so nothing is lost.
             if let Some(issue) = this.report(this.db.create_issue(&this.new_issue(title)), cx) {
                 input.update(cx, |input, cx| input.clear(cx));
+                // Show it, even if its section was collapsed.
+                if this.collapsed_statuses.contains(&issue.status) {
+                    this.report(this.db.set_status_collapsed(issue.status, false), cx);
+                }
                 this.selected = Some(issue.id);
                 this.reload(cx);
             }
@@ -248,6 +258,8 @@ impl Workspace {
         let mut this = Self {
             db,
             issues: Vec::new(),
+            sections: Vec::new(),
+            collapsed_statuses: Vec::new(),
             all_issues: Vec::new(),
             archived_issues: Vec::new(),
             views: Vec::new(),
@@ -318,11 +330,13 @@ impl Workspace {
                     self.db.list_views()?,
                     self.db.list_projects(true)?,
                     self.db.list_labels()?,
+                    self.db.collapsed_statuses()?,
                 ))
             });
-        if let Some((all_issues, archived_issues, views, projects, labels)) =
+        if let Some((all_issues, archived_issues, views, projects, labels, collapsed)) =
             self.report(sidebar_data, cx)
         {
+            self.collapsed_statuses = collapsed;
             self.all_issues = all_issues;
             self.archived_issues = archived_issues;
             self.views = views;
@@ -331,13 +345,19 @@ impl Workspace {
         }
         self.fix_archive_cursor(prev_archive_ix);
         self.refresh_detail(cx);
-        let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
+        let Some(mut issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
+            self.sections.clear();
             return;
         };
-        self.issues = issues;
         // Grouped by status, keeping the saved order within a group.
-        self.issues.sort_by_key(|i| i.status.list_rank());
+        issues.sort_by_key(|i| i.status.list_rank());
+        self.sections = issues
+            .chunk_by(|a, b| a.status == b.status)
+            .map(|group| (group[0].status, group.len()))
+            .collect();
+        issues.retain(|i| !self.collapsed_statuses.contains(&i.status));
+        self.issues = issues;
         let listed: HashSet<IssueId> = self.issues.iter().map(|i| i.id).collect();
         self.selection.retain(|id| listed.contains(id));
         self.selection_anchor = self.selection_anchor.filter(|id| listed.contains(id));
@@ -363,10 +383,16 @@ impl Workspace {
     }
 
     /// The issue list's child element showing the issue at `ix`: rows are
-    /// preceded by one header per status group, up to and including theirs.
+    /// preceded by one header per status section, up to and including
+    /// theirs (collapsed sections have a header too).
     fn list_child_index(&self, ix: usize) -> usize {
-        let headers = self.issues[..=ix.min(self.issues.len().saturating_sub(1))]
-            .chunk_by(|a, b| a.status == b.status)
+        let Some(issue) = self.issues.get(ix) else {
+            return ix;
+        };
+        let headers = self
+            .sections
+            .iter()
+            .take_while(|(s, _)| s.list_rank() <= issue.status.list_rank())
             .count();
         ix + headers
     }
@@ -1056,6 +1082,77 @@ impl Workspace {
         self.select_index(self.issues.len().saturating_sub(1), cx);
     }
 
+    // ---- status sections ----------------------------------------------------
+
+    fn on_toggle_status_collapsed(
+        &mut self,
+        action: &status::ToggleCollapsed,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(status) = action.status else {
+            return self.open_section_picker(window, cx);
+        };
+        let collapsed = !self.collapsed_statuses.contains(&status);
+        if self
+            .report(self.db.set_status_collapsed(status, collapsed), cx)
+            .is_some()
+        {
+            self.reload(cx);
+        }
+    }
+
+    /// Asks which section to collapse or expand, starting from the
+    /// highlighted issue's.
+    fn open_section_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sections.is_empty() {
+            self.report::<()>(Err(anyhow::anyhow!("No sections to collapse")), cx);
+            return;
+        }
+        let current = self.selected_index().map(|ix| self.issues[ix].status);
+        let highlighted = self
+            .sections
+            .iter()
+            .position(|(s, _)| Some(*s) == current)
+            .unwrap_or(0);
+        let entries = self
+            .sections
+            .iter()
+            .map(|&(s, _)| {
+                let verb = if self.collapsed_statuses.contains(&s) {
+                    "Expand"
+                } else {
+                    "Collapse"
+                };
+                let item =
+                    PickerItem::new(format!("{verb} {}", s.label())).icon(move || status_icon(s));
+                let action: Box<dyn Action> = Box::new(status::ToggleCollapsed { status: Some(s) });
+                (item, action)
+            })
+            .collect();
+        self.open_action_picker(
+            "Collapse or expand a section…",
+            entries,
+            highlighted,
+            window,
+            cx,
+        );
+    }
+
+    fn on_expand_all_statuses(
+        &mut self,
+        _: &status::ExpandAll,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .report(self.db.set_collapsed_statuses(&[]), cx)
+            .is_some()
+        {
+            self.reload(cx);
+        }
+    }
+
     // ---- multiple selection -------------------------------------------------
 
     fn toggle_selected(
@@ -1299,6 +1396,47 @@ impl Workspace {
         theme::label_color(color)
     }
 
+    /// Header of an issue list section: the status and how many issues it
+    /// has. Clicking it collapses or expands the section.
+    fn status_header(
+        &self,
+        status: Status,
+        count: usize,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        div()
+            .id(("status-section", status.list_rank()))
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_4()
+            .pt_3()
+            .pb_1()
+            .text_size(px(12.))
+            .text_color(rgb(theme::TEXT_MUTED))
+            .child(status_icon(status))
+            .child(div().text_color(rgb(theme::TEXT)).child(status.label()))
+            .child(count.to_string())
+            .child(
+                svg()
+                    .path(if collapsed {
+                        assets::CHEVRON_RIGHT
+                    } else {
+                        assets::CHEVRON_DOWN
+                    })
+                    .size(px(14.))
+                    .text_color(rgb(theme::TEXT_MUTED)),
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                window.focus(&this.list_focus);
+                let action = status::ToggleCollapsed {
+                    status: Some(status),
+                };
+                window.dispatch_action(action.boxed_clone(), cx);
+            }))
+    }
+
     /// Highlights the issue at `ix` to act on it with the mouse: within the
     /// selection, the selection stays (and is acted on); elsewhere, it is
     /// cleared so that only this issue is.
@@ -1452,22 +1590,6 @@ impl Render for DraggedIssue {
             .child(status_icon(self.status))
             .child(div().truncate().child(self.title.clone()))
     }
-}
-
-/// Header of an issue list section: the status and how many issues it has.
-fn status_header(status: Status, count: usize) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .px_4()
-        .pt_3()
-        .pb_1()
-        .text_size(px(12.))
-        .text_color(rgb(theme::TEXT_MUTED))
-        .child(status_icon(status))
-        .child(div().text_color(rgb(theme::TEXT)).child(status.label()))
-        .child(count.to_string())
 }
 
 /// A footer hint: the keystrokes running `action`, then what it does.
@@ -1738,13 +1860,21 @@ impl Workspace {
 
     /// New-issue input, view header and issue list.
     fn render_main(&self, list_focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        // One section per status, each a header then its issues; the list's
-        // children stay flat so `list_child_index` can find a row.
+        // One section per status, each a header then its issues (none when
+        // collapsed); the list's children stay flat so `list_child_index`
+        // can find a row.
         let mut rows = Vec::new();
         let mut ix = 0;
-        for group in self.issues.chunk_by(|a, b| a.status == b.status) {
-            rows.push(status_header(group[0].status, group.len()).into_any_element());
-            for issue in group {
+        for &(status, count) in &self.sections {
+            let collapsed = self.collapsed_statuses.contains(&status);
+            rows.push(
+                self.status_header(status, count, collapsed, cx)
+                    .into_any_element(),
+            );
+            if collapsed {
+                continue;
+            }
+            while let Some(issue) = self.issues.get(ix).filter(|i| i.status == status) {
                 rows.push(
                     self.render_issue(ix, issue, list_focused, cx)
                         .into_any_element(),
@@ -1752,7 +1882,7 @@ impl Workspace {
                 ix += 1;
             }
         }
-        let empty = self.issues.is_empty();
+        let empty = self.sections.is_empty();
         div()
             .flex_1()
             .min_w_0()
@@ -1788,6 +1918,8 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_move_issue))
                     .on_action(cx.listener(Self::on_move_issue_up))
                     .on_action(cx.listener(Self::on_move_issue_down))
+                    .on_action(cx.listener(Self::on_toggle_status_collapsed))
+                    .on_action(cx.listener(Self::on_expand_all_statuses))
                     .flex_1()
                     .flex()
                     .flex_col()

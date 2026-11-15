@@ -83,8 +83,12 @@ pub enum Command {
     /// `path`). Deleting an issue deletes its attachments.
     #[command(subcommand, visible_alias = "a")]
     Attachment(AttachmentCommand),
-    /// List the valid issue statuses.
-    Statuses,
+    /// List the valid issue statuses, or collapse a status's section in the
+    /// GUI issue list.
+    ///
+    /// JSON rows: `key`, `label`, `closed` (done and cancelled issues are
+    /// closed) and `collapsed` (the GUI hides that section's issues).
+    Statuses(StatusesArgs),
     /// Show keymap information.
     Keymap(KeymapArgs),
     /// Print the database path.
@@ -531,6 +535,23 @@ pub enum LabelCommand {
 }
 
 #[derive(Args)]
+pub struct StatusesArgs {
+    #[command(subcommand)]
+    command: Option<StatusesCommand>,
+}
+
+#[derive(Subcommand)]
+enum StatusesCommand {
+    /// Hide a status's issues in the GUI issue list, leaving its section
+    /// header (display only: listings and filters are unaffected). Prints
+    /// the statuses.
+    Collapse { status: Status },
+    /// Show a collapsed status's issues again in the GUI issue list. Prints
+    /// the statuses.
+    Expand { status: Status },
+}
+
+#[derive(Args)]
 pub struct KeymapArgs {
     #[command(subcommand)]
     command: KeymapCommand,
@@ -782,15 +803,39 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
                 LabelCommand::Delete { name } => out.labels(&db.delete_label(&name)?),
             }
         }
-        Command::Statuses => {
+        Command::Statuses(args) => {
+            let db = &*opened.insert(Db::open_default()?);
+            let collapsed = match args.command {
+                None => db.collapsed_statuses()?,
+                Some(StatusesCommand::Collapse { status }) => {
+                    db.set_status_collapsed(status, true)?
+                }
+                Some(StatusesCommand::Expand { status }) => {
+                    db.set_status_collapsed(status, false)?
+                }
+            };
             let rows: Vec<_> = Status::ALL
                 .iter()
-                .map(|s| json!({ "key": s.key(), "label": s.label(), "closed": s.is_closed() }))
+                .map(|s| {
+                    json!({
+                        "key": s.key(),
+                        "label": s.label(),
+                        "closed": s.is_closed(),
+                        "collapsed": collapsed.contains(s),
+                    })
+                })
                 .collect();
             out.print(&rows, || {
                 Status::ALL
                     .iter()
-                    .map(|s| format!("{:<12} {}", s.key(), s.label()))
+                    .map(|s| {
+                        let line = format!("{:<12} {}", s.key(), s.label());
+                        if collapsed.contains(s) {
+                            format!("{line:<25} (collapsed)")
+                        } else {
+                            line
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             })

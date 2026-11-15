@@ -71,3 +71,5 @@ issue in_progress 2 "Sync conflicts lose the newest edit" -l bug -p "Offline mod
     -d "Editing the same note on two devices while offline keeps the older version when they reconnect.
 
 Needed before SOL-7." # "Self-hosted sync server", the 7th issue created
+
+q statuses collapse backlog

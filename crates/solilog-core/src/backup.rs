@@ -152,7 +152,7 @@ pub fn format_utc(timestamp: i64) -> String {
 }
 
 impl Db {
-    fn setting(&self, key: &str) -> Result<Option<String>> {
+    pub(crate) fn setting(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .conn
             .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
@@ -162,7 +162,7 @@ impl Db {
     }
 
     /// Sets a setting, or removes it (back to its default) with `None`.
-    fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
+    pub(crate) fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
         match value {
             Some(value) => self.conn.execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2)

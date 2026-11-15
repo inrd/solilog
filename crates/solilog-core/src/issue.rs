@@ -4,12 +4,14 @@ use std::fmt;
 use std::ops::Range;
 use std::str::FromStr;
 
+use anyhow::Result;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::attachment::Attachment;
 use crate::checklist::{ChecklistItem, checklist_progress};
+use crate::db::Db;
 
 /// Prefix of human-facing issue ids (`SOL-12`).
 pub const ISSUE_PREFIX: &str = "SOL";
@@ -400,6 +402,48 @@ impl FromSql for Status {
     }
 }
 
+/// Setting holding the collapsed status sections, as comma-separated keys.
+const COLLAPSED_STATUSES: &str = "collapsed_statuses";
+
+impl Db {
+    /// The statuses whose section is collapsed (its issues hidden) in the
+    /// GUI issue list, in [`Status::LIST_ORDER`]. Display only: listings and
+    /// filters are unaffected.
+    pub fn collapsed_statuses(&self) -> Result<Vec<Status>> {
+        let setting = self.setting(COLLAPSED_STATUSES)?.unwrap_or_default();
+        // Unknown keys are ignored rather than failing the whole GUI.
+        let collapsed: Vec<Status> = setting.split(',').filter_map(|k| k.parse().ok()).collect();
+        Ok(Status::LIST_ORDER
+            .into_iter()
+            .filter(|s| collapsed.contains(s))
+            .collect())
+    }
+
+    /// Collapses or expands a status's section in the GUI issue list;
+    /// returns the collapsed statuses.
+    pub fn set_status_collapsed(&self, status: Status, collapsed: bool) -> Result<Vec<Status>> {
+        let mut statuses = self.collapsed_statuses()?;
+        statuses.retain(|&s| s != status);
+        if collapsed {
+            statuses.push(status);
+        }
+        self.set_collapsed_statuses(&statuses)
+    }
+
+    /// Sets which statuses' sections are collapsed in the GUI issue list;
+    /// returns them.
+    pub fn set_collapsed_statuses(&self, statuses: &[Status]) -> Result<Vec<Status>> {
+        let keys: Vec<_> = Status::LIST_ORDER
+            .into_iter()
+            .filter(|s| statuses.contains(s))
+            .map(Status::key)
+            .collect();
+        let value = keys.join(",");
+        self.set_setting(COLLAPSED_STATUSES, (!value.is_empty()).then_some(&*value))?;
+        self.collapsed_statuses()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,5 +528,24 @@ mod tests {
         }
         assert_eq!("in-progress".parse(), Ok(Status::InProgress));
         assert!("nope".parse::<Status>().is_err());
+    }
+
+    #[test]
+    fn collapsed_statuses() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.collapsed_statuses().unwrap().is_empty());
+        db.set_status_collapsed(Status::Cancelled, true).unwrap();
+        let collapsed = db.set_status_collapsed(Status::Done, true).unwrap();
+        // In list order, whatever the order they were collapsed in.
+        assert_eq!(collapsed, [Status::Done, Status::Cancelled]);
+        assert_eq!(
+            db.set_status_collapsed(Status::Done, true).unwrap(),
+            collapsed
+        );
+        assert_eq!(
+            db.set_status_collapsed(Status::Done, false).unwrap(),
+            [Status::Cancelled]
+        );
+        assert!(db.set_collapsed_statuses(&[]).unwrap().is_empty());
     }
 }

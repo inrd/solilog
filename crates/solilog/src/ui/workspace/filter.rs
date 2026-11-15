@@ -339,10 +339,13 @@ impl Workspace {
                 )
             })
             .child(
-                div()
-                    .flex_none()
-                    .text_color(rgb(theme::TEXT_MUTED))
-                    .child(self.issues.len().to_string()),
+                div().flex_none().text_color(rgb(theme::TEXT_MUTED)).child(
+                    self.sections
+                        .iter()
+                        .map(|(_, n)| n)
+                        .sum::<usize>()
+                        .to_string(),
+                ),
             )
     }
 }

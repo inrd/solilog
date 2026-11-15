@@ -82,6 +82,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
   Issues have a user-defined order (`Db::move_issue`, among issues with the
   same status); new issues, and issues whose status changes, go first. The
   GUI list groups issues by status (`Status::LIST_ORDER`), each in that order.
+  A status's section can be collapsed to its header (`Db::set_status_collapsed`,
+  saved in the `settings` table; display only).
 - **Checklist**: an issue's ordered list of one-line items (`ChecklistItem`:
   text, done), each with a global id (`ChecklistItemId`, shown as a plain
   number). It only tracks progress (`Issue::checklist_progress`, shown as

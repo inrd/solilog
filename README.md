@@ -98,6 +98,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `p` / `shift-p` | Add to / remove from a project |
 | `y` | Copy the issue id (`SOL-12`) |
 | `alt-up` / `alt-down` | Reorder |
+| `z` / `shift-z` | Collapse or expand a status section (or click its header) / expand all sections |
 
 ### An open issue
 
