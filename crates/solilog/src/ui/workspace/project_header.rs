@@ -187,6 +187,7 @@ impl Workspace {
         let status = project.status;
         let status_chip = div()
             .id("project-status")
+            .ml_3()
             .flex()
             .flex_none()
             .items_center()
@@ -217,10 +218,11 @@ impl Workspace {
             .border_b_1()
             .border_color(rgb(theme::DIVIDER))
             .child(
+                // Margins, not a gap: the row's gap doesn't show next to the
+                // name.
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
                     .child(
                         div()
                             .min_w_0()
@@ -355,6 +357,7 @@ fn progress(project: &Project) -> impl IntoElement + use<> {
     let (closed, total) = (project.closed_issue_count, project.issue_count);
     let row = div()
         .ml_auto()
+        .pl_3()
         .flex()
         .flex_none()
         .items_center()
