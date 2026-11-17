@@ -14,6 +14,7 @@ mod label;
 mod order;
 mod project;
 mod skill;
+mod thinning;
 mod view;
 
 pub use attachment::{

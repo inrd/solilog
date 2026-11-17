@@ -20,7 +20,6 @@
 //! only its own backups are counted, thinned out or moved. Any backup can
 //! be restored.
 
-use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,6 +35,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use crate::Db;
 use crate::db::{MIGRATIONS, SCHEMA_VERSION};
 use crate::issue::IssueId;
+use crate::thinning::{DAY, Keep, thin_out};
 
 /// Minimum time between automatic backups, in seconds.
 pub const AUTO_BACKUP_INTERVAL: i64 = 60 * 60;
@@ -50,8 +50,6 @@ const FORMAT: u32 = 1;
 
 const DATABASE_ID: &str = "database_id";
 const BACKUP_DIR: &str = "backup_dir";
-
-const DAY: i64 = 24 * 60 * 60;
 
 /// File types that are compressed already: stored as is.
 const COMPRESSED_EXTENSIONS: &[&str] = &[
@@ -704,28 +702,21 @@ const BEFORE_UPGRADE_KEPT: i64 = 90 * DAY;
 /// backup is always kept, and those made before an upgrade for
 /// [`BEFORE_UPGRADE_KEPT`] (without taking the place of another).
 fn to_prune(backups: &[(i64, bool)], now: i64) -> Vec<usize> {
-    let mut buckets = HashSet::new();
-    let mut prune = Vec::new();
-    for (i, &(time, before_upgrade)) in backups.iter().enumerate() {
+    thin_out(backups.iter().enumerate().map(|(i, &(time, before_upgrade))| {
         let age = now - time;
-        let bucket = if i == 0 || age < DAY || (before_upgrade && age < BEFORE_UPGRADE_KEPT) {
-            continue;
+        if i == 0 || age < DAY || (before_upgrade && age < BEFORE_UPGRADE_KEPT) {
+            Keep::Always
         } else if age < 14 * DAY {
-            (0, time.div_euclid(DAY))
+            Keep::OnePer((0, time.div_euclid(DAY)))
         } else if age < 90 * DAY {
-            (1, time.div_euclid(7 * DAY))
+            Keep::OnePer((1, time.div_euclid(7 * DAY)))
         } else if age < 365 * DAY {
             let (y, m, ..) = civil(time);
-            (2, y * 12 + m)
+            Keep::OnePer((2, y * 12 + m))
         } else {
-            prune.push(i);
-            continue;
-        };
-        if !buckets.insert(bucket) {
-            prune.push(i);
+            Keep::Never
         }
-    }
-    prune
+    }))
 }
 
 fn backup_name(created_at: i64, id: &str) -> String {
@@ -848,6 +839,8 @@ fn remove_dir_if_present(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use crate::{IssueFilter, NewIssue};
 
