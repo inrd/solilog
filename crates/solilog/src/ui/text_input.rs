@@ -15,6 +15,7 @@
 
 use std::ops::Range;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{
     Action, App, AvailableSpace, Bounds, ClipboardItem, ContentMask, Context, CursorStyle,
@@ -79,8 +80,103 @@ actions!(
         /// Open the link the cursor is on (e.g. an issue id or a web address in a
         /// description).
         OpenLink,
+        /// Undo the last change to the text (typing is undone a word at a time).
+        Undo,
+        /// Redo the last change undone.
+        Redo,
     ]
 );
+
+/// Typing or deleting after a pause this long starts a new undo step.
+const UNDO_PAUSE: Duration = Duration::from_secs(1);
+/// Undo steps kept per input; older ones are dropped.
+const UNDO_LIMIT: usize = 500;
+
+/// The text and selection, as an undo step restores them.
+#[derive(Clone, Debug, PartialEq)]
+struct Snapshot {
+    text: SharedString,
+    selection: Range<usize>,
+    reversed: bool,
+}
+
+/// What an edit does, for grouping edits into undo steps.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EditKind {
+    /// Typing (or an IME composition): consecutive typing is one step per word.
+    Typing,
+    /// Deleting next to the cursor: consecutive deletions are one step.
+    Deleting,
+    /// Anything else (paste, cut, deleting a selection): a step of its own.
+    Other,
+}
+
+/// Undo and redo stacks of a text input.
+#[derive(Default)]
+struct History {
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
+    /// The step being extended: its kind, when it was last extended, and
+    /// where the cursor was left.
+    open: Option<(EditKind, Instant, usize)>,
+}
+
+impl History {
+    /// Called before an edit of `kind` to `before`, which `inserted` text
+    /// replaces the selection of. Starts a new undo step unless the edit
+    /// continues the open one: same kind, no pause, cursor where the last
+    /// edit left it, and (typing) not the start of a new word.
+    fn record(&mut self, kind: EditKind, before: Snapshot, inserted: &str, now: Instant) {
+        self.redo.clear();
+        let cursor = before.selection.start;
+        let continues = self.open.is_some_and(|(open, at, left)| {
+            open == kind
+                && kind != EditKind::Other
+                && now.duration_since(at) < UNDO_PAUSE
+                && before.selection == (left..left)
+        }) && !(kind == EditKind::Typing
+            && starts_word(&before.text[..cursor], inserted));
+        if !continues {
+            self.undo.push(before);
+            if self.undo.len() > UNDO_LIMIT {
+                self.undo.remove(0);
+            }
+        }
+    }
+
+    /// Called after an edit recorded with [`History::record`], with where it
+    /// left the cursor.
+    fn edited(&mut self, kind: EditKind, cursor: usize, now: Instant) {
+        self.open = (kind != EditKind::Other).then_some((kind, now, cursor));
+    }
+
+    /// The state to go back to, given the current one (kept for redo).
+    fn undo(&mut self, current: Snapshot) -> Option<Snapshot> {
+        let previous = self.undo.pop()?;
+        self.redo.push(current);
+        self.open = None;
+        Some(previous)
+    }
+
+    /// The state to go forward to, given the current one (kept for undo).
+    fn redo(&mut self, current: Snapshot) -> Option<Snapshot> {
+        let next = self.redo.pop()?;
+        self.undo.push(current);
+        self.open = None;
+        Some(next)
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// Whether typing `inserted` after `before` begins a new word.
+fn starts_word(before: &str, inserted: &str) -> bool {
+    let after_space = before.chars().next_back().is_some_and(char::is_whitespace);
+    let word = inserted.chars().next().is_some_and(|c| !c.is_whitespace());
+    after_space && word
+}
 
 /// A part of the text shown as a link (see [`TextInput::links`]).
 pub struct Link {
@@ -129,6 +225,8 @@ pub struct TextInput {
     /// sideways scroll.
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    /// Edits made here, to undo; cleared when the text is set from elsewhere.
+    history: History,
 }
 
 impl EventEmitter<Submit> for TextInput {}
@@ -153,6 +251,7 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            history: History::default(),
         }
     }
 
@@ -199,12 +298,14 @@ impl TextInput {
         self.selected_range = 0..self.content.len();
         self.selection_reversed = false;
         self.marked_range = None;
+        self.history.clear();
         cx.emit(Changed);
         cx.notify();
     }
 
     /// Replaces the text, keeping the cursor where it was as far as the new
-    /// text allows. For updates from elsewhere that the user didn't make.
+    /// text allows. For updates from elsewhere that the user didn't make:
+    /// they can't be undone, and earlier edits can no longer be either.
     pub fn reset_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
         let text = self.sanitize(text.into());
         if text == self.content {
@@ -220,6 +321,7 @@ impl TextInput {
         };
         self.selected_range = clamp(self.selected_range.start)..clamp(self.selected_range.end);
         self.marked_range = None;
+        self.history.clear();
         cx.emit(Changed);
         cx.notify();
     }
@@ -234,8 +336,86 @@ impl TextInput {
         self.selected_range = 0..0;
         self.selection_reversed = false;
         self.marked_range = None;
+        self.history.clear();
         cx.emit(Changed);
         cx.notify();
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            text: self.content.clone(),
+            selection: self.selected_range.clone(),
+            reversed: self.selection_reversed,
+        }
+    }
+
+    /// Replaces `range` with `new_text`, as an undoable edit of `kind`,
+    /// and puts the cursor after it.
+    fn edit(
+        &mut self,
+        range: Range<usize>,
+        new_text: &str,
+        kind: EditKind,
+        cx: &mut Context<Self>,
+    ) {
+        if range.is_empty() && new_text.is_empty() && self.marked_range.is_none() {
+            return;
+        }
+        let now = Instant::now();
+        // An IME composition was recorded when it started.
+        if self.marked_range.is_none() {
+            self.history.record(kind, self.snapshot(), new_text, now);
+        }
+        self.content =
+            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
+                .into();
+        let cursor = range.start + new_text.len();
+        self.selected_range = cursor..cursor;
+        self.selection_reversed = false;
+        self.marked_range.take();
+        self.goal_x = None;
+        self.cursor_moved = true;
+        self.history.edited(kind, cursor, now);
+        cx.emit(Changed);
+        cx.notify();
+    }
+
+    /// Deletes the selection, or else from the cursor to `to`.
+    fn delete_to(&mut self, to: usize, cx: &mut Context<Self>) {
+        let (range, kind) = if self.selected_range.is_empty() {
+            let cursor = self.cursor_offset();
+            (cursor.min(to)..cursor.max(to), EditKind::Deleting)
+        } else {
+            (self.selected_range.clone(), EditKind::Other)
+        };
+        if !range.is_empty() {
+            self.edit(range, "", kind, cx);
+        }
+    }
+
+    fn restore(&mut self, snapshot: Snapshot, cx: &mut Context<Self>) {
+        self.content = snapshot.text;
+        self.selected_range = snapshot.selection;
+        self.selection_reversed = snapshot.reversed;
+        self.marked_range = None;
+        self.goal_x = None;
+        self.cursor_moved = true;
+        cx.emit(Changed);
+        cx.notify();
+    }
+
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        match self.history.undo(self.snapshot()) {
+            Some(previous) => self.restore(previous, cx),
+            None => cx.propagate(),
+        }
+    }
+
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        match self.history.redo(self.snapshot()) {
+            Some(next) => self.restore(next, cx),
+            None => cx.propagate(),
+        }
     }
 
     /// Single-line inputs hold no line breaks.
@@ -358,30 +538,16 @@ impl TextInput {
         self.select_to(self.content.len(), cx);
     }
 
-    fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.previous_boundary(self.cursor_offset()), cx)
-        }
-        self.replace_text_in_range(None, "", window, cx)
+    fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
+        self.delete_to(self.previous_boundary(self.cursor_offset()), cx)
     }
 
-    fn delete_word_left(
-        &mut self,
-        _: &DeleteWordLeft,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.previous_word_start(self.cursor_offset()), cx)
-        }
-        self.replace_text_in_range(None, "", window, cx)
+    fn delete_word_left(&mut self, _: &DeleteWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.delete_to(self.previous_word_start(self.cursor_offset()), cx)
     }
 
-    fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.next_boundary(self.cursor_offset()), cx)
-        }
-        self.replace_text_in_range(None, "", window, cx)
+    fn delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
+        self.delete_to(self.next_boundary(self.cursor_offset()), cx)
     }
 
     fn on_mouse_down(
@@ -457,10 +623,10 @@ impl TextInput {
         window.show_character_palette();
     }
 
-    fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+    fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             let text = self.sanitize(text.into());
-            self.replace_text_in_range(None, &text, window, cx);
+            self.edit(self.selected_range.clone(), &text, EditKind::Other, cx);
         }
     }
 
@@ -472,12 +638,12 @@ impl TextInput {
         }
     }
 
-    fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
+    fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
-            self.replace_text_in_range(None, "", window, cx)
+            self.edit(self.selected_range.clone(), "", EditKind::Other, cx)
         }
     }
 
@@ -709,17 +875,7 @@ impl EntityInputHandler for TextInput {
             .map(|range_utf16| self.range_from_utf16(range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
-
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
-        self.selected_range = range.start + new_text.len()..range.start + new_text.len();
-        self.selection_reversed = false;
-        self.marked_range.take();
-        self.goal_x = None;
-        self.cursor_moved = true;
-        cx.emit(Changed);
-        cx.notify();
+        self.edit(range, new_text, EditKind::Typing, cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -736,6 +892,12 @@ impl EntityInputHandler for TextInput {
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
+        // A composition is one edit, recorded when it starts.
+        let now = Instant::now();
+        if self.marked_range.is_none() {
+            self.history
+                .record(EditKind::Typing, self.snapshot(), new_text, now);
+        }
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
@@ -751,6 +913,8 @@ impl EntityInputHandler for TextInput {
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
         self.goal_x = None;
         self.cursor_moved = true;
+        self.history
+            .edited(EditKind::Typing, self.selected_range.end, now);
 
         cx.emit(Changed);
         cx.notify();
@@ -1417,6 +1581,8 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::open_link))
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             // The pointer over links depends on the modifiers (see `paint`).
             .when(self.links.is_some(), |s| {
                 s.on_modifiers_changed(
@@ -1454,6 +1620,149 @@ mod tests {
         assert_eq!(next_word_end(text, 7), 15);
         assert_eq!(next_word_end(text, 22), text.len());
         assert_eq!(next_word_end(text, text.len()), text.len());
+    }
+
+    /// Applies edits to a text as the input does, recording them in `history`.
+    struct Editor {
+        history: History,
+        state: Snapshot,
+        now: Instant,
+    }
+
+    impl Editor {
+        fn new(text: &str) -> Self {
+            Self {
+                history: History::default(),
+                state: Snapshot {
+                    text: text.to_owned().into(),
+                    selection: text.len()..text.len(),
+                    reversed: false,
+                },
+                now: Instant::now(),
+            }
+        }
+
+        fn edit(&mut self, range: Range<usize>, new_text: &str, kind: EditKind) {
+            self.history
+                .record(kind, self.state.clone(), new_text, self.now);
+            let text = &self.state.text;
+            self.state.text =
+                format!("{}{new_text}{}", &text[..range.start], &text[range.end..]).into();
+            let cursor = range.start + new_text.len();
+            self.state.selection = cursor..cursor;
+            self.history.edited(kind, cursor, self.now);
+        }
+
+        fn type_text(&mut self, text: &str) {
+            for c in text.chars() {
+                let at = self.state.selection.clone();
+                self.edit(at, &c.to_string(), EditKind::Typing);
+            }
+        }
+
+        fn backspace(&mut self) {
+            let cursor = self.state.selection.start;
+            self.edit(cursor - 1..cursor, "", EditKind::Deleting);
+        }
+
+        fn undo(&mut self) -> bool {
+            self.history
+                .undo(self.state.clone())
+                .map(|s| self.state = s)
+                .is_some()
+        }
+
+        fn redo(&mut self) -> bool {
+            self.history
+                .redo(self.state.clone())
+                .map(|s| self.state = s)
+                .is_some()
+        }
+
+        fn text(&self) -> &str {
+            &self.state.text
+        }
+    }
+
+    #[test]
+    fn undo_typing_a_word_at_a_time() {
+        let mut e = Editor::new("");
+        e.type_text("fix the reverb");
+        assert!(e.undo());
+        assert_eq!(e.text(), "fix the ");
+        assert!(e.undo());
+        assert_eq!(e.text(), "fix ");
+        assert!(e.undo());
+        assert_eq!(e.text(), "");
+        assert!(!e.undo());
+        assert!(e.redo());
+        assert!(e.redo());
+        assert_eq!(e.text(), "fix the ");
+        assert_eq!(e.state.selection, 8..8);
+        assert!(e.redo());
+        assert!(!e.redo());
+        assert_eq!(e.text(), "fix the reverb");
+    }
+
+    #[test]
+    fn pauses_and_cursor_moves_split_steps() {
+        let mut e = Editor::new("");
+        e.type_text("rev");
+        e.now += UNDO_PAUSE;
+        e.type_text("erb");
+        assert!(e.undo());
+        assert_eq!(e.text(), "rev");
+
+        let mut e = Editor::new("tail");
+        e.type_text("s");
+        e.state.selection = 0..0;
+        e.type_text("x");
+        assert!(e.undo());
+        assert_eq!(e.text(), "tails");
+    }
+
+    #[test]
+    fn deletions_group_but_not_with_typing() {
+        let mut e = Editor::new("reverb");
+        e.backspace();
+        e.backspace();
+        e.type_text("x");
+        assert!(e.undo());
+        assert_eq!(e.text(), "reve");
+        assert!(e.undo());
+        assert_eq!(e.text(), "reverb");
+    }
+
+    #[test]
+    fn selection_replacements_are_their_own_step() {
+        let mut e = Editor::new("old text");
+        e.type_text("!");
+        // Select all, then type over it: one step, extended by what follows.
+        e.state.selection = 0..e.state.text.len();
+        e.type_text("new");
+        assert!(e.undo());
+        assert_eq!(e.text(), "old text!");
+        assert_eq!(e.state.selection, 0..9);
+
+        // A paste is a step of its own, and typing after it starts another.
+        let mut e = Editor::new("a");
+        e.type_text("b");
+        e.edit(2..2, "pasted", EditKind::Other);
+        e.type_text("c");
+        assert!(e.undo());
+        assert_eq!(e.text(), "abpasted");
+        assert!(e.undo());
+        assert_eq!(e.text(), "ab");
+    }
+
+    #[test]
+    fn a_new_edit_drops_the_redo_steps() {
+        let mut e = Editor::new("");
+        e.type_text("one two");
+        e.undo();
+        e.type_text("three");
+        assert!(!e.redo());
+        assert_eq!(e.text(), "one three");
     }
 
     #[test]

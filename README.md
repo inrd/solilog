@@ -113,6 +113,7 @@ Title, description and checklist are edited in place and saved as you type. `Esc
 | `cmd-enter` | Check the item being edited |
 | `alt-up` / `alt-down` | Move the item (or drag its handle) |
 | `shift-a` | Attach a file |
+| `cmd-z` / `cmd-shift-z` | Undo / redo while editing text (also `ctrl-y` on Linux) |
 
 An issue id in the description (`SOL-12`) links to that issue and shows its title; a web address (`https://…`) links to that page. Click a link to open it (the issue, or the page in your browser); while editing, `cmd`-click it or press `alt-enter` with the cursor on it.
 

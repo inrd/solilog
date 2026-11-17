@@ -17,6 +17,11 @@ the scheme in AGENTS.md ("Versions and releases").
 - When a new version of the app starts, it updates the agent skill wherever
   an older version installed it (and says so in the footer). It doesn't
   install the skill where it isn't, or touch a skill Solilog didn't write.
+- Undo and redo in text fields: `cmd-z` / `cmd-shift-z` (`ctrl-z` /
+  `ctrl-shift-z` or `ctrl-y` on Linux). Typing is undone a word at a time;
+  a paste, a cut or deleting a selection is a step of its own. Switching to
+  another issue, or a change made elsewhere (e.g. from the command line),
+  starts a new history.
 
 ### Fixed
 
