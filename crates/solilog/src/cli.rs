@@ -17,8 +17,8 @@ use serde_json::json;
 use solilog_core::{
     Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, ChecklistItemId, Db, Issue,
     IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue, NewProject, Placement, Project,
-    ProjectStatus, ProjectUpdate, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv, SkillState,
-    SkillStatus, Status, View, format_size, format_utc,
+    ProjectStatus, ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange,
+    SkillEnv, SkillState, SkillStatus, Status, View, format_age, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -247,6 +247,23 @@ pub enum IssueCommand {
         /// it); `-` reads it from stdin.
         #[arg(long, short, group = "fields")]
         description: Option<String>,
+    },
+    /// List the revisions of an issue's text, newest first: earlier titles,
+    /// descriptions and checklist item texts, including deleted items.
+    ///
+    /// Overwriting a title, description or checklist item (here or in the
+    /// app), or deleting an item, saves the old text as a revision; edits
+    /// less than 10 minutes apart share one, except edits that remove much
+    /// of the text. Older revisions are thinned out over time. Get one back
+    /// with `issue restore`.
+    History { id: IssueId },
+    /// Put a revision's text back (see `issue history`) and print the issue.
+    /// The current text is saved as a revision first, so a restore can be
+    /// undone. A deleted checklist item comes back, unchecked, with its id.
+    Restore {
+        id: IssueId,
+        /// Revision id, from `issue history`.
+        revision: RevisionId,
     },
     /// Change an issue's status and print it. The issue goes first in the
     /// order of its new status (unless it already had that status).
@@ -657,6 +674,16 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
                     };
                     out.issue(&db.edit_issue(id, &edit)?)
                 }
+                IssueCommand::History { id } => out.revisions(&db.issue_revisions(id)?),
+                IssueCommand::Restore { id, revision } => {
+                    let found = db.get_revision(revision)?;
+                    anyhow::ensure!(
+                        found.issue_id == id,
+                        "revision {revision} is of {}, not {id}",
+                        found.issue_id
+                    );
+                    out.issue(&db.restore_revision(revision)?)
+                }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
                 IssueCommand::Move { id, before, after } => {
                     out.issue(&db.move_issue(id, &Placement::from_options(before, after)?)?)
@@ -1020,6 +1047,16 @@ impl Output {
         })
     }
 
+    fn revisions(&self, revisions: &[Revision]) -> Result<()> {
+        self.print(revisions, || {
+            revisions
+                .iter()
+                .map(revision_line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
     fn attachment(&self, attachment: &Attachment) -> Result<()> {
         self.print(attachment, || attachment_line(attachment))
     }
@@ -1134,6 +1171,18 @@ fn issue_line(issue: &Issue) -> String {
         line.push_str("  (archived)");
     }
     line
+}
+
+/// Id, age, field, reason and the start of the text.
+fn revision_line(revision: &Revision) -> String {
+    format!(
+        "{:<4} {:<12} {:<28} {:<14} {}",
+        revision.id.0,
+        format_age(revision.created_at),
+        revision.field_label(),
+        revision.reason.label(),
+        revision.preview(60)
+    )
 }
 
 /// Id, name, size and path.
