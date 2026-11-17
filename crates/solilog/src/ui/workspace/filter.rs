@@ -305,7 +305,7 @@ impl Workspace {
         self.edit_filter(|f| *f = IssueFilter::default(), cx);
     }
 
-    /// Scope title, filter chips (click × to remove), status bar, issue count.
+    /// Scope title (but a project's), filter chips (click × to remove), status bar, issue count.
     pub(super) fn render_filter_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let edited = self.filter_edited();
         let title = self.scope.source.title().to_string();
@@ -324,7 +324,10 @@ impl Workspace {
             .border_b_1()
             .border_color(rgb(theme::DIVIDER))
             .text_size(px(12.))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+            // A project's name is in the project header already.
+            .when(!matches!(self.scope.source, Source::Project(_)), |s| {
+                s.child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+            })
             .when(edited && self.scope.source != Source::All, |s| {
                 s.child(div().text_color(rgb(theme::TEXT_MUTED)).child("edited"))
             })

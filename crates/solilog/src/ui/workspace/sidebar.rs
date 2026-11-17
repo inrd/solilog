@@ -632,9 +632,7 @@ impl Workspace {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(div().flex_1().child(text.to_uppercase()))
-                    .when_some(action, |s, action| {
-                        s.child(heading_button(ix, action, cx))
-                    })
+                    .when_some(action, |s, action| s.child(heading_button(ix, action, cx)))
                     .into_any_element(),
                 Row::Item {
                     item,

@@ -12,6 +12,7 @@ mod cli_install;
 mod detail;
 mod filter;
 mod manage;
+mod project_header;
 mod scope;
 mod sidebar;
 mod skill_update;
@@ -1873,7 +1874,8 @@ impl Workspace {
         hints
     }
 
-    /// New-issue input, view header and issue list.
+    /// Project header (when showing one), new-issue input, view header and
+    /// issue list.
     fn render_main(&self, list_focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         // One section per status, each a header then its issues (none when
         // collapsed); the list's children stay flat so `list_child_index`
@@ -1898,11 +1900,15 @@ impl Workspace {
             }
         }
         let empty = self.sections.is_empty();
+        let project_header = self
+            .shown_project()
+            .map(|project| self.render_project_header(project, cx));
         div()
             .flex_1()
             .min_w_0()
             .flex()
             .flex_col()
+            .children(project_header)
             .child(
                 div()
                     .key_context("NewIssue")

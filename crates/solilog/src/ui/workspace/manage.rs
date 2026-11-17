@@ -10,8 +10,7 @@ use gpui::{
     Action, AppContext as _, Context, IntoElement, Pixels, Point, Styled as _, Window, div, px, rgb,
 };
 use solilog_core::{
-    IssueFilter, LabelColor, NewProject, ProjectStatus, ProjectUpdate, label_matches,
-    renamed_label,
+    IssueFilter, LabelColor, NewProject, ProjectStatus, ProjectUpdate, label_matches, renamed_label,
 };
 
 use super::scope::Source;

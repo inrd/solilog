@@ -24,6 +24,8 @@ the scheme in AGENTS.md ("Versions and releases").
   starts a new history.
 - "Project: Create" in the command palette, and a + next to the sidebar's
   Projects heading, create a project and show it.
+- A header above the issue list shows the project it lists: its name, its
+  status (click to change it) and how many of its issues are closed.
 
 ### Fixed
 
