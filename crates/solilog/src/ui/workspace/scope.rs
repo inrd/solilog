@@ -121,6 +121,8 @@ impl Workspace {
             return;
         };
         self.close_detail(cx);
+        // Before the project header shows another project's description.
+        self.save_project_description(cx);
         self.scope = Scope::new(source);
         self.showing_archive = false;
         self.selected = None;

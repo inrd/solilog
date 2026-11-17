@@ -18,7 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::Db;
-use crate::issue::{Issue, IssueChange, IssueId};
+use crate::issue::{Issue, IssueChange, IssueId, normalize_description};
 use crate::label::normalize_label_name;
 use crate::order::{Ordered, Placement};
 
@@ -230,7 +230,7 @@ impl Db {
             params![
                 name,
                 new.status,
-                new.description.trim(),
+                normalize_description(&new.description),
                 self.next_position(Ordered::Projects)?
             ],
         )?;
@@ -274,7 +274,7 @@ impl Db {
         if let Some(description) = &update.description {
             self.conn.execute(
                 "UPDATE projects SET description = ?2 WHERE id = ?1",
-                params![id, description.trim()],
+                params![id, normalize_description(description)],
             )?;
         }
         tx.commit()?;
@@ -447,7 +447,7 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let p = db
             .create_project(&NewProject {
-                description: " goal ".into(),
+                description: "goal \n".into(),
                 labels: strings(&["acme/reverb"]),
                 ..NewProject::new(" Reverb v1.1 ")
             })
@@ -455,6 +455,19 @@ mod tests {
         assert_eq!(p.name, "Reverb v1.1");
         assert_eq!(p.status, ProjectStatus::Active);
         assert_eq!(p.description, "goal");
+        let p = db
+            .update_project(
+                "reverb v1.1",
+                &ProjectUpdate {
+                    description: Some("\n  indented  \r\nnext \n\n".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            p.description, "  indented\nnext",
+            "cleaned up like an issue's"
+        );
         assert_eq!(p.labels, ["acme/reverb"]);
         assert!(db.create_project(&NewProject::new("reverb V1.1")).is_err());
 

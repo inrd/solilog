@@ -133,6 +133,8 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 
 `cmd-s` saves the filter as a view; `v` opens one. Saved views, projects and labels are in the sidebar; there, `space` (or the arrow before a label) collapses or expands a label's sublabels.
 
+A project's issues come under a header with its status, progress, default labels and description. Click the description (or run "Project: Edit Description") to edit it; it's saved as you type, and `Escape` goes back to the list.
+
 ### Your own bindings
 
 Every command can be bound. Run "Workspace: Open Keymap" from the palette to edit `~/.config/solilog/keymap.json` (changes apply when you save). `solilog keymap defaults` prints the default bindings and `solilog keymap actions` lists every command.

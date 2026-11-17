@@ -248,6 +248,9 @@ migration in one transaction (a failure applies none and leaves
 - Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `IssueDetail` | `NewIssue > TextInput`;
   `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items
   (attachment commands are registered on `IssueDetail`);
+  `ProjectHeader > TextInput` for the description of the project the list
+  shows (`workspace/project_header.rs`; outside `IssueList`, so its
+  single-key bindings don't fire while typing);
   `ImagePreview` for an image attachment shown over the window (outside
   `IssueDetail`, so the issue's single-key bindings don't apply); `Picker` for popups. Multi-line text inputs also have `multiline`. Single-key
   bindings in a context that holds text fields need `&& !TextInput` (see `IssueDetail`).

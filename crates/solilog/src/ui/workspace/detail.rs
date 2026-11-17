@@ -42,7 +42,7 @@ use preview::ImagePreview;
 pub const CONTEXT: &str = "IssueDetail";
 
 /// How long after the last keystroke edits are saved.
-const AUTOSAVE_DELAY: Duration = Duration::from_millis(800);
+pub(super) const AUTOSAVE_DELAY: Duration = Duration::from_millis(800);
 
 pub(super) struct IssueDetail {
     /// The issue as last read from (or written to) the database.
@@ -73,7 +73,7 @@ fn title_changed(text: &str, saved: &str) -> bool {
     text.trim() != saved
 }
 
-fn description_changed(text: &str, saved: &str) -> bool {
+pub(super) fn description_changed(text: &str, saved: &str) -> bool {
     normalize_description(text) != saved
 }
 
@@ -146,7 +146,7 @@ impl Workspace {
     /// and the issues mentioned (archived ones too), shown as their titles.
     /// Mentions of issues that don't exist stay plain text, and so do those
     /// within a web address.
-    fn description_links(&self, text: &str) -> Vec<Link> {
+    pub(super) fn description_links(&self, text: &str) -> Vec<Link> {
         let web = web_links(text);
         let in_web_link = |range: &Range<usize>| {
             web.iter()

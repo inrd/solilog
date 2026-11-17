@@ -154,10 +154,20 @@ pub mod sidebar {
 /// Managing projects. Where `name` is optional, leaving it out acts on the
 /// project being shown.
 pub mod project {
-    use gpui::Action;
+    use gpui::{Action, actions};
     use schemars::JsonSchema;
     use serde::Deserialize;
     use solilog_core::ProjectStatus;
+
+    actions!(
+        project,
+        [
+            /// Put the cursor in the description of the project being
+            /// shown, in the header above its issues. It is saved as you
+            /// type; Escape goes back to the list.
+            EditDescription,
+        ]
+    );
 
     /// Create a project (active, without labels) and show it. Without a
     /// `name`, asks for one. The + next to the sidebar's Projects heading

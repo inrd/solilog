@@ -462,6 +462,7 @@ impl Workspace {
             ..Default::default()
         };
         if let Some(project) = self.report(self.db.update_project(&name, &update), cx) {
+            self.project_description.renamed(&name, &project.name);
             self.follow_rename(Kind::Project, &name, &project.name, cx);
         }
     }

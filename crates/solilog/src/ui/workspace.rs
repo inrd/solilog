@@ -44,6 +44,7 @@ use super::{SHOW_IN_FILE_MANAGER, assets, theme};
 use archive::ArchiveItem;
 use chip_row::chip_row;
 use detail::IssueDetail;
+use project_header::ProjectDescription;
 use scope::Scope;
 use sidebar::SidebarItem;
 
@@ -203,6 +204,8 @@ pub struct Workspace {
     archive_scroll: ScrollHandle,
     /// The open issue, shown in place of the list (or the archive).
     detail: Option<IssueDetail>,
+    /// The description field of the project header.
+    project_description: ProjectDescription,
     modal: Option<OpenModal>,
     error: Option<String>,
     /// News about the last command (e.g. a backup made), shown in the
@@ -255,6 +258,7 @@ impl Workspace {
             .detach();
         cx.on_app_quit(|this, cx| {
             this.save_detail(false, cx);
+            this.save_project_description(cx);
             async {}
         })
         .detach();
@@ -286,6 +290,7 @@ impl Workspace {
             archive_cursor: None,
             archive_scroll: ScrollHandle::new(),
             detail: None,
+            project_description: ProjectDescription::new(window, cx),
             modal: None,
             error: None,
             notice: None,
@@ -350,6 +355,7 @@ impl Workspace {
         }
         self.fix_archive_cursor(prev_archive_ix);
         self.refresh_detail(cx);
+        self.refresh_project_description(cx);
         let Some(mut issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
             self.sections.clear();
@@ -1684,6 +1690,7 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_checklist(window, cx);
         self.sync_image_preview(window);
+        self.sync_project_description(window, cx);
         // The footer's hints come from the last rendered frame, which does
         // not have a newly focused element yet: render once more.
         let focused = window.focused(cx);
@@ -1728,6 +1735,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_rename_view))
             .on_action(cx.listener(Self::on_delete_view))
             .on_action(cx.listener(Self::on_create_project))
+            .on_action(cx.listener(Self::on_edit_project_description))
             .on_action(cx.listener(Self::on_add_project_label))
             .on_action(cx.listener(Self::on_remove_project_label))
             .on_action(cx.listener(Self::on_rename_project))
@@ -1770,7 +1778,10 @@ impl Render for Workspace {
                         } else if self.showing_archive {
                             s.child(self.render_archive(list_focused, cx).into_any_element())
                         } else {
-                            s.child(self.render_main(list_focused, cx).into_any_element())
+                            s.child(
+                                self.render_main(list_focused, window, cx)
+                                    .into_any_element(),
+                            )
                         }
                     }),
             )
@@ -1878,7 +1889,12 @@ impl Workspace {
 
     /// Project header (when showing one), new-issue input, view header and
     /// issue list.
-    fn render_main(&self, list_focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn render_main(
+        &self,
+        list_focused: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         // One section per status, each a header then its issues (none when
         // collapsed); the list's children stay flat so `list_child_index`
         // can find a row.
@@ -1904,7 +1920,7 @@ impl Workspace {
         let empty = self.sections.is_empty();
         let project_header = self
             .shown_project()
-            .map(|project| self.render_project_header(project, cx));
+            .map(|project| self.render_project_header(project, window, cx));
         div()
             .flex_1()
             .min_w_0()

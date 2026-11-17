@@ -5,6 +5,8 @@
 //   Sidebar              the sidebar has focus
 //   IssueList            the issue list has focus
 //   Archive              the archive has focus (it replaces the issue list)
+//   ProjectHeader        above the issue list while it shows a project; its
+//                        description field is a TextInput in it
 //   IssueDetail          an open issue (it replaces the issue list); its
 //                        title and description fields are TextInputs in it
 //   Checklist            the open issue's checklist, in IssueDetail; each
@@ -146,6 +148,14 @@
     "bindings": {
       "escape": "issue_detail::StopEditing",
       "secondary-enter": "issue_detail::StopEditing"
+    }
+  },
+  {
+    // The description of the project shown, above its issues.
+    "context": "ProjectHeader > TextInput",
+    "bindings": {
+      "escape": "issue_list::Focus",
+      "secondary-enter": "issue_list::Focus"
     }
   },
   {

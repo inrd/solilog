@@ -28,6 +28,15 @@ the scheme in AGENTS.md ("Versions and releases").
   status (click to change it) and how many of its issues are closed.
 - A project's default labels can be added and removed in the app: in the
   project header, or with "Project: Add Label" and "Project: Remove Label".
+- A project's description is in its header, edited in place and saved as
+  you type, like an issue's ("Project: Edit Description"). A long one shows
+  its first lines until you edit it.
+
+### Changed
+
+- Project descriptions are cleaned up like issue descriptions when saved
+  (trailing spaces and blank lines at both ends are dropped, indentation is
+  kept).
 
 ### Fixed
 
