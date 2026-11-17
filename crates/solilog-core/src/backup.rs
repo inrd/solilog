@@ -702,21 +702,26 @@ const BEFORE_UPGRADE_KEPT: i64 = 90 * DAY;
 /// backup is always kept, and those made before an upgrade for
 /// [`BEFORE_UPGRADE_KEPT`] (without taking the place of another).
 fn to_prune(backups: &[(i64, bool)], now: i64) -> Vec<usize> {
-    thin_out(backups.iter().enumerate().map(|(i, &(time, before_upgrade))| {
-        let age = now - time;
-        if i == 0 || age < DAY || (before_upgrade && age < BEFORE_UPGRADE_KEPT) {
-            Keep::Always
-        } else if age < 14 * DAY {
-            Keep::OnePer((0, time.div_euclid(DAY)))
-        } else if age < 90 * DAY {
-            Keep::OnePer((1, time.div_euclid(7 * DAY)))
-        } else if age < 365 * DAY {
-            let (y, m, ..) = civil(time);
-            Keep::OnePer((2, y * 12 + m))
-        } else {
-            Keep::Never
-        }
-    }))
+    thin_out(
+        backups
+            .iter()
+            .enumerate()
+            .map(|(i, &(time, before_upgrade))| {
+                let age = now - time;
+                if i == 0 || age < DAY || (before_upgrade && age < BEFORE_UPGRADE_KEPT) {
+                    Keep::Always
+                } else if age < 14 * DAY {
+                    Keep::OnePer((0, time.div_euclid(DAY)))
+                } else if age < 90 * DAY {
+                    Keep::OnePer((1, time.div_euclid(7 * DAY)))
+                } else if age < 365 * DAY {
+                    let (y, m, ..) = civil(time);
+                    Keep::OnePer((2, y * 12 + m))
+                } else {
+                    Keep::Never
+                }
+            }),
+    )
 }
 
 fn backup_name(created_at: i64, id: &str) -> String {
@@ -1078,7 +1083,8 @@ mod tests {
             "INSERT INTO issues (title) VALUES ('ghost'); SELECT nope FROM nowhere",
         ]);
         let err = t.db.migrate_with(&migrations, true).unwrap_err();
-        assert!(format!("{err:#}").contains("migration 18"), "{err:#}");
+        let failing = format!("migration {}", SCHEMA_VERSION + 2);
+        assert!(format!("{err:#}").contains(&failing), "{err:#}");
         assert_eq!(t.db.schema_version().unwrap(), SCHEMA_VERSION);
         assert!(!has_table(&t.db, "fine"));
         assert_eq!(titles(&t.db), ["kept"]);

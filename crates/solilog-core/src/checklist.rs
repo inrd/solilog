@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::Db;
 use crate::issue::{Issue, IssueId};
 use crate::order::{Ordered, Placement};
+use crate::revision::Field;
 
 /// Identifies a checklist item, across all issues. Displayed as a plain
 /// number; parsed from `12` or `#12`.
@@ -117,14 +118,18 @@ impl Db {
         Ok(())
     }
 
-    /// Changes the text of a checklist item and returns its issue.
+    /// Changes the text of a checklist item and returns its issue. The text
+    /// it replaces is kept as a revision (see [`Db::issue_revisions`]).
     pub fn edit_checklist_item(&self, item: ChecklistItemId, text: &str) -> Result<Issue> {
         let text = normalize_item_text(text)?;
-        let issue = self.checklist_item_issue(item)?;
+        let tx = self.conn.unchecked_transaction()?;
+        let (issue, old) = self.checklist_item(item)?;
+        self.record_edit(issue, Field::ChecklistItem(item), &old, &text)?;
         self.conn.execute(
             "UPDATE checklist_items SET text = ?2 WHERE id = ?1",
             params![item, text],
         )?;
+        tx.commit()?;
         self.get_issue(issue)
     }
 
@@ -152,36 +157,55 @@ impl Db {
             "checklist items {item} and {anchor} are not on the same issue"
         );
         let tx = self.conn.unchecked_transaction()?;
-        let order: Vec<i64> = self
-            .conn
-            .prepare_cached(
-                "SELECT id FROM checklist_items WHERE issue_id = ?1 ORDER BY position, id",
-            )?
-            .query_map([issue], |row| row.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
+        let order = self.checklist_order(issue)?;
         self.place(Ordered::ChecklistItems, order, item.0, anchor.0, placement)?;
         tx.commit()?;
         self.get_issue(issue)
     }
 
-    /// Deletes a checklist item and returns its issue.
+    /// Deletes a checklist item and returns its issue. Its text is kept as
+    /// a revision, to bring it back (see [`Db::restore_revision`]).
     pub fn delete_checklist_item(&self, item: ChecklistItemId) -> Result<Issue> {
-        let issue = self.checklist_item_issue(item)?;
+        let tx = self.conn.unchecked_transaction()?;
+        let (issue, text) = self.checklist_item(item)?;
+        let position = self
+            .checklist_order(issue)?
+            .iter()
+            .position(|&id| id == item.0)
+            .context("checklist item vanished")?;
+        self.record_delete(issue, item, &text, position)?;
         self.conn
             .execute("DELETE FROM checklist_items WHERE id = ?1", [item])?;
+        tx.commit()?;
         self.get_issue(issue)
     }
 
     /// The issue a checklist item is on.
     fn checklist_item_issue(&self, item: ChecklistItemId) -> Result<IssueId> {
+        Ok(self.checklist_item(item)?.0)
+    }
+
+    /// The issue a checklist item is on, and the item's text.
+    pub(crate) fn checklist_item(&self, item: ChecklistItemId) -> Result<(IssueId, String)> {
         self.conn
             .query_row(
-                "SELECT issue_id FROM checklist_items WHERE id = ?1",
+                "SELECT issue_id, text FROM checklist_items WHERE id = ?1",
                 [item],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?
             .with_context(|| format!("no checklist item {item}"))
+    }
+
+    /// The ids of an issue's checklist items, in order.
+    pub(crate) fn checklist_order(&self, issue: IssueId) -> Result<Vec<i64>> {
+        Ok(self
+            .conn
+            .prepare_cached(
+                "SELECT id FROM checklist_items WHERE issue_id = ?1 ORDER BY position, id",
+            )?
+            .query_map([issue], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
     }
 
     /// Checklist items per issue, for one issue or all of them.

@@ -24,6 +24,7 @@ use crate::issue::{
 };
 use crate::label::normalize_label_name;
 use crate::order::{Ordered, Placement};
+use crate::revision::Field;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` tracks how many ran.
 /// Never edit an existing entry; append a new one.
@@ -138,6 +139,37 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     INSERT INTO settings (key, value) VALUES ('database_id', lower(hex(randomblob(4))));",
     // 16: a label's sublabels can be collapsed (hidden) in the GUI sidebar.
     "ALTER TABLE labels ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0 CHECK (collapsed IN (0, 1));",
+    // 17: revisions: earlier text of titles, descriptions and checklist
+    // items, to restore it (see `revision.rs`). A checklist item's revisions
+    // outlive it (no reference); `position` is where a deleted item was.
+    // Checklist item ids are no longer reused (AUTOINCREMENT), so that a
+    // restored item gets its id back and revisions never mix two items.
+    "CREATE TABLE revisions (
+        id                INTEGER PRIMARY KEY,
+        issue_id          INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        field             TEXT    NOT NULL
+            CHECK (field IN ('title', 'description', 'checklist_item')),
+        checklist_item_id INTEGER
+            CHECK ((field = 'checklist_item') = (checklist_item_id IS NOT NULL)),
+        text              TEXT    NOT NULL,
+        reason            TEXT    NOT NULL CHECK (reason IN ('edit', 'delete', 'restore')),
+        position          INTEGER,
+        created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX revisions_by_field ON revisions (issue_id, field, checklist_item_id, created_at);
+    CREATE TABLE checklist_items_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        text       TEXT    NOT NULL,
+        done       INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+        position   INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    INSERT INTO checklist_items_new (id, issue_id, text, done, position, created_at)
+        SELECT id, issue_id, text, done, position, created_at FROM checklist_items;
+    DROP TABLE checklist_items;
+    ALTER TABLE checklist_items_new RENAME TO checklist_items;
+    CREATE INDEX checklist_items_by_issue ON checklist_items (issue_id, position);",
 ];
 
 /// The schema version of a database with every migration applied.
@@ -403,14 +435,19 @@ impl Db {
     }
 
     /// Changes the fields of one issue (title, description) and returns it.
+    /// The text it replaces is kept as a revision (see [`Db::issue_revisions`]).
     pub fn edit_issue(&self, id: IssueId, edit: &IssueEdit) -> Result<Issue> {
         let tx = self.conn.unchecked_transaction()?;
-        self.get_issue(id)?;
+        let issue = self.get_issue(id)?;
         if let Some(title) = &edit.title {
-            self.set_issue_column(id, "title", &normalize_title(title)?)?;
+            let title = normalize_title(title)?;
+            self.record_edit(id, Field::Title, &issue.title, title)?;
+            self.set_issue_column(id, "title", &title)?;
         }
         if let Some(description) = &edit.description {
-            self.set_issue_column(id, "description", &normalize_description(description))?;
+            let description = normalize_description(description);
+            self.record_edit(id, Field::Description, &issue.description, &description)?;
+            self.set_issue_column(id, "description", &description)?;
         }
         tx.commit()?;
         self.get_issue(id)
@@ -469,7 +506,12 @@ impl Db {
         }
     }
 
-    fn set_issue_column(&self, id: IssueId, column: &str, value: &dyn ToSql) -> Result<()> {
+    pub(crate) fn set_issue_column(
+        &self,
+        id: IssueId,
+        column: &str,
+        value: &dyn ToSql,
+    ) -> Result<()> {
         let updated = self.conn.execute(
             &format!("UPDATE issues SET {column} = ?2 WHERE id = ?1"),
             params![id, value],

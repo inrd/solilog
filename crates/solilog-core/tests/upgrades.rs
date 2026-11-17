@@ -10,7 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
-use solilog_core::{BackupReason, Db, IssueFilter, IssueId, LabelColor, ProjectStatus, Status};
+use solilog_core::{
+    BackupReason, Db, IssueFilter, IssueId, LabelColor, ProjectStatus, RevisionField, Status,
+};
 
 fn fixtures() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -51,6 +53,9 @@ fn every_release_upgrades() {
 
         let db = Db::open(&path).unwrap_or_else(|e| panic!("{name}: {e:#}"));
         check_data(&db);
+        if before >= REVISIONS_SCHEMA {
+            check_revisions(&db);
+        }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
             .list_backups()
@@ -131,6 +136,37 @@ fn check_data(db: &Db) {
     assert_eq!(view.filter.labels, ["web"]);
     let in_view = db.list_issues(&view.filter).unwrap();
     assert_eq!(in_view.len(), 2);
+}
+
+/// The first schema version with revisions.
+const REVISIONS_SCHEMA: i64 = 17;
+
+/// What `scripts/upgrade-fixture.sh` puts in since revisions exist.
+fn check_revisions(db: &Db) {
+    let revisions = db.issue_revisions(IssueId(1)).unwrap();
+    let revisions: Vec<(RevisionField, Option<i64>, &str, bool)> = revisions
+        .iter()
+        .map(|r| {
+            (
+                r.field,
+                r.checklist_item_id.map(|i| i.0),
+                r.text.as_str(),
+                r.item_deleted,
+            )
+        })
+        .collect();
+    assert_eq!(
+        revisions,
+        [
+            (RevisionField::ChecklistItem, Some(3), "Proofread", true),
+            (RevisionField::Title, None, "Write the post", false),
+        ]
+    );
+    // A new item doesn't take the deleted one's id.
+    let issue = db
+        .add_checklist_items(IssueId(1), &["Publish".into()])
+        .unwrap();
+    assert!(issue.checklist.iter().all(|i| i.id.0 != 3));
 }
 
 fn temp_dir(name: &str) -> PathBuf {

@@ -24,11 +24,14 @@ s() { "$bin" "$@" >/dev/null; }
 
 s project create "Website v2" -d "Launch the new site" -l web
 s project create "Old site" -s done
-s issue create "Write the launch post" -s in_progress -l docs -p "Website v2" \
+s issue create "Write the post" -s in_progress -l docs -p "Website v2" \
     -d "Two paragraphs.
 
-Mention SOL-2." -i "Draft" -i "Review"
+Mention SOL-2." -i "Draft" -i "Review" -i "Proofread"
 s checklist check 1
+# Revisions (0.2.0+): the old title, and a deleted item.
+s issue edit SOL-1 --title "Write the launch post"
+s checklist delete 3
 s issue create "Fix the header layout" -s blocked -l web/frontend
 printf 'header notes\n' > "$work/notes.txt"
 s attachment add SOL-2 "$work/notes.txt"

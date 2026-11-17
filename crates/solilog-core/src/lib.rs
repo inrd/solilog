@@ -13,6 +13,7 @@ mod issue;
 mod label;
 mod order;
 mod project;
+mod revision;
 mod skill;
 mod thinning;
 mod view;
@@ -41,6 +42,7 @@ pub use label::{
 };
 pub use order::Placement;
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
+pub use revision::{Revision, RevisionField, RevisionId, RevisionReason, format_age};
 pub use skill::{
     Agent, SKILL_NAME, SKILL_VERSION, SkillAction, SkillChange, SkillEnv, SkillLocation,
     SkillState, SkillStatus, install_skill, outdated_skills, skill_md, skill_status,

@@ -100,6 +100,12 @@ impl Db {
             .context("row vanished while moving")?;
         let after = matches!(placement, Placement::After(_));
         order.insert(ix + usize::from(after), id);
+        self.renumber(table, &order)
+    }
+
+    /// Gives the rows of `order` positions in that order. Call inside a
+    /// transaction.
+    pub(crate) fn renumber(&self, table: Ordered, order: &[i64]) -> Result<()> {
         let mut update = self.conn.prepare_cached(&format!(
             "UPDATE {} SET position = ?2 WHERE id = ?1",
             table.table()
