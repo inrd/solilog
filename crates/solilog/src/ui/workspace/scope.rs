@@ -144,7 +144,7 @@ impl Workspace {
 
     /// Like [`Self::open_action_picker`], plus a "`label` “text”" row whose
     /// action `create` builds from the typed text.
-    fn open_creatable_action_picker(
+    pub(super) fn open_creatable_action_picker(
         &mut self,
         placeholder: &str,
         entries: Vec<(PickerItem, Box<dyn Action>)>,

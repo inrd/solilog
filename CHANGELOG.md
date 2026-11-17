@@ -26,6 +26,8 @@ the scheme in AGENTS.md ("Versions and releases").
   Projects heading, create a project and show it.
 - A header above the issue list shows the project it lists: its name, its
   status (click to change it) and how many of its issues are closed.
+- A project's default labels can be added and removed in the app: in the
+  project header, or with "Project: Add Label" and "Project: Remove Label".
 
 ### Fixed
 

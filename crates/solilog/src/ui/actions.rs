@@ -196,6 +196,33 @@ pub mod project {
         pub status: Option<ProjectStatus>,
     }
 
+    /// Add a default label to a project, creating the label if needed:
+    /// issues get it when they join the project (issues already in it are
+    /// left as they are). Without a `label`, opens the label picker.
+    ///
+    /// Keymap example: `"secondary-l": ["project::AddLabel", { "label": "acme/reverb" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddLabel {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub label: Option<String>,
+    }
+
+    /// Remove a default label from a project; issues keep it. Without a
+    /// `label`, opens a picker of the project's default labels.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct RemoveLabel {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub label: Option<String>,
+    }
+
     /// Delete a project; its issues stay, with their labels. Asks for
     /// confirmation unless `confirmed` is true.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]

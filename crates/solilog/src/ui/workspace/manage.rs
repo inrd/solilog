@@ -513,6 +513,100 @@ impl Workspace {
         }
     }
 
+    pub(super) fn on_add_project_label(
+        &mut self,
+        action: &project::AddLabel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.target(Kind::Project, action.name.as_ref(), cx) else {
+            return;
+        };
+        let Some(label) = &action.label else {
+            let current = self
+                .projects
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| p.labels.clone())
+                .unwrap_or_default();
+            let add = |label: String| -> Box<dyn Action> {
+                Box::new(project::AddLabel {
+                    name: Some(name.clone()),
+                    label: Some(label),
+                })
+            };
+            let entries = self
+                .labels
+                .iter()
+                .filter(|l| !current.iter().any(|c| c.eq_ignore_ascii_case(&l.name)))
+                .map(|l| (PickerItem::new(l.name.clone()), add(l.name.clone())))
+                .collect();
+            let target = name.clone();
+            let create: CreateAction = Box::new(move |label| {
+                Box::new(project::AddLabel {
+                    name: Some(target.clone()),
+                    label: Some(label),
+                })
+            });
+            let placeholder = format!("Add a default label to “{name}”…");
+            return self.open_creatable_action_picker(
+                &placeholder,
+                entries,
+                0,
+                Some(("Create label", create)),
+                window,
+                cx,
+            );
+        };
+        let added = self
+            .db
+            .add_project_labels(&name, std::slice::from_ref(label));
+        if self.report(added, cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
+    pub(super) fn on_remove_project_label(
+        &mut self,
+        action: &project::RemoveLabel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.target(Kind::Project, action.name.as_ref(), cx) else {
+            return;
+        };
+        let Some(label) = &action.label else {
+            let labels = self
+                .projects
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| p.labels.clone())
+                .unwrap_or_default();
+            if labels.is_empty() {
+                self.report::<()>(Err(anyhow::anyhow!("“{name}” has no default labels")), cx);
+                return;
+            }
+            let entries = labels
+                .into_iter()
+                .map(|label| {
+                    let action = project::RemoveLabel {
+                        name: Some(name.clone()),
+                        label: Some(label.clone()),
+                    };
+                    (PickerItem::new(label), Box::new(action) as Box<dyn Action>)
+                })
+                .collect();
+            let placeholder = format!("Remove a default label from “{name}”…");
+            return self.open_action_picker(&placeholder, entries, 0, window, cx);
+        };
+        let removed = self
+            .db
+            .remove_project_labels(&name, std::slice::from_ref(label));
+        if self.report(removed, cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
     pub(super) fn on_delete_project(
         &mut self,
         action: &project::Delete,
