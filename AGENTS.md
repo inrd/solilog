@@ -95,6 +95,16 @@ writing SQL or validation in `crates/solilog`, move it to core.
   number). It only tracks progress (`Issue::checklist_progress`, shown as
   `done/total` in the list): unchecked items never prevent closing an issue.
   New items go last; `Db::move_checklist_item` reorders within one checklist.
+- **Revision**: the text of an issue's title, description or checklist
+  item before it was overwritten, or an item before it was deleted
+  (`revision.rs`): full copies, saved by the core write methods, so the GUI
+  and the CLI both get them. A field gets no new revision while its last is
+  under 10 minutes old, unless the edit is destructive (loses half the text
+  or 200 characters); each new one thins out the field's older ones (the
+  `thinning.rs` helper backups use too). `Db::restore_revision` saves the
+  current text first; a deleted item comes back with its id (checklist item
+  ids are never reused) where it was. Deleting an issue deletes its
+  revisions; archiving keeps them.
 - **Attachment**: a file copied into the attachments directory next to the
   database (`solilog.db` → `solilog-attachments/SOL-12/<name>`; see
   `attachments_dir_for`), so the database and that directory move together.

@@ -28,6 +28,13 @@ the scheme in AGENTS.md ("Versions and releases").
   status (click to change it) and how many of its issues are closed.
 - A project's default labels can be added and removed in the app: in the
   project header, or with "Project: Add Label" and "Project: Remove Label".
+- An issue keeps the earlier text of its title, description and checklist
+  items (deleted items too), whether changed in the app or from the command
+  line, so text overwritten by mistake can be brought back: `shift-h` (or
+  "Issue: Show History") in the app, `solilog issue history` and
+  `solilog issue restore` on the command line. Edits less than 10 minutes
+  apart share one revision, except edits that remove much of the text;
+  older revisions are thinned out over time.
 - A project's description is in its header, edited in place and saved as
   you type, like an issue's ("Project: Edit Description"). A long one shows
   its first lines until you edit it.

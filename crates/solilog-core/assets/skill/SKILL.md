@@ -42,6 +42,10 @@ This file covers the workflows. For commands and flags, run
   sublabels. Look at `solilog label ls` and `solilog project ls` before
   inventing new ones.
 - Deleting an issue is permanent; prefer `issue archive`.
+- Overwriting a title, description or checklist item keeps the old text:
+  if you replaced or deleted something by mistake, find it with
+  `solilog issue history SOL-12` and put it back with
+  `solilog issue restore SOL-12 <revision>`. Tell the user when you do.
 
 ## Safety
 
