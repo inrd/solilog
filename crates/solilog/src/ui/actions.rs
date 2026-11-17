@@ -159,6 +159,17 @@ pub mod project {
     use serde::Deserialize;
     use solilog_core::ProjectStatus;
 
+    /// Create a project (active, without labels) and show it. Without a
+    /// `name`, asks for one. The + next to the sidebar's Projects heading
+    /// does this.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct Create {
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+
     /// Rename a project. Without a `new_name`, asks for one.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
     #[action(namespace = project)]

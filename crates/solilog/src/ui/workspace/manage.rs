@@ -10,7 +10,8 @@ use gpui::{
     Action, AppContext as _, Context, IntoElement, Pixels, Point, Styled as _, Window, div, px, rgb,
 };
 use solilog_core::{
-    IssueFilter, LabelColor, ProjectStatus, ProjectUpdate, label_matches, renamed_label,
+    IssueFilter, LabelColor, NewProject, ProjectStatus, ProjectUpdate, label_matches,
+    renamed_label,
 };
 
 use super::scope::Source;
@@ -407,6 +408,36 @@ impl Workspace {
     }
 
     // ---- projects -------------------------------------------------------------
+
+    pub(super) fn on_create_project(
+        &mut self,
+        action: &project::Create,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = &action.name else {
+            let picker = cx.new(|cx| {
+                Picker::new("New project name…", Vec::new(), 0, cx).creatable("Create project")
+            });
+            let create: CreateAction =
+                Box::new(|name| Box::new(project::Create { name: Some(name) }));
+            return self.open_modal(
+                picker,
+                |picker| Modal::ActionPicker {
+                    picker,
+                    actions: Vec::new(),
+                    create: Some(create),
+                },
+                window,
+                cx,
+            );
+        };
+        let created = self
+            .db
+            .create_project(&NewProject::new(name.clone()))
+            .map(|p| Source::Project(p.name));
+        self.show(created, cx);
+    }
 
     pub(super) fn on_rename_project(
         &mut self,

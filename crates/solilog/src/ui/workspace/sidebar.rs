@@ -116,7 +116,8 @@ impl Render for DraggedRow {
 
 /// A rendered row: a section heading or an item.
 enum Row {
-    Heading(&'static str),
+    /// A section heading, with a button on the right that runs the action.
+    Heading(&'static str, Option<Box<dyn Action>>),
     Item {
         item: SidebarItem,
         label: SharedString,
@@ -155,7 +156,7 @@ impl Workspace {
             collapsed: None,
         }];
         if !self.views.is_empty() {
-            rows.push(Row::Heading("Views"));
+            rows.push(Row::Heading("Views", None));
             rows.extend(self.views.iter().map(|v| Row::Item {
                 item: SidebarItem::View(v.name.clone()),
                 label: v.name.clone().into(),
@@ -168,62 +169,64 @@ impl Workspace {
             }));
         }
 
-        if self.sidebar_projects().next().is_some() {
-            rows.push(Row::Heading("Projects"));
-            let project_row = |p: &solilog_core::Project| Row::Item {
-                item: SidebarItem::Project(p.name.clone()),
-                label: p.name.clone().into(),
+        // Always there, for its button that creates a project.
+        rows.push(Row::Heading(
+            "Projects",
+            Some(Box::new(project::Create::default())),
+        ));
+        let project_row = |p: &solilog_core::Project| Row::Item {
+            item: SidebarItem::Project(p.name.clone()),
+            label: p.name.clone().into(),
+            depth: 0,
+            count: self.open_count(&Source::Project(p.name.clone()).filter()),
+            trailing: None,
+            status: Some(p.status),
+            color: None,
+            collapsed: None,
+        };
+        let (closed, open): (Vec<_>, Vec<_>) =
+            self.sidebar_projects().partition(|p| p.status.is_closed());
+        rows.extend(open.into_iter().map(project_row));
+        if !closed.is_empty() {
+            rows.push(Row::Item {
+                item: SidebarItem::ClosedProjects,
+                label: format!("Done ({})", closed.len()).into(),
                 depth: 0,
-                count: self.open_count(&Source::Project(p.name.clone()).filter()),
-                trailing: None,
-                status: Some(p.status),
+                count: 0,
+                trailing: Some(if self.show_closed_projects {
+                    "▾"
+                } else {
+                    "▸"
+                }),
+                status: None,
                 color: None,
                 collapsed: None,
-            };
-            let (closed, open): (Vec<_>, Vec<_>) =
-                self.sidebar_projects().partition(|p| p.status.is_closed());
-            rows.extend(open.into_iter().map(project_row));
-            if !closed.is_empty() {
-                rows.push(Row::Item {
-                    item: SidebarItem::ClosedProjects,
-                    label: format!("Done ({})", closed.len()).into(),
-                    depth: 0,
-                    count: 0,
-                    trailing: Some(if self.show_closed_projects {
-                        "▾"
-                    } else {
-                        "▸"
-                    }),
-                    status: None,
-                    color: None,
-                    collapsed: None,
-                });
-                if self.show_closed_projects {
-                    rows.extend(closed.into_iter().map(|p| match project_row(p) {
-                        Row::Item {
-                            item,
-                            label,
-                            count,
-                            status,
-                            ..
-                        } => Row::Item {
-                            item,
-                            label,
-                            depth: 1,
-                            count,
-                            trailing: None,
-                            status,
-                            color: None,
-                            collapsed: None,
-                        },
-                        heading => heading,
-                    }));
-                }
+            });
+            if self.show_closed_projects {
+                rows.extend(closed.into_iter().map(|p| match project_row(p) {
+                    Row::Item {
+                        item,
+                        label,
+                        count,
+                        status,
+                        ..
+                    } => Row::Item {
+                        item,
+                        label,
+                        depth: 1,
+                        count,
+                        trailing: None,
+                        status,
+                        color: None,
+                        collapsed: None,
+                    },
+                    heading => heading,
+                }));
             }
         }
 
         if !self.labels.is_empty() {
-            rows.push(Row::Heading("Labels"));
+            rows.push(Row::Heading("Labels", None));
             let labels = self.labels.iter().enumerate();
             rows.extend(
                 labels
@@ -302,7 +305,7 @@ impl Workspace {
             .into_iter()
             .filter_map(|row| match row {
                 Row::Item { item, .. } => Some(item),
-                Row::Heading(_) => None,
+                Row::Heading(..) => None,
             })
             .collect()
     }
@@ -618,14 +621,20 @@ impl Workspace {
             .into_iter()
             .enumerate()
             .map(|(ix, row)| match row {
-                Row::Heading(text) => div()
-                    .px_3()
+                Row::Heading(text, action) => div()
+                    .flex()
+                    .items_center()
+                    .pl_3()
+                    .pr_2()
                     .pt_3()
                     .pb_1()
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(theme::TEXT_MUTED))
-                    .child(text.to_uppercase())
+                    .child(div().flex_1().child(text.to_uppercase()))
+                    .when_some(action, |s, action| {
+                        s.child(heading_button(ix, action, cx))
+                    })
                     .into_any_element(),
                 Row::Item {
                     item,
@@ -745,4 +754,31 @@ impl Workspace {
                 .children(rows),
         )
     }
+}
+
+/// The button of a section heading (e.g. + to create a project).
+fn heading_button(
+    ix: usize,
+    action: Box<dyn Action>,
+    cx: &mut Context<Workspace>,
+) -> impl IntoElement + use<> {
+    div()
+        .id(("sidebar-heading-button", ix))
+        .flex_none()
+        .size(px(16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(theme::HOVER)))
+        .child(
+            gpui::svg()
+                .path(assets::PLUS)
+                .size(px(12.))
+                .text_color(rgb(theme::TEXT_MUTED)),
+        )
+        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+            window.dispatch_action(action.boxed_clone(), cx);
+        }))
 }

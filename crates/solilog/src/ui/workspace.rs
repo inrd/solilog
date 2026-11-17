@@ -1726,6 +1726,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_revert_view))
             .on_action(cx.listener(Self::on_rename_view))
             .on_action(cx.listener(Self::on_delete_view))
+            .on_action(cx.listener(Self::on_create_project))
             .on_action(cx.listener(Self::on_rename_project))
             .on_action(cx.listener(Self::on_set_project_status))
             .on_action(cx.listener(Self::on_delete_project))

@@ -22,6 +22,8 @@ the scheme in AGENTS.md ("Versions and releases").
   a paste, a cut or deleting a selection is a step of its own. Switching to
   another issue, or a change made elsewhere (e.g. from the command line),
   starts a new history.
+- "Project: Create" in the command palette, and a + next to the sidebar's
+  Projects heading, create a project and show it.
 
 ### Fixed
 
