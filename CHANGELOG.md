@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-17
+
 ### Added
 
 - Before a new version upgrades the database, it backs it up ("before
