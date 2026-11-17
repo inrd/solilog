@@ -18,6 +18,11 @@ the scheme in AGENTS.md ("Versions and releases").
   an older version installed it (and says so in the footer). It doesn't
   install the skill where it isn't, or touch a skill Solilog didn't write.
 
+### Fixed
+
+- Linux (Wayland): the window has a title, so GNOME's window list
+  shows "Solilog" instead of an empty name.
+
 ## [0.1.0] - 2026-11-15
 
 ### Added

@@ -54,6 +54,8 @@ pub fn run(db: Db) -> Result<()> {
                     ..Default::default()
                 },
                 |window, cx| {
+                    // gpui ignores `TitlebarOptions::title` on Wayland.
+                    window.set_window_title(APP_NAME);
                     let workspace = cx.new(|cx| Workspace::new(db, window, cx));
                     cx.new(|_| WindowFrame::new(workspace))
                 },
