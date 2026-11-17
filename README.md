@@ -99,6 +99,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `l` / `shift-l` | Add / remove a label |
 | `p` / `shift-p` | Add to / remove from a project |
 | `y` | Copy the issue id (`SOL-12`) |
+| `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
 | `z` / `shift-z` | Collapse or expand a status section (or click its header) / expand all sections |
 

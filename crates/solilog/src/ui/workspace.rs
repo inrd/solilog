@@ -11,6 +11,7 @@ mod chip_row;
 mod cli_install;
 mod detail;
 mod filter;
+mod history;
 mod manage;
 mod project_header;
 mod scope;
@@ -27,7 +28,7 @@ use gpui::{
 };
 use solilog_core::{
     Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement, Project,
-    Status, View,
+    RevisionId, Status, View,
 };
 
 use super::actions::{
@@ -73,6 +74,11 @@ enum Modal {
         actions: Vec<Box<dyn Action>>,
         /// Builds the action for the "Create …" row from the typed text.
         create: Option<CreateAction>,
+    },
+    /// An issue's revisions (see `history.rs`).
+    History {
+        picker: Entity<Picker>,
+        revisions: Vec<RevisionId>,
     },
     /// The actions of a sidebar row or archived item.
     ContextMenu {
@@ -145,6 +151,7 @@ impl Modal {
             | Modal::StatusPicker { picker, .. }
             | Modal::Relation { picker, .. }
             | Modal::ActionPicker { picker, .. }
+            | Modal::History { picker, .. }
             | Modal::ContextMenu { picker, .. } => picker,
         }
     }
@@ -538,6 +545,9 @@ impl Workspace {
             ) => {
                 window.dispatch_action(create(text.clone()), cx);
             }
+            (Modal::History { revisions, .. }, PickerEvent::Confirmed(ix)) => {
+                self.restore_revision(revisions[*ix], cx);
+            }
             (_, PickerEvent::Create(_)) => {}
         }
     }
@@ -903,6 +913,9 @@ impl Workspace {
             "Copy IDs"
         };
         entries.push((copy, Box::new(issue::CopyId)));
+        if issues.len() == 1 {
+            entries.push(("History…", Box::new(issue::ShowHistory)));
+        }
         entries.push(("Set Status…", Box::new(SetStatus::default())));
         entries.push(("Add Label…", Box::new(AddLabel::default())));
         if issues.iter().any(|i| !i.labels.is_empty()) {
@@ -1707,6 +1720,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_edit_issue))
             .on_action(cx.listener(Self::on_open_issue))
             .on_action(cx.listener(Self::on_copy_issue_id))
+            .on_action(cx.listener(Self::on_show_history))
             .on_action(cx.listener(Self::on_open_url))
             .on_action(cx.listener(Self::on_add_checklist_item))
             .on_action(cx.listener(Self::on_add_label))

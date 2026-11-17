@@ -368,6 +368,10 @@ pub mod issue {
             /// Copy the ids of the selected issues (`SOL-12`). In a
             /// description, an issue id links to that issue.
             CopyId,
+            /// Show the earlier text of the issue (titles, descriptions and
+            /// checklist items, deleted items too) and restore one. The
+            /// current text is saved first, so a restore can be undone.
+            ShowHistory,
         ]
     );
 
