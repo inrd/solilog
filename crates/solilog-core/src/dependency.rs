@@ -104,6 +104,25 @@ impl Db {
         Ok(())
     }
 
+    /// The issues that can't become a dependency of every one of `ids`:
+    /// `ids` themselves and the issues that depend on one of them, directly
+    /// or through other issues (that would make a cycle). Sorted.
+    pub fn cannot_depend_on(&self, ids: &[IssueId]) -> Result<Vec<IssueId>> {
+        let mut stmt = self.conn.prepare_cached(
+            "WITH RECURSIVE reach (id) AS (
+                 SELECT value FROM json_each(?1)
+                 UNION
+                 SELECT d.issue_id FROM issue_dependencies d JOIN reach r ON d.depends_on_id = r.id
+             )
+             SELECT id FROM reach ORDER BY id",
+        )?;
+        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())?;
+        let found = stmt
+            .query_map([ids], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(found)
+    }
+
     /// How `from` depends on `to`, directly or through other issues
     /// (`SOL-1 → SOL-2 → SOL-3`), or `None` if it doesn't.
     fn dependency_path(&self, from: IssueId, to: IssueId) -> Result<Option<String>> {
@@ -209,6 +228,13 @@ mod tests {
         assert!(db.get_issue(d).unwrap().depends_on.is_empty());
         assert!(add(d, &[b, d]).is_err());
         assert!(db.get_issue(d).unwrap().depends_on.is_empty());
+
+        // What a picker should leave out (a → b → c): the issues and those
+        // depending on them, directly or not.
+        assert_eq!(db.cannot_depend_on(&[c]).unwrap(), [a, b, c]);
+        assert_eq!(db.cannot_depend_on(&[b, d]).unwrap(), [a, b, d]);
+        assert_eq!(db.cannot_depend_on(&[a]).unwrap(), [a]);
+        assert!(db.cannot_depend_on(&[]).unwrap().is_empty());
     }
 
     #[test]

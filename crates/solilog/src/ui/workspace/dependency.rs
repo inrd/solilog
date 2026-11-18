@@ -42,12 +42,17 @@ impl Workspace {
         match action.on {
             Some(on) => self.update_issues(&ids, IssueChange::AddDependencies(vec![on]), cx),
             None => {
-                // Every listed issue but the targets and those they all
-                // depend on already; open ones first.
+                // Every listed issue but those that would be refused (the
+                // targets and the issues depending on them, which would
+                // make a cycle) and those they all depend on already; open
+                // ones first.
+                let Some(excluded) = self.report(self.db.cannot_depend_on(&ids), cx) else {
+                    return;
+                };
                 let mut candidates: Vec<&Issue> = self
                     .all_issues
                     .iter()
-                    .filter(|i| !ids.contains(&i.id))
+                    .filter(|i| excluded.binary_search(&i.id).is_err())
                     .filter(|i| !issues.iter().all(|t| t.depends_on.contains(&i.id)))
                     .collect();
                 candidates.sort_by_key(|i| i.status.is_closed());
