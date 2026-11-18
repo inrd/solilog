@@ -17,6 +17,11 @@ the scheme in AGENTS.md ("Versions and releases").
   `--waiting`). Nothing changes a status by itself, and a cycle of
   dependencies is refused.
 
+### Fixed
+
+- The end of a long description no longer runs into the sections below it
+  (attachments, checklist) when the window is wider than the issue's text.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added

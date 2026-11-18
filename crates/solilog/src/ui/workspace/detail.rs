@@ -446,7 +446,8 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap_3()
-            .w_full()
+            .flex_1()
+            .min_w_0()
             .max_w(px(760.))
             .px_6()
             .py_5()
@@ -523,7 +524,11 @@ impl Workspace {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&detail.scroll)
-                    .child(body),
+                    // In a row, so the body's max width also applies when
+                    // its wrapped text is measured: directly in the scroll
+                    // area, a long description was measured wider than it
+                    // is drawn, too short, and ran into what follows it.
+                    .child(div().flex().w_full().child(body)),
             )
     }
 }
