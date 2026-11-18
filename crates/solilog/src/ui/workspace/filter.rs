@@ -77,6 +77,18 @@ fn criteria(filter: &IssueFilter) -> Vec<Criterion> {
             remove: Box::new(filter::ToggleNoProject),
         });
     }
+    if filter.ready {
+        out.push(Criterion {
+            text: "ready".into(),
+            remove: Box::new(filter::ToggleReady),
+        });
+    }
+    if filter.waiting {
+        out.push(Criterion {
+            text: "waiting".into(),
+            remove: Box::new(filter::ToggleWaiting),
+        });
+    }
     out
 }
 
@@ -276,6 +288,36 @@ impl Workspace {
             |f| {
                 f.no_project = !f.no_project;
                 f.projects.clear();
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn on_toggle_ready(
+        &mut self,
+        _: &filter::ToggleReady,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_filter(
+            |f| {
+                f.ready = !f.ready;
+                f.waiting = false;
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn on_toggle_waiting(
+        &mut self,
+        _: &filter::ToggleWaiting,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_filter(
+            |f| {
+                f.waiting = !f.waiting;
+                f.ready = false;
             },
             cx,
         );

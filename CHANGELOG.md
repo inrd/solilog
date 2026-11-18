@@ -6,6 +6,17 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- Dependencies between issues: an issue can depend on others that must be
+  finished first ("Issue: Add Dependency", `b`; `shift-b` removes one;
+  `solilog issue add-dependency SOL-12 SOL-7`). An open issue is waiting
+  while one of them is open (a clock in the list), and ready once none is.
+  The open issue lists what it depends on and what depends on it. Filter
+  by "ready" (`f t`, `issue ls --ready`) or "waiting" (`f w`,
+  `--waiting`). Nothing changes a status by itself, and a cycle of
+  dependencies is refused.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added

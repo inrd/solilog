@@ -9,6 +9,7 @@ mod archive;
 mod backup;
 mod chip_row;
 mod cli_install;
+mod dependency;
 mod detail;
 mod filter;
 mod history;
@@ -74,6 +75,15 @@ enum Modal {
         actions: Vec<Box<dyn Action>>,
         /// Builds the action for the "Create …" row from the typed text.
         create: Option<CreateAction>,
+    },
+    /// Issues to add as dependencies of the target issues, or to remove
+    /// (see `dependency.rs`).
+    Dependency {
+        picker: Entity<Picker>,
+        issue_ids: Vec<IssueId>,
+        add: bool,
+        /// Issues, by picker index.
+        on: Vec<IssueId>,
     },
     /// An issue's revisions (see `history.rs`).
     History {
@@ -150,6 +160,7 @@ impl Modal {
             Modal::CommandPalette { picker, .. }
             | Modal::StatusPicker { picker, .. }
             | Modal::Relation { picker, .. }
+            | Modal::Dependency { picker, .. }
             | Modal::ActionPicker { picker, .. }
             | Modal::History { picker, .. }
             | Modal::ContextMenu { picker, .. } => picker,
@@ -545,6 +556,14 @@ impl Workspace {
             ) => {
                 window.dispatch_action(create(text.clone()), cx);
             }
+            (
+                Modal::Dependency {
+                    issue_ids, add, on, ..
+                },
+                PickerEvent::Confirmed(ix),
+            ) => {
+                self.apply_dependency(add, &issue_ids, on[*ix], cx);
+            }
             (Modal::History { revisions, .. }, PickerEvent::Confirmed(ix)) => {
                 self.restore_revision(revisions[*ix], cx);
             }
@@ -926,6 +945,13 @@ impl Workspace {
             entries.push((
                 "Remove from Project…",
                 Box::new(RemoveFromProject::default()),
+            ));
+        }
+        entries.push(("Add Dependency…", Box::new(issue::AddDependency::default())));
+        if issues.iter().any(|i| !i.depends_on.is_empty()) {
+            entries.push((
+                "Remove Dependency…",
+                Box::new(issue::RemoveDependency::default()),
             ));
         }
         entries.push(("Archive", Box::new(issue::Archive)));
@@ -1391,6 +1417,9 @@ impl Workspace {
                     .checklist_progress()
                     .map(|(done, total)| checklist_badge(done, total)),
             )
+            .when(issue.is_waiting(), |row| {
+                row.child(waiting_badge(issue.waiting_on.len()))
+            })
             .child(self.issue_chips(issue))
     }
 
@@ -1554,6 +1583,25 @@ fn attachments_icon() -> impl IntoElement {
         .flex_none()
         .size(px(13.))
         .text_color(rgb(theme::TEXT_MUTED))
+}
+
+/// Shown in the list for waiting issues: how many of the issues they
+/// depend on are still open.
+fn waiting_badge(open: usize) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .text_size(px(12.))
+        .text_color(rgb(theme::TEXT_MUTED))
+        .child(
+            svg()
+                .path(super::assets::CLOCK)
+                .size(px(12.))
+                .text_color(rgb(theme::TEXT_MUTED)),
+        )
+        .child(open.to_string())
 }
 
 /// Checklist progress of an issue in the list: done/total items.
@@ -1727,6 +1775,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))
             .on_action(cx.listener(Self::on_remove_from_project))
+            .on_action(cx.listener(Self::on_add_dependency))
+            .on_action(cx.listener(Self::on_remove_dependency))
             .on_action(cx.listener(Self::on_open_view))
             .on_action(cx.listener(Self::on_show_all))
             .on_action(cx.listener(Self::on_open_project))
@@ -1741,6 +1791,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_toggle_status_filter))
             .on_action(cx.listener(Self::on_toggle_open_only))
             .on_action(cx.listener(Self::on_toggle_no_project))
+            .on_action(cx.listener(Self::on_toggle_ready))
+            .on_action(cx.listener(Self::on_toggle_waiting))
             .on_action(cx.listener(Self::on_clear_filter))
             .on_action(cx.listener(Self::on_all_statuses))
             .on_action(cx.listener(Self::on_save_view))

@@ -40,6 +40,8 @@ s issue archive SOL-3
 s label color web teal
 s label collapse web
 s view save "Open web" --open -l web
+# Dependencies (0.3.0+): the post waits for the header fix.
+s issue add-dependency SOL-1 SOL-2
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

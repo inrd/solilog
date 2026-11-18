@@ -26,6 +26,12 @@ pub struct IssueFilter {
     pub projects: Vec<String>,
     /// The issue is in no project. Incompatible with `projects`.
     pub no_project: bool,
+    /// The issue is open and has no open dependency (see
+    /// [`Issue::is_ready`]). Incompatible with `waiting`.
+    pub ready: bool,
+    /// The issue is open and has open dependencies (see
+    /// [`Issue::is_waiting`]).
+    pub waiting: bool,
 }
 
 impl IssueFilter {
@@ -43,6 +49,8 @@ impl IssueFilter {
                     .iter()
                     .any(|p| issue.projects.iter().any(|ip| ip.eq_ignore_ascii_case(p))))
             && (!self.no_project || issue.projects.is_empty())
+            && (!self.ready || issue.is_ready())
+            && (!self.waiting || issue.is_waiting())
     }
 
     /// Follows the rename of label `old` (with its sublabels) to `new`.
@@ -76,7 +84,7 @@ impl IssueFilter {
 }
 
 /// One-line summary: `open, status: todo|blocked, label: acme & bug, not: x,
-/// project: a|b`, or `all issues`.
+/// project: a|b, ready`, or `all issues`.
 impl fmt::Display for IssueFilter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
@@ -96,6 +104,12 @@ impl fmt::Display for IssueFilter {
         }
         if self.no_project {
             parts.push("no project".to_string());
+        }
+        if self.ready {
+            parts.push("ready".to_string());
+        }
+        if self.waiting {
+            parts.push("waiting".to_string());
         }
         if parts.is_empty() {
             f.write_str("all issues")

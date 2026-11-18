@@ -93,9 +93,26 @@ pub struct Issue {
     pub checklist: Vec<ChecklistItem>,
     /// Attached files, in the order they were added.
     pub attachments: Vec<Attachment>,
+    /// The issues this one depends on (to be done first), sorted.
+    pub depends_on: Vec<IssueId>,
+    /// The issues that depend on this one, sorted.
+    pub dependents: Vec<IssueId>,
+    /// The issues of `depends_on` that are still open (not done or
+    /// cancelled), archived or not.
+    pub waiting_on: Vec<IssueId>,
 }
 
 impl Issue {
+    /// Open, with dependencies still open.
+    pub fn is_waiting(&self) -> bool {
+        !self.status.is_closed() && !self.waiting_on.is_empty()
+    }
+
+    /// Open, without dependencies still open: it can be started.
+    pub fn is_ready(&self) -> bool {
+        !self.status.is_closed() && self.waiting_on.is_empty()
+    }
+
     /// Done and total checklist items, or `None` without a checklist.
     pub fn checklist_progress(&self) -> Option<(usize, usize)> {
         checklist_progress(&self.checklist)
@@ -169,6 +186,11 @@ pub enum IssueChange {
     AddToProjects(Vec<String>),
     /// Project names; issues keep their labels.
     RemoveFromProjects(Vec<String>),
+    /// Issues to depend on; existing dependencies are kept. Unknown
+    /// issues, an issue depending on itself and cycles are errors.
+    AddDependencies(Vec<IssueId>),
+    /// Issues to no longer depend on; missing dependencies are ignored.
+    RemoveDependencies(Vec<IssueId>),
 }
 
 /// Changes to the fields of one issue, for

@@ -56,6 +56,9 @@ fn every_release_upgrades() {
         if before >= REVISIONS_SCHEMA {
             check_revisions(&db);
         }
+        if before >= DEPENDENCIES_SCHEMA {
+            check_dependencies(&db);
+        }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
             .list_backups()
@@ -167,6 +170,17 @@ fn check_revisions(db: &Db) {
         .add_checklist_items(IssueId(1), &["Publish".into()])
         .unwrap();
     assert!(issue.checklist.iter().all(|i| i.id.0 != 3));
+}
+
+/// The first schema version with dependencies.
+const DEPENDENCIES_SCHEMA: i64 = 18;
+
+/// What `scripts/upgrade-fixture.sh` puts in since dependencies exist.
+fn check_dependencies(db: &Db) {
+    let post = db.get_issue(IssueId(1)).unwrap();
+    assert_eq!(post.depends_on, [IssueId(2)]);
+    assert_eq!(post.waiting_on, [IssueId(2)]);
+    assert_eq!(db.get_issue(IssueId(2)).unwrap().dependents, [IssueId(1)]);
 }
 
 fn temp_dir(name: &str) -> PathBuf {

@@ -8,6 +8,7 @@ mod backup;
 mod checklist;
 mod cli_link;
 mod db;
+mod dependency;
 mod filter;
 mod issue;
 mod label;

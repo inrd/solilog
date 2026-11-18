@@ -146,6 +146,15 @@ writing SQL or validation in `crates/solilog`, move it to core.
   the current ones). The id is in backup file names: a shared directory
   (a synced folder) can hold other databases' backups, which are listed and
   restorable but never thinned out or moved. Restoring backs up first.
+- **Dependency**: an issue depends on others (work to finish first;
+  `dependency.rs`, `Db::add_dependencies`): `Issue::depends_on`, with the
+  reverse in `dependents` and the open ones in `waiting_on`. No issue
+  depends on itself, and dependencies never form a cycle (refused). An
+  open issue is *waiting* while one of its dependencies is open (archived
+  ones too: archiving isn't closing), *ready* otherwise
+  (`IssueFilter::ready` / `waiting`). Informational only: nothing changes
+  a status by itself, and closing an issue with open dependencies is
+  allowed. Deleting an issue drops its links both ways.
 - **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
   must match), labels to exclude, projects (any may match) or no project).
   Renaming a label or project updates views; deleting one makes the views

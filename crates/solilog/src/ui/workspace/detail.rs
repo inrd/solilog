@@ -1,6 +1,6 @@
 //! The issue detail: one issue, in place of the issue list (or the archive),
-//! with its title, description and checklist editable in place, and its
-//! attachments. Opened with
+//! with its title, description and checklist editable in place, its
+//! attachments and its dependencies. Opened with
 //! `issue::Open` (Enter or double click in the list), left with
 //! `issue_detail::Close` (Escape).
 //!
@@ -16,6 +16,7 @@
 
 mod attachments;
 mod checklist;
+mod dependencies;
 mod preview;
 
 use std::ops::Range;
@@ -477,6 +478,7 @@ impl Workspace {
                     .child(detail.description.clone()),
             )
             .child(self.render_attachments(detail))
+            .child(self.render_dependencies(detail))
             .child(self.render_checklist(detail, cx));
 
         div()

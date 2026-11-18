@@ -72,4 +72,8 @@ issue in_progress 2 "Sync conflicts lose the newest edit" -l bug -p "Offline mod
 
 Needed before SOL-7." # "Self-hosted sync server", the 7th issue created
 
+# Issue numbers follow the creation order above.
+q issue add-dependency 7 16  # the sync server needs "Sync conflicts…"
+q issue add-dependency 9 14 8  # the announcement waits for search and the review
+
 q statuses collapse backlog

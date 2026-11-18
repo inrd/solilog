@@ -24,7 +24,9 @@ This file covers the workflows. For commands and flags, run
 ## Working on an issue
 
 1. Read it first: `solilog issue show SOL-12 --json` (description, status,
-   labels, projects, checklist, attachments with their file paths).
+   labels, projects, checklist, attachments with their file paths,
+   dependencies). If `waiting_on` isn't empty, issues it depends on are
+   still open: tell the user before starting.
 2. When you start: `solilog issue set-status SOL-12 in_progress`
    (`solilog statuses` lists the keys).
 3. Tick checklist items as you finish them: `solilog checklist check <id>`.
@@ -33,11 +35,18 @@ This file covers the workflows. For commands and flags, run
 4. Keep the status true (`blocked` if you are stuck), but ask the user
    before setting `done` or `cancelled`.
 
+To suggest what to work on next, start from `solilog issue ls --ready`:
+open issues with nothing open to wait for.
+
 ## Writing
 
 - New issue: `solilog issue create "Title" -d - -l <label> -i "<item>"`
   (`-` reads text from stdin). Every write prints the resulting issue.
 - Writing `SOL-n` in a description links to that issue.
+- When an issue needs another finished first, record it:
+  `solilog issue add-dependency SOL-12 SOL-7` (SOL-12 depends on SOL-7),
+  rather than only saying so in the description. Nothing changes a status
+  by itself.
 - Labels are paths (`acme/reverb`); filtering by `acme` also matches its
   sublabels. Look at `solilog label ls` and `solilog project ls` before
   inventing new ones.

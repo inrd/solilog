@@ -34,6 +34,8 @@ solilog checklist check 1                  # item ids are shown by `issue show`
 solilog attachment add SOL-1 crash.log     # copied next to the database
 solilog issue create "Crash on load" -l acme/reverb -l bug
 solilog issue ls -l acme                   # also matches sublabels like acme/reverb
+solilog issue add-dependency SOL-3 SOL-1   # SOL-3 depends on SOL-1
+solilog issue ls --ready                   # open issues with nothing open to wait for
 solilog label ls
 solilog project create "Reverb v1.1" -l acme/reverb
 solilog issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
@@ -98,6 +100,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `s` | Set status |
 | `l` / `shift-l` | Add / remove a label |
 | `p` / `shift-p` | Add to / remove from a project |
+| `b` / `shift-b` | Add / remove a dependency (an issue to finish first) |
 | `y` | Copy the issue id (`SOL-12`) |
 | `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
@@ -118,6 +121,8 @@ Title, description and checklist are edited in place and saved as you type. `Esc
 
 An issue id in the description (`SOL-12`) links to that issue and shows its title; a web address (`https://…`) links to that page. Click a link to open it (the issue, or the page in your browser); while editing, `cmd`-click it or press `alt-enter` with the cursor on it.
 
+The issues it depends on, and those that depend on it, are listed under "Dependencies": click one to open it. An issue is *waiting* (a clock in the list, with the number of open dependencies) until every issue it depends on is done or cancelled; nothing changes its status by itself.
+
 To delete a checklist item, empty it. Files dropped on the issue, or pasted with `cmd-v` (screenshots too), become attachments. Click an image to preview it (`←` / `→` for the issue's other images, `r` to show it in the file manager); other files open in the file manager.
 
 ### Filters and views
@@ -128,6 +133,7 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 |---|---|
 | `l` / `x` | By label / excluding a label |
 | `p` / `n` | By project / issues in no project |
+| `t` / `w` | Ready to start / waiting on an open dependency |
 | `s` | By status |
 | `o` / `a` | Open issues only / all statuses |
 | `c` / `r` | Clear / revert to the saved view |

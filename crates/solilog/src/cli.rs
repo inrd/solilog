@@ -313,6 +313,26 @@ pub enum IssueCommand {
         #[arg(required = true)]
         projects: Vec<String>,
     },
+    /// Make an issue depend on other issues (work to finish first) and
+    /// print it.
+    ///
+    /// Example: `solilog issue add-dependency SOL-12 SOL-7 SOL-9` (SOL-12
+    /// depends on SOL-7 and SOL-9). The issue is "waiting" while one of
+    /// them is open (not done or cancelled), "ready" once none is: see
+    /// `issue list --ready`. Nothing changes a status by itself. An issue
+    /// can't depend on itself, and dependencies can't form a cycle.
+    AddDependency {
+        id: IssueId,
+        /// The issues it depends on.
+        #[arg(required = true)]
+        on: Vec<IssueId>,
+    },
+    /// Make an issue no longer depend on other issues and print it.
+    RemoveDependency {
+        id: IssueId,
+        #[arg(required = true)]
+        on: Vec<IssueId>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -460,6 +480,13 @@ pub struct FilterArgs {
     /// Only issues that are in no project.
     #[arg(long)]
     no_project: bool,
+    /// Only issues that can be started: open, and every issue they depend
+    /// on is done or cancelled (see `issue add-dependency`).
+    #[arg(long, conflicts_with = "waiting")]
+    ready: bool,
+    /// Only open issues that depend on an issue still open.
+    #[arg(long)]
+    waiting: bool,
 }
 
 impl From<FilterArgs> for IssueFilter {
@@ -471,6 +498,8 @@ impl From<FilterArgs> for IssueFilter {
             without_labels: args.without_label,
             projects: args.project,
             no_project: args.no_project,
+            ready: args.ready,
+            waiting: args.waiting,
         }
     }
 }
@@ -700,6 +729,10 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
                 }
                 IssueCommand::RemoveFromProject { id, projects } => {
                     out.issue(&db.remove_from_projects(id, &projects)?)
+                }
+                IssueCommand::AddDependency { id, on } => out.issue(&db.add_dependencies(id, &on)?),
+                IssueCommand::RemoveDependency { id, on } => {
+                    out.issue(&db.remove_dependencies(id, &on)?)
                 }
             }
         }
@@ -1029,6 +1062,27 @@ impl Output {
             if !issue.description.is_empty() {
                 text.push_str(&format!("\n\n{}", issue.description));
             }
+            if !issue.depends_on.is_empty() || !issue.dependents.is_empty() {
+                text.push('\n');
+            }
+            if !issue.depends_on.is_empty() {
+                let deps: Vec<String> = issue
+                    .depends_on
+                    .iter()
+                    .map(|id| {
+                        let state = if issue.waiting_on.contains(id) {
+                            "open"
+                        } else {
+                            "closed"
+                        };
+                        format!("{id} ({state})")
+                    })
+                    .collect();
+                text.push_str(&format!("\nDepends on: {}", deps.join(", ")));
+            }
+            if !issue.dependents.is_empty() {
+                text.push_str(&format!("\nNeeded by: {}", id_list(&issue.dependents)));
+            }
             if !issue.checklist.is_empty() {
                 text.push('\n');
                 for item in &issue.checklist {
@@ -1167,10 +1221,21 @@ fn issue_line(issue: &Issue) -> String {
     if let Some((done, total)) = issue.checklist_progress() {
         line.push_str(&format!("  checklist {done}/{total}"));
     }
+    if issue.is_waiting() {
+        line.push_str(&format!("  waiting on: {}", id_list(&issue.waiting_on)));
+    }
     if issue.archived {
         line.push_str("  (archived)");
     }
     line
+}
+
+/// `SOL-1, SOL-2`.
+fn id_list(ids: &[IssueId]) -> String {
+    ids.iter()
+        .map(IssueId::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Id, age, field, reason and the start of the text.

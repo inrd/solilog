@@ -170,6 +170,14 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     DROP TABLE checklist_items;
     ALTER TABLE checklist_items_new RENAME TO checklist_items;
     CREATE INDEX checklist_items_by_issue ON checklist_items (issue_id, position);",
+    // 18: dependencies between issues (see `dependency.rs`).
+    "CREATE TABLE issue_dependencies (
+        issue_id      INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        depends_on_id INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        PRIMARY KEY (issue_id, depends_on_id),
+        CHECK (issue_id <> depends_on_id)
+    ) WITHOUT ROWID;
+    CREATE INDEX issue_dependencies_by_target ON issue_dependencies (depends_on_id);",
 ];
 
 /// The schema version of a database with every migration applied.
@@ -361,6 +369,7 @@ impl Db {
             issue.checklist = checklists.remove(&issue.id).unwrap_or_default();
             issue.attachments = attachments.remove(&issue.id).unwrap_or_default();
         }
+        self.fill_dependencies(&mut issues, None)?;
         issues.retain(|i| filter.matches(i));
         Ok(issues)
     }
@@ -391,6 +400,7 @@ impl Db {
             .attachments_per_issue(Some(id))?
             .remove(&id)
             .unwrap_or_default();
+        self.fill_dependencies(std::slice::from_mut(&mut issue), Some(id))?;
         Ok(issue)
     }
 
@@ -503,6 +513,8 @@ impl Db {
                 self.get_issue(id)?;
                 self.leave_projects(id, projects)
             }
+            IssueChange::AddDependencies(on) => self.insert_dependencies(id, on),
+            IssueChange::RemoveDependencies(on) => self.delete_dependencies(id, on),
         }
     }
 
@@ -601,6 +613,10 @@ impl Db {
             !filter.no_project || filter.projects.is_empty(),
             "a filter cannot ask for both specific projects and no project"
         );
+        anyhow::ensure!(
+            !(filter.ready && filter.waiting),
+            "a filter cannot ask for both ready and waiting issues"
+        );
         let labels = |names: &[String]| -> Result<Vec<String>> {
             names.iter().map(|n| self.label_name(n)).collect()
         };
@@ -629,6 +645,9 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         projects: Vec::new(),
         checklist: Vec::new(),
         attachments: Vec::new(),
+        depends_on: Vec::new(),
+        dependents: Vec::new(),
+        waiting_on: Vec::new(),
     })
 }
 

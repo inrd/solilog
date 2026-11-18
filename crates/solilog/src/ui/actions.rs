@@ -493,6 +493,30 @@ pub mod issue {
         #[serde(default)]
         pub project: Option<String>,
     }
+
+    /// Make the selected issues depend on another issue (`on`, like
+    /// `SOL-7`): work to finish first. An issue is waiting while an issue it
+    /// depends on is open, ready once none is; nothing changes its status by
+    /// itself. Without `on`, opens an issue picker.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddDependency {
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub on: Option<IssueId>,
+    }
+
+    /// Make the selected issues no longer depend on an issue (`on`, like
+    /// `SOL-7`). Without `on`, opens a picker of their dependencies.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct RemoveDependency {
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub on: Option<IssueId>,
+    }
 }
 
 /// The open issue (see `issue::Open`). Issue commands act on it.
@@ -773,6 +797,12 @@ pub mod filter {
             ToggleOpenOnly,
             /// Show only issues in no project, or drop that criterion.
             ToggleNoProject,
+            /// Show only issues that can be started (open, and every issue
+            /// they depend on is done or cancelled), or drop that criterion.
+            ToggleReady,
+            /// Show only open issues that depend on an issue still open, or
+            /// drop that criterion.
+            ToggleWaiting,
             /// Remove every filter criterion.
             Clear,
             /// Show issues of every status: drops the status and "open only"
