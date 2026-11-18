@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-18
+
 ### Added
 
 - Dependencies between issues: an issue can depend on others that must be
