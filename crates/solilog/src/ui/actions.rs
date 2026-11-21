@@ -372,6 +372,9 @@ pub mod issue {
             /// checklist items, deleted items too) and restore one. The
             /// current text is saved first, so a restore can be undone.
             ShowHistory,
+            /// Mark the selected issues' non-user changes as reviewed. Any
+            /// later non-user write marks them unreviewed again.
+            MarkReviewed,
         ]
     );
 
@@ -707,6 +710,8 @@ pub mod view {
         [
             /// Show all issues (leave the current view).
             ShowAll,
+            /// Show issues with unreviewed non-user changes.
+            ShowUnreviewed,
             /// Save the current filter as a new view, or replace an existing one.
             SaveAs,
             /// Discard unsaved changes to the filter of the current view,
@@ -803,6 +808,9 @@ pub mod filter {
             /// Show only open issues that depend on an issue still open, or
             /// drop that criterion.
             ToggleWaiting,
+            /// Show only issues with unreviewed non-user changes, or drop
+            /// that criterion.
+            ToggleUnreviewed,
             /// Remove every filter criterion.
             Clear,
             /// Show issues of every status: drops the status and "open only"

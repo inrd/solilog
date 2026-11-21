@@ -625,6 +625,15 @@ impl Workspace {
                             })
                             .child(row.input.clone()),
                     )
+                    .when(row.item.author.is_agent(), |s| {
+                        s.child(
+                            div()
+                                .flex_none()
+                                .text_size(px(11.))
+                                .text_color(rgb(theme::TEXT_MUTED))
+                                .child(format!("by {}", row.item.author)),
+                        )
+                    })
                     .child(delete)
             });
 

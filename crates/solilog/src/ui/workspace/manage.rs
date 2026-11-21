@@ -172,7 +172,9 @@ fn menu_entries(item: &SidebarItem) -> Vec<MenuEntry> {
                 ),
             ]
         }
-        SidebarItem::AllIssues | SidebarItem::ClosedProjects => Vec::new(),
+        SidebarItem::AllIssues | SidebarItem::Unreviewed | SidebarItem::ClosedProjects => {
+            Vec::new()
+        }
     }
 }
 
@@ -192,7 +194,9 @@ impl Workspace {
             SidebarItem::View(name) | SidebarItem::Project(name) | SidebarItem::Label(name) => {
                 name.clone()
             }
-            SidebarItem::AllIssues | SidebarItem::ClosedProjects => String::new(),
+            SidebarItem::AllIssues | SidebarItem::Unreviewed | SidebarItem::ClosedProjects => {
+                String::new()
+            }
         };
         let entries = menu_entries(&item);
         self.open_context_menu(

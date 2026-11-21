@@ -9,6 +9,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::activity::Actor;
 use crate::attachment::Attachment;
 use crate::checklist::{ChecklistItem, checklist_progress};
 use crate::db::Db;
@@ -100,6 +101,24 @@ pub struct Issue {
     /// The issues of `depends_on` that are still open (not done or
     /// cancelled), archived or not.
     pub waiting_on: Vec<IssueId>,
+    /// Who created the issue.
+    pub created_by: Actor,
+    /// Who last wrote the current title.
+    pub title_by: Actor,
+    /// Who last wrote the current description.
+    pub description_by: Actor,
+    /// Who made the latest write on the issue.
+    pub updated_by: Actor,
+    /// Unix timestamp (seconds) of the latest write on the issue.
+    pub updated_at: i64,
+    /// Unix timestamp (seconds) when the user last marked this issue reviewed.
+    pub reviewed_at: Option<i64>,
+    /// `true` when non-user writes have happened since this issue was last
+    /// marked reviewed.
+    pub unreviewed: bool,
+    /// Distinct non-user actors with unreviewed writes on this issue, newest
+    /// first.
+    pub unreviewed_actors: Vec<Actor>,
 }
 
 impl Issue {

@@ -26,7 +26,10 @@ use gpui::{
     Action, ClickEvent, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
     IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
 };
-use solilog_core::{Issue, IssueEdit, IssueId, issue_mentions, normalize_description, web_links};
+use solilog_core::{
+    Activity, Issue, IssueEdit, IssueId, format_age, issue_mentions, normalize_description,
+    web_links,
+};
 
 use super::{Workspace, chip, project_chip};
 use crate::ui::actions::{
@@ -48,6 +51,8 @@ pub(super) const AUTOSAVE_DELAY: Duration = Duration::from_millis(800);
 pub(super) struct IssueDetail {
     /// The issue as last read from (or written to) the database.
     issue: Issue,
+    /// Non-user activities since this issue was last marked reviewed, newest first.
+    unreviewed_activities: Vec<Activity>,
     title: Entity<TextInput>,
     description: Entity<TextInput>,
     checklist: Checklist,
@@ -127,8 +132,10 @@ impl Workspace {
         let checklist = Checklist::new(window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
         self.detail = Some(IssueDetail {
             issue,
+            unreviewed_activities,
             title,
             description,
             checklist,
@@ -251,6 +258,7 @@ impl Workspace {
             self.detail = None;
             return;
         };
+        let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
         let Some(detail) = &mut self.detail else {
             return;
         };
@@ -271,6 +279,7 @@ impl Workspace {
                 .update(cx, |input, cx| input.reset_text(text, cx));
         }
         detail.issue = issue;
+        detail.unreviewed_activities = unreviewed_activities;
     }
 
     /// Saves and closes the detail; the caller moves the focus.
@@ -400,6 +409,14 @@ impl Workspace {
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(issue.id.to_string()),
             )
+            .when(issue.title_by.is_agent(), |s| {
+                s.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(rgb(theme::TEXT_MUTED))
+                        .child(format!("by {}", issue.title_by)),
+                )
+            })
             .when(issue.archived, |s| {
                 s.child(chip("archived".into(), theme::TEXT_MUTED))
             })
@@ -442,6 +459,88 @@ impl Workspace {
                 .collect();
         let has_chips = !chips.is_empty();
 
+        let unreviewed_banner = issue.unreviewed.then(|| {
+            const MAX_SHOWN: usize = 5;
+            let focus = focus.clone();
+            let shown = detail.unreviewed_activities.iter().take(MAX_SHOWN);
+            let extra = detail
+                .unreviewed_activities
+                .len()
+                .saturating_sub(MAX_SHOWN);
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .px_3()
+                .py_2()
+                .rounded_sm()
+                .bg(rgb(theme::SURFACE))
+                .border_l_2()
+                .border_color(rgb(theme::ACCENT))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(rgb(theme::ACCENT))
+                                .child("Unreviewed changes"),
+                        )
+                        .child(
+                            div()
+                                .id("detail-mark-reviewed")
+                                .ml_auto()
+                                .px_2()
+                                .py(px(1.))
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(rgb(theme::BORDER))
+                                .text_size(px(12.))
+                                .text_color(rgb(theme::TEXT))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+                                .child("Mark reviewed")
+                                .on_click(move |_: &ClickEvent, window, cx| {
+                                    window.focus(&focus);
+                                    window.dispatch_action(
+                                        issue::MarkReviewed.boxed_clone(),
+                                        cx,
+                                    );
+                                }),
+                        ),
+                )
+                .children(shown.map(|a| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .text_size(px(12.))
+                        .text_color(rgb(theme::TEXT_MUTED))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(rgb(theme::TEXT))
+                                .child(a.actor.to_string()),
+                        )
+                        .child(div().flex_1().min_w_0().truncate().child(a.summary()))
+                        .child(div().flex_none().child(format_age(a.created_at)))
+                }))
+                .when(extra > 0, |s| {
+                    s.child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(rgb(theme::TEXT_MUTED))
+                            .child(format!("+{extra} more")),
+                    )
+                })
+        });
+
+        let agent_description =
+            !issue.description.is_empty() && issue.description_by.is_agent();
+
         let body = div()
             .flex()
             .flex_col()
@@ -469,6 +568,7 @@ impl Workspace {
             .when(has_chips, |s| {
                 s.child(div().flex().flex_wrap().gap_1().children(chips))
             })
+            .children(unreviewed_banner)
             .child(
                 div()
                     .mt_2()
@@ -476,6 +576,23 @@ impl Workspace {
                     .flex_col()
                     .min_h(px(120.))
                     .line_height(px(22.))
+                    .when(agent_description, |s| {
+                        s.pl_3()
+                            .border_l_2()
+                            .border_color(rgb(if issue.unreviewed {
+                                theme::ACCENT
+                            } else {
+                                theme::BORDER
+                            }))
+                            .child(
+                                div()
+                                    .mb_1()
+                                    .text_size(px(11.))
+                                    .line_height(px(16.))
+                                    .text_color(rgb(theme::TEXT_MUTED))
+                                    .child(format!("by {}", issue.description_by)),
+                            )
+                    })
                     .child(detail.description.clone()),
             )
             .child(self.render_attachments(detail))

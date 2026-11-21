@@ -59,6 +59,9 @@ fn every_release_upgrades() {
         if before >= DEPENDENCIES_SCHEMA {
             check_dependencies(&db);
         }
+        if before >= ACTIVITY_SCHEMA {
+            check_activity(&db);
+        }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
             .list_backups()
@@ -181,6 +184,25 @@ fn check_dependencies(db: &Db) {
     assert_eq!(post.depends_on, [IssueId(2)]);
     assert_eq!(post.waiting_on, [IssueId(2)]);
     assert_eq!(db.get_issue(IssueId(2)).unwrap().dependents, [IssueId(1)]);
+}
+
+/// The first schema version with authorship, activity log and review tracking.
+const ACTIVITY_SCHEMA: i64 = 19;
+
+/// What `scripts/upgrade-fixture.sh` puts in since activity tracking exists.
+fn check_activity(db: &Db) {
+    let post = db.get_issue(IssueId(1)).unwrap();
+    assert!(!post.unreviewed);
+    assert!(post.reviewed_at.is_some());
+    assert!(!db.issue_activities(IssueId(1)).unwrap().is_empty());
+
+    let header = db.get_issue(IssueId(2)).unwrap();
+    assert!(header.unreviewed);
+    assert_eq!(header.description_by.as_str(), "claude:fix-header");
+    assert_eq!(
+        header.unreviewed_actors.iter().map(|a| a.as_str()).collect::<Vec<_>>(),
+        ["claude:fix-header"]
+    );
 }
 
 fn temp_dir(name: &str) -> PathBuf {

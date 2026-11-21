@@ -15,10 +15,11 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, ChecklistItemId, Db, Issue,
-    IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue, NewProject, Placement, Project,
-    ProjectStatus, ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange,
-    SkillEnv, SkillState, SkillStatus, Status, View, format_age, format_size, format_utc,
+    Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason,
+    ChecklistItemId, Db, Issue, IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue,
+    NewProject, Placement, Project, ProjectStatus, ProjectUpdate, Revision, RevisionId, SKILL_NAME,
+    SKILL_VERSION, SkillChange, SkillEnv, SkillState, SkillStatus, Status, View, format_age,
+    format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -35,6 +36,11 @@ pub struct Cli {
     /// Print machine-readable JSON instead of text.
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// Who is making this change (e.g. `claude:fix-auth` or `user`).
+    /// Falls back to `$SOLILOG_ACTOR`, then `cli`.
+    #[arg(long, global = true, value_name = "ACTOR")]
+    pub actor: Option<Actor>,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -266,6 +272,17 @@ pub enum IssueCommand {
         /// Revision id, from `issue history`.
         revision: RevisionId,
     },
+    /// List recorded changes on an issue, newest first (creation, edits,
+    /// status, checklist, labels, projects, dependencies, attachments).
+    Activity {
+        id: IssueId,
+        /// Only non-user changes since the issue was last marked reviewed.
+        #[arg(long)]
+        unreviewed: bool,
+    },
+    /// Mark an issue's non-user changes as reviewed and print it. Any later
+    /// non-user write marks it unreviewed again.
+    Review { id: IssueId },
     /// Change an issue's status and print it. The issue goes first in the
     /// order of its new status (unless it already had that status).
     SetStatus { id: IssueId, status: Status },
@@ -488,6 +505,9 @@ pub struct FilterArgs {
     /// Only open issues that depend on an issue still open.
     #[arg(long)]
     waiting: bool,
+    /// Only issues with unreviewed non-user changes.
+    #[arg(long)]
+    unreviewed: bool,
 }
 
 impl From<FilterArgs> for IssueFilter {
@@ -501,6 +521,7 @@ impl From<FilterArgs> for IssueFilter {
             no_project: args.no_project,
             ready: args.ready,
             waiting: args.waiting,
+            unreviewed: args.unreviewed,
         }
     }
 }
@@ -620,9 +641,18 @@ enum KeymapCommand {
 
 pub fn run(cli: Cli, command: Command) -> Result<()> {
     let out = Output { json: cli.json };
+    let actor = match cli.actor {
+        Some(actor) => actor,
+        None => match std::env::var("SOLILOG_ACTOR") {
+            Ok(raw) if !raw.trim().is_empty() => {
+                Actor::parse(&raw).context("parsing SOLILOG_ACTOR")?
+            }
+            _ => Actor::cli(),
+        },
+    };
     let hint_skill = !cli.json && !matches!(command, Command::Skill(_));
     let mut opened = None;
-    let result = run_command(&out, command, &mut opened);
+    let result = run_command(&out, command, actor, &mut opened);
     // Changes made from the CLI (e.g. by agents) are backed up too.
     if let Some(db) = opened
         && result.is_ok()
@@ -652,10 +682,19 @@ fn hint_outdated_skill() {
     }
 }
 
-fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Result<()> {
+fn open_db(opened: &mut Option<Db>, actor: Actor) -> Result<&mut Db> {
+    Ok(opened.insert(Db::open_default()?.with_actor(actor)))
+}
+
+fn run_command(
+    out: &Output,
+    command: Command,
+    actor: Actor,
+    opened: &mut Option<Db>,
+) -> Result<()> {
     match command {
         Command::Issue(cmd) => {
-            let db = &*opened.insert(Db::open_default()?);
+            let db = &*open_db(opened, actor)?;
             match cmd {
                 IssueCommand::List {
                     view,
@@ -714,6 +753,15 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
                     );
                     out.issue(&db.restore_revision(revision)?)
                 }
+                IssueCommand::Activity { id, unreviewed } => {
+                    let activities = if unreviewed {
+                        db.unreviewed_activities(id)?
+                    } else {
+                        db.issue_activities(id)?
+                    };
+                    out.activities(&activities)
+                }
+                IssueCommand::Review { id } => out.issue(&db.mark_issue_reviewed(id)?),
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
                 IssueCommand::Move { id, before, after } => {
                     out.issue(&db.move_issue(id, &Placement::from_options(before, after)?)?)
@@ -738,7 +786,7 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
             }
         }
         Command::Checklist(cmd) => {
-            let db = &*opened.insert(Db::open_default()?);
+            let db = &*open_db(opened, actor)?;
             let issue = match cmd {
                 ChecklistCommand::Add { id, texts } => {
                     let texts = if texts == ["-"] {
@@ -767,7 +815,7 @@ fn run_command(out: &Output, command: Command, opened: &mut Option<Db>) -> Resul
             out.issue(&issue)
         }
         Command::Attachment(cmd) => {
-            let db = &*opened.insert(Db::open_default()?);
+            let db = &*open_db(opened, actor)?;
             match cmd {
                 AttachmentCommand::Add { id, files } => {
                     out.attachments(&db.add_attachments(id, &files)?)
@@ -1112,6 +1160,16 @@ impl Output {
         })
     }
 
+    fn activities(&self, activities: &[Activity]) -> Result<()> {
+        self.print(activities, || {
+            activities
+                .iter()
+                .map(activity_line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
     fn attachment(&self, attachment: &Attachment) -> Result<()> {
         self.print(attachment, || attachment_line(attachment))
     }
@@ -1225,6 +1283,10 @@ fn issue_line(issue: &Issue) -> String {
     if issue.is_waiting() {
         line.push_str(&format!("  waiting on: {}", id_list(&issue.waiting_on)));
     }
+    if issue.unreviewed {
+        let actors: Vec<&str> = issue.unreviewed_actors.iter().map(Actor::as_str).collect();
+        line.push_str(&format!("  unreviewed ({})", actors.join(", ")));
+    }
     if issue.archived {
         line.push_str("  (archived)");
     }
@@ -1239,15 +1301,27 @@ fn id_list(ids: &[IssueId]) -> String {
         .join(", ")
 }
 
-/// Id, age, field, reason and the start of the text.
+/// Id, age, actor, field, reason and the start of the text.
 fn revision_line(revision: &Revision) -> String {
     format!(
-        "{:<4} {:<12} {:<28} {:<14} {}",
+        "{:<4} {:<12} {:<16} {:<28} {:<14} {}",
         revision.id.0,
         format_age(revision.created_at),
+        revision.author,
         revision.field_label(),
         revision.reason.label(),
         revision.preview(60)
+    )
+}
+
+/// Id, age, actor and summary.
+fn activity_line(activity: &Activity) -> String {
+    format!(
+        "{:<4} {:<12} {:<16} {}",
+        activity.id.0,
+        format_age(activity.created_at),
+        activity.actor,
+        activity.summary()
     )
 }
 

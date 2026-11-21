@@ -415,28 +415,46 @@ impl Db {
 
     // ---- helpers ------------------------------------------------------------
 
-    /// Gives an issue labels, creating missing ones. Call inside a transaction.
-    pub(crate) fn attach_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<()> {
+    /// Gives an issue labels, creating missing ones. Returns the labels
+    /// actually added. Call inside a transaction.
+    pub(crate) fn attach_labels(
+        &self,
+        id: crate::IssueId,
+        labels: &[String],
+    ) -> Result<Vec<String>> {
+        let mut added = Vec::new();
         for label in labels {
             let label_id = self.ensure_label(&normalize_label_name(label)?)?;
-            self.conn.execute(
+            let inserted = self.conn.execute(
                 "INSERT OR IGNORE INTO issue_labels (issue_id, label_id) VALUES (?1, ?2)",
                 params![id, label_id],
             )?;
+            if inserted > 0 {
+                added.push(self.label_name_by_id(label_id)?);
+            }
         }
-        Ok(())
+        Ok(added)
     }
 
-    /// Takes labels off an issue. Call inside a transaction.
-    pub(crate) fn detach_labels(&self, id: crate::IssueId, labels: &[String]) -> Result<()> {
+    /// Takes labels off an issue. Returns the labels actually removed. Call
+    /// inside a transaction.
+    pub(crate) fn detach_labels(
+        &self,
+        id: crate::IssueId,
+        labels: &[String],
+    ) -> Result<Vec<String>> {
+        let mut removed = Vec::new();
         for label in labels {
             let label_id = self.label_id(label)?;
-            self.conn.execute(
+            let deleted = self.conn.execute(
                 "DELETE FROM issue_labels WHERE issue_id = ?1 AND label_id = ?2",
                 params![id, label_id],
             )?;
+            if deleted > 0 {
+                removed.push(self.label_name_by_id(label_id)?);
+            }
         }
-        Ok(())
+        Ok(removed)
     }
 
     fn find_label(&self, name: &str) -> Result<Option<(i64, String)>> {

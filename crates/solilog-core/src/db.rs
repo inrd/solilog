@@ -15,6 +15,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use rusqlite::{Connection, OptionalExtension as _, Row, ToSql, TransactionBehavior, params};
 
+use crate::activity::{ActivityKind, Actor};
 use crate::attachment::attachments_dir_for;
 use crate::checklist::normalize_item_text;
 use crate::filter::IssueFilter;
@@ -178,6 +179,27 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         CHECK (issue_id <> depends_on_id)
     ) WITHOUT ROWID;
     CREATE INDEX issue_dependencies_by_target ON issue_dependencies (depends_on_id);",
+    // 19: authorship on issues, checklist items and revisions, a lightweight
+    // activity log, and per-issue review tracking (see `activity.rs`).
+    "ALTER TABLE issues ADD COLUMN created_by TEXT NOT NULL DEFAULT 'user';
+    ALTER TABLE issues ADD COLUMN title_by TEXT NOT NULL DEFAULT 'user';
+    ALTER TABLE issues ADD COLUMN description_by TEXT NOT NULL DEFAULT 'user';
+    ALTER TABLE issues ADD COLUMN updated_by TEXT NOT NULL DEFAULT 'user';
+    ALTER TABLE issues ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
+    UPDATE issues SET updated_at = created_at;
+    ALTER TABLE issues ADD COLUMN reviewed_at INTEGER;
+    ALTER TABLE issues ADD COLUMN reviewed_activity_id INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE checklist_items ADD COLUMN author TEXT NOT NULL DEFAULT 'user';
+    ALTER TABLE revisions ADD COLUMN author TEXT NOT NULL DEFAULT 'user';
+    CREATE TABLE activities (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        actor      TEXT    NOT NULL,
+        kind       TEXT    NOT NULL,
+        detail     TEXT    NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX activities_by_issue ON activities (issue_id, id);",
 ];
 
 /// The schema version of a database with every migration applied.
@@ -207,12 +229,15 @@ const ISSUE_PROJECTS_SQL: &str =
      WHERE ?1 IS NULL OR ip.issue_id = ?1
      ORDER BY p.name COLLATE NOCASE";
 
-const ISSUE_COLUMNS: &str = "id, title, status, created_at, archived, description";
+const ISSUE_COLUMNS: &str = "id, title, status, created_at, archived, description,
+     created_by, title_by, description_by, updated_by, updated_at, reviewed_at";
 
 pub struct Db {
     pub(crate) conn: Connection,
     /// Where attachment files go (see `attachment.rs`); `None` in memory.
     pub(crate) attachments_dir: Option<PathBuf>,
+    /// Who is attributed to writes on this connection (`"user"` by default).
+    pub(crate) actor: Actor,
 }
 
 impl Db {
@@ -241,6 +266,7 @@ impl Db {
         let mut db = Self {
             conn,
             attachments_dir,
+            actor: Actor::user(),
         };
         db.migrate()?;
         Ok(db)
@@ -363,11 +389,14 @@ impl Db {
         let mut projects = self.names_per_issue(ISSUE_PROJECTS_SQL, None)?;
         let mut checklists = self.checklists_per_issue(None)?;
         let mut attachments = self.attachments_per_issue(None)?;
+        let mut unreviewed = self.unreviewed_actors_per_issue(None)?;
         for issue in &mut issues {
             issue.labels = labels.remove(&issue.id).unwrap_or_default();
             issue.projects = projects.remove(&issue.id).unwrap_or_default();
             issue.checklist = checklists.remove(&issue.id).unwrap_or_default();
             issue.attachments = attachments.remove(&issue.id).unwrap_or_default();
+            issue.unreviewed_actors = unreviewed.remove(&issue.id).unwrap_or_default();
+            issue.unreviewed = !issue.unreviewed_actors.is_empty();
         }
         self.fill_dependencies(&mut issues, None)?;
         issues.retain(|i| filter.matches(i));
@@ -400,6 +429,11 @@ impl Db {
             .attachments_per_issue(Some(id))?
             .remove(&id)
             .unwrap_or_default();
+        issue.unreviewed_actors = self
+            .unreviewed_actors_per_issue(Some(id))?
+            .remove(&id)
+            .unwrap_or_default();
+        issue.unreviewed = !issue.unreviewed_actors.is_empty();
         self.fill_dependencies(std::slice::from_mut(&mut issue), Some(id))?;
         Ok(issue)
     }
@@ -421,13 +455,16 @@ impl Db {
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
         let id: IssueId = self.conn.query_row(
-            "INSERT INTO issues (title, status, description, position)
-             VALUES (?1, ?2, ?3, ?4) RETURNING id",
+            "INSERT INTO issues
+                (title, status, description, position,
+                 created_by, title_by, description_by, updated_by, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5, ?5, unixepoch()) RETURNING id",
             params![
                 title,
                 new.status,
                 normalize_description(&new.description),
-                self.first_position(Ordered::Issues)?
+                self.first_position(Ordered::Issues)?,
+                self.actor
             ],
             |row| row.get(0),
         )?;
@@ -440,6 +477,7 @@ impl Db {
         }
         self.join_projects(id, &new.projects)?;
         self.insert_checklist_items(id, &checklist)?;
+        self.record_activity(id, ActivityKind::Created, "")?;
         tx.commit()?;
         self.get_issue(id)
     }
@@ -451,13 +489,26 @@ impl Db {
         let issue = self.get_issue(id)?;
         if let Some(title) = &edit.title {
             let title = normalize_title(title)?;
-            self.record_edit(id, Field::Title, &issue.title, title)?;
-            self.set_issue_column(id, "title", &title)?;
+            if issue.title != title {
+                self.record_edit(id, Field::Title, &issue.title, title)?;
+                self.set_issue_column(id, "title", &title)?;
+                self.set_issue_column(id, "title_by", &self.actor)?;
+                self.record_activity(id, ActivityKind::TitleEdited, title)?;
+            }
         }
         if let Some(description) = &edit.description {
             let description = normalize_description(description);
-            self.record_edit(id, Field::Description, &issue.description, &description)?;
-            self.set_issue_column(id, "description", &description)?;
+            if issue.description != description {
+                self.record_edit(id, Field::Description, &issue.description, &description)?;
+                self.set_issue_column(id, "description", &description)?;
+                self.set_issue_column(id, "description_by", &self.actor)?;
+                let detail = if description.is_empty() {
+                    "cleared"
+                } else {
+                    ""
+                };
+                self.record_activity(id, ActivityKind::DescriptionEdited, detail)?;
+            }
         }
         tx.commit()?;
         self.get_issue(id)
@@ -489,32 +540,88 @@ impl Db {
     fn apply_change(&self, id: IssueId, change: &IssueChange) -> Result<()> {
         match change {
             IssueChange::SetStatus(status) => {
-                if self.get_issue(id)?.status != *status {
+                let old = self.get_issue(id)?.status;
+                if old != *status {
                     self.set_issue_column(id, "status", status)?;
                     let top = self.first_position(Ordered::Issues)?;
                     self.set_issue_column(id, "position", &top)?;
+                    self.record_activity(
+                        id,
+                        ActivityKind::StatusChanged,
+                        &format!("{} → {}", old.key(), status.key()),
+                    )?;
                 }
                 Ok(())
             }
-            IssueChange::SetArchived(archived) => self.set_issue_column(id, "archived", archived),
+            IssueChange::SetArchived(archived) => {
+                let was_archived = self.get_issue(id)?.archived;
+                self.set_issue_column(id, "archived", archived)?;
+                if was_archived != *archived {
+                    let kind = if *archived {
+                        ActivityKind::Archived
+                    } else {
+                        ActivityKind::Unarchived
+                    };
+                    self.record_activity(id, kind, "")?;
+                }
+                Ok(())
+            }
             IssueChange::AddLabels(labels) => {
                 self.get_issue(id)?;
-                self.attach_labels(id, labels)
+                let added = self.attach_labels(id, labels)?;
+                if !added.is_empty() {
+                    self.record_activity(id, ActivityKind::LabelsAdded, &added.join(", "))?;
+                }
+                Ok(())
             }
             IssueChange::RemoveLabels(labels) => {
                 self.get_issue(id)?;
-                self.detach_labels(id, labels)
+                let removed = self.detach_labels(id, labels)?;
+                if !removed.is_empty() {
+                    self.record_activity(id, ActivityKind::LabelsRemoved, &removed.join(", "))?;
+                }
+                Ok(())
             }
             IssueChange::AddToProjects(projects) => {
                 self.get_issue(id)?;
-                self.join_projects(id, projects)
+                let joined = self.join_projects(id, projects)?;
+                if !joined.is_empty() {
+                    self.record_activity(id, ActivityKind::ProjectsAdded, &joined.join(", "))?;
+                }
+                Ok(())
             }
             IssueChange::RemoveFromProjects(projects) => {
                 self.get_issue(id)?;
-                self.leave_projects(id, projects)
+                let left = self.leave_projects(id, projects)?;
+                if !left.is_empty() {
+                    self.record_activity(id, ActivityKind::ProjectsRemoved, &left.join(", "))?;
+                }
+                Ok(())
             }
-            IssueChange::AddDependencies(on) => self.insert_dependencies(id, on),
-            IssueChange::RemoveDependencies(on) => self.delete_dependencies(id, on),
+            IssueChange::AddDependencies(on) => {
+                let added = self.insert_dependencies(id, on)?;
+                if !added.is_empty() {
+                    let detail = added
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    self.record_activity(id, ActivityKind::DependenciesAdded, &detail)?;
+                }
+                Ok(())
+            }
+            IssueChange::RemoveDependencies(on) => {
+                let removed = self.delete_dependencies(id, on)?;
+                if !removed.is_empty() {
+                    let detail = removed
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    self.record_activity(id, ActivityKind::DependenciesRemoved, &detail)?;
+                }
+                Ok(())
+            }
         }
     }
 
@@ -648,6 +755,14 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         depends_on: Vec::new(),
         dependents: Vec::new(),
         waiting_on: Vec::new(),
+        created_by: row.get(6)?,
+        title_by: row.get(7)?,
+        description_by: row.get(8)?,
+        updated_by: row.get(9)?,
+        updated_at: row.get(10)?,
+        reviewed_at: row.get(11)?,
+        unreviewed: false,
+        unreviewed_actors: Vec::new(),
     })
 }
 
@@ -898,13 +1013,20 @@ mod tests {
         // Changes a column the SQLite way: rebuilding `issues`, which other
         // tables point to with ON DELETE CASCADE.
         let rebuild = "CREATE TABLE issues_new (
-                id          INTEGER PRIMARY KEY,
-                title       TEXT    NOT NULL,
-                created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-                status      TEXT    NOT NULL DEFAULT 'todo',
-                archived    INTEGER NOT NULL DEFAULT 0,
-                description TEXT    NOT NULL DEFAULT '',
-                position    INTEGER NOT NULL DEFAULT 0
+                id                   INTEGER PRIMARY KEY,
+                title                TEXT    NOT NULL,
+                created_at           INTEGER NOT NULL DEFAULT (unixepoch()),
+                status               TEXT    NOT NULL DEFAULT 'todo',
+                archived             INTEGER NOT NULL DEFAULT 0,
+                description          TEXT    NOT NULL DEFAULT '',
+                position             INTEGER NOT NULL DEFAULT 0,
+                created_by           TEXT    NOT NULL DEFAULT 'user',
+                title_by             TEXT    NOT NULL DEFAULT 'user',
+                description_by       TEXT    NOT NULL DEFAULT 'user',
+                updated_by           TEXT    NOT NULL DEFAULT 'user',
+                updated_at           INTEGER NOT NULL DEFAULT 0,
+                reviewed_at          INTEGER,
+                reviewed_activity_id INTEGER NOT NULL DEFAULT 0
             );
             INSERT INTO issues_new SELECT * FROM issues;
             DROP TABLE issues;

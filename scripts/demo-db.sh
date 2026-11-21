@@ -9,6 +9,7 @@ set -eu
 [ $# -eq 1 ] || { echo "usage: $0 <database path>" >&2; exit 2; }
 [ ! -e "$1" ] || { echo "$1 already exists" >&2; exit 1; }
 export SOLILOG_DB="$1"
+export SOLILOG_ACTOR=user
 s="${SOLILOG:-target/release/solilog}"
 
 q() { "$s" "$@" > /dev/null; }
@@ -66,7 +67,7 @@ issue todo 0 "Export notes to Markdown" -l feature -p "Offline mode"
 issue in_progress 1 "Search results page" -l feature -l platform/web -p "Public beta" \
     -i "Ranking" -i "Highlight matches" -i "Empty state"
 issue in_progress 0 "Redesign the settings screen" -p "Design refresh" -l platform/desktop
-issue in_progress 2 "Sync conflicts lose the newest edit" -l bug -p "Offline mode" \
+issue in_progress 1 "Sync conflicts lose the newest edit" -l bug -p "Offline mode" \
     -i "Reproduce with two devices" -i "Write a failing test" -i "Merge by paragraph" -i "Ship a fix" \
     -d "Editing the same note on two devices while offline keeps the older version when they reconnect.
 
@@ -75,5 +76,8 @@ Needed before SOL-7." # "Self-hosted sync server", the 7th issue created
 # Issue numbers follow the creation order above.
 q issue add-dependency 7 16  # the sync server needs "Sync conflicts…"
 q issue add-dependency 9 14 8  # the announcement waits for search and the review
+
+# One issue updated by an agent, so the Unreviewed view and badge show up.
+SOLILOG_ACTOR=claude:sync-fix q checklist check 10
 
 q statuses collapse backlog

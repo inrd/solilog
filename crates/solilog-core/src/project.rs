@@ -349,34 +349,43 @@ impl Db {
 
     // ---- helpers ------------------------------------------------------------
 
-    /// Takes an issue out of projects. Call inside a transaction.
-    pub(crate) fn leave_projects(&self, id: IssueId, projects: &[String]) -> Result<()> {
+    /// Takes an issue out of projects. Returns the projects actually left.
+    /// Call inside a transaction.
+    pub(crate) fn leave_projects(&self, id: IssueId, projects: &[String]) -> Result<Vec<String>> {
+        let mut left = Vec::new();
         for project in projects {
             let project_id = self.project_id(project)?;
-            self.conn.execute(
+            let deleted = self.conn.execute(
                 "DELETE FROM issue_projects WHERE issue_id = ?1 AND project_id = ?2",
                 params![id, project_id],
             )?;
+            if deleted > 0 {
+                left.push(self.project_name_by_id(project_id)?);
+            }
         }
-        Ok(())
+        Ok(left)
     }
 
-    /// Adds the issue to the projects and applies their default labels. Call
-    /// inside a transaction.
-    pub(crate) fn join_projects(&self, id: IssueId, projects: &[String]) -> Result<()> {
+    /// Adds the issue to the projects and applies their default labels.
+    /// Returns the projects actually joined. Call inside a transaction.
+    pub(crate) fn join_projects(&self, id: IssueId, projects: &[String]) -> Result<Vec<String>> {
+        let mut joined = Vec::new();
         for project in projects {
             let project_id = self.project_id(project)?;
-            self.conn.execute(
+            let inserted = self.conn.execute(
                 "INSERT OR IGNORE INTO issue_projects (issue_id, project_id) VALUES (?1, ?2)",
                 params![id, project_id],
             )?;
+            if inserted > 0 {
+                joined.push(self.project_name_by_id(project_id)?);
+            }
             self.conn.execute(
                 "INSERT OR IGNORE INTO issue_labels (issue_id, label_id)
                  SELECT ?1, label_id FROM project_labels WHERE project_id = ?2",
                 params![id, project_id],
             )?;
         }
-        Ok(())
+        Ok(joined)
     }
 
     fn project_labels(&self, id: i64) -> Result<Vec<String>> {

@@ -102,6 +102,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `p` / `shift-p` | Add to / remove from a project |
 | `b` / `shift-b` | Add / remove a dependency (an issue to finish first) |
 | `y` | Copy the issue id (`SOL-12`) |
+| `r` | Mark non-user changes as reviewed |
 | `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
 | `z` / `shift-z` | Collapse or expand a status section (or click its header) / expand all sections |
@@ -134,6 +135,7 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 | `l` / `x` | By label / excluding a label |
 | `p` / `n` | By project / issues in no project |
 | `t` / `w` | Ready to start / waiting on an open dependency |
+| `u` | Unreviewed non-user changes (`g u` opens the Unreviewed view) |
 | `s` | By status |
 | `o` / `a` | Open issues only / all statuses |
 | `c` / `r` | Clear / revert to the saved view |

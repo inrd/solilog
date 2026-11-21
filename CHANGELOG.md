@@ -8,6 +8,15 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- Authorship, change log and review tracking: every write records who made
+  it (`user` in the app, `cli` by default on the CLI, or `--actor` /
+  `SOLILOG_ACTOR`, e.g. `claude:fix-auth`) on revisions, issue text fields,
+  checklist items and a per-issue activity log (`solilog issue activity`).
+  Non-user writes mark an issue unreviewed until cleared ("Issue: Mark
+  Reviewed", `r`, `solilog issue review`). Filter for unreviewed changes
+  (`f u`, `g u`, sidebar "Unreviewed", `issue ls --unreviewed`); open issues
+  show an unreviewed changes banner and subtle authorship marks on
+  agent-written text.
 - `solilog skill install` now supports Antigravity (`--agent antigravity`,
   detected via `~/.gemini/antigravity` and installed to
   `~/.gemini/config/skills/solilog/`).

@@ -28,8 +28,8 @@ use gpui::{
     Window, anchored, deferred, div, prelude::*, px, rgb, svg,
 };
 use solilog_core::{
-    Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement, Project,
-    RevisionId, Status, View,
+    Actor, Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement,
+    Project, RevisionId, Status, View,
 };
 
 use super::actions::{
@@ -935,6 +935,9 @@ impl Workspace {
         if issues.len() == 1 {
             entries.push(("History…", Box::new(issue::ShowHistory)));
         }
+        if issues.iter().any(|i| i.unreviewed) {
+            entries.push(("Mark Reviewed", Box::new(issue::MarkReviewed)));
+        }
         entries.push(("Set Status…", Box::new(SetStatus::default())));
         entries.push(("Add Label…", Box::new(AddLabel::default())));
         if issues.iter().any(|i| !i.labels.is_empty()) {
@@ -997,6 +1000,31 @@ impl Workspace {
         self.error = None;
         self.notice = Some(format!("Copied {ids}"));
         cx.notify();
+    }
+
+    fn on_mark_reviewed(
+        &mut self,
+        _: &issue::MarkReviewed,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ids: Vec<IssueId> = self
+            .target_issues(cx)
+            .into_iter()
+            .filter(|i| i.unreviewed)
+            .map(|i| i.id)
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        if self.report(self.db.mark_issues_reviewed(&ids), cx).is_some() {
+            self.reload(cx);
+            self.notice = Some(match ids.as_slice() {
+                [id] => format!("Marked {id} reviewed"),
+                many => format!("Marked {} issues reviewed", many.len()),
+            });
+            cx.notify();
+        }
     }
 
     fn on_show_issue_menu(
@@ -1420,6 +1448,9 @@ impl Workspace {
             .when(issue.is_waiting(), |row| {
                 row.child(waiting_badge(issue.waiting_on.len()))
             })
+            .when(issue.unreviewed, |row| {
+                row.child(unreviewed_badge(&issue.unreviewed_actors))
+            })
             .child(self.issue_chips(issue))
     }
 
@@ -1604,6 +1635,24 @@ fn waiting_badge(open: usize) -> impl IntoElement {
         .child(open.to_string())
 }
 
+/// Shown in the list for issues with unreviewed non-user changes.
+fn unreviewed_badge(actors: &[Actor]) -> impl IntoElement {
+    let label = match actors {
+        [] => "unreviewed".to_owned(),
+        [only] => only.to_string(),
+        [first, rest @ ..] => format!("{first} +{}", rest.len()),
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .text_size(px(12.))
+        .text_color(rgb(theme::ACCENT))
+        .child(div().size(px(6.)).rounded_full().bg(rgb(theme::ACCENT)))
+        .child(label)
+}
+
 /// Checklist progress of an issue in the list: done/total items.
 fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
     div()
@@ -1779,6 +1828,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_remove_dependency))
             .on_action(cx.listener(Self::on_open_view))
             .on_action(cx.listener(Self::on_show_all))
+            .on_action(cx.listener(Self::on_show_unreviewed))
             .on_action(cx.listener(Self::on_open_project))
             .on_action(cx.listener(Self::on_open_label))
             .on_action(cx.listener(Self::on_toggle_closed_projects))
@@ -1793,6 +1843,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_toggle_no_project))
             .on_action(cx.listener(Self::on_toggle_ready))
             .on_action(cx.listener(Self::on_toggle_waiting))
+            .on_action(cx.listener(Self::on_toggle_unreviewed))
+            .on_action(cx.listener(Self::on_mark_reviewed))
             .on_action(cx.listener(Self::on_clear_filter))
             .on_action(cx.listener(Self::on_all_statuses))
             .on_action(cx.listener(Self::on_save_view))

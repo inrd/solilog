@@ -23,6 +23,7 @@ use rusqlite::{OptionalExtension as _, params};
 use serde::{Deserialize, Serialize};
 
 use crate::Db;
+use crate::activity::ActivityKind;
 use crate::issue::IssueId;
 
 /// Identifies an attachment, across all issues. Displayed as a plain
@@ -250,6 +251,10 @@ impl Db {
                     |row| row.get(0),
                 )?);
             }
+            if !written.is_empty() {
+                let names: Vec<&str> = written.iter().map(|(n, ..)| n.as_str()).collect();
+                self.record_activity(issue, ActivityKind::AttachmentAdded, &names.join(", "))?;
+            }
             tx.commit()?;
             Ok(ids)
         })();
@@ -344,6 +349,11 @@ impl Db {
         let tx = self.conn.unchecked_transaction()?;
         self.conn
             .execute("DELETE FROM attachments WHERE id = ?1", [id])?;
+        self.record_activity(
+            attachment.issue_id,
+            ActivityKind::AttachmentRemoved,
+            &attachment.name,
+        )?;
         if let Some(path) = &attachment.path {
             remove_if_present(path, |p| fs::remove_file(p))?;
             // Leave no empty directory behind.

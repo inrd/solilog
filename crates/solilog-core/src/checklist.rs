@@ -12,6 +12,7 @@ use rusqlite::{OptionalExtension as _, params};
 use serde::{Deserialize, Serialize};
 
 use crate::Db;
+use crate::activity::{ActivityKind, Actor};
 use crate::issue::{Issue, IssueId};
 use crate::order::{Ordered, Placement};
 use crate::revision::Field;
@@ -61,6 +62,8 @@ pub struct ChecklistItem {
     /// One line, never empty.
     pub text: String,
     pub done: bool,
+    /// Who created or last edited this item's text.
+    pub author: Actor,
 }
 
 /// Done and total items of a checklist, or `None` when it has no items.
@@ -82,7 +85,7 @@ pub fn normalize_item_text(text: &str) -> Result<String> {
 }
 
 /// Checklist items per issue, in order.
-const ITEMS_SQL: &str = "SELECT issue_id, id, text, done FROM checklist_items
+const ITEMS_SQL: &str = "SELECT issue_id, id, text, done, author FROM checklist_items
      WHERE ?1 IS NULL OR issue_id = ?1
      ORDER BY issue_id, position, id";
 
@@ -97,6 +100,14 @@ impl Db {
         let tx = self.conn.unchecked_transaction()?;
         self.get_issue(issue)?;
         self.insert_checklist_items(issue, &texts)?;
+        if !texts.is_empty() {
+            let detail = if texts.len() == 1 {
+                texts[0].clone()
+            } else {
+                format!("{} items", texts.len())
+            };
+            self.record_activity(issue, ActivityKind::ChecklistAdded, &detail)?;
+        }
         tx.commit()?;
         self.get_issue(issue)
     }
@@ -109,11 +120,11 @@ impl Db {
             |row| row.get(0),
         )?;
         let mut insert = self.conn.prepare_cached(
-            "INSERT INTO checklist_items (issue_id, text, position) VALUES (?1, ?2, ?3)",
+            "INSERT INTO checklist_items (issue_id, text, position, author) VALUES (?1, ?2, ?3, ?4)",
         )?;
         for text in texts {
             position += 1;
-            insert.execute(params![issue, text, position])?;
+            insert.execute(params![issue, text, position, self.actor])?;
         }
         Ok(())
     }
@@ -124,22 +135,43 @@ impl Db {
         let text = normalize_item_text(text)?;
         let tx = self.conn.unchecked_transaction()?;
         let (issue, old) = self.checklist_item(item)?;
-        self.record_edit(issue, Field::ChecklistItem(item), &old, &text)?;
-        self.conn.execute(
-            "UPDATE checklist_items SET text = ?2 WHERE id = ?1",
-            params![item, text],
-        )?;
+        if old != text {
+            self.record_edit(issue, Field::ChecklistItem(item), &old, &text)?;
+            self.conn.execute(
+                "UPDATE checklist_items SET text = ?2, author = ?3 WHERE id = ?1",
+                params![item, text, self.actor],
+            )?;
+            self.record_activity(issue, ActivityKind::ChecklistEdited, &text)?;
+        }
         tx.commit()?;
         self.get_issue(issue)
     }
 
     /// Checks (`true`) or unchecks a checklist item and returns its issue.
     pub fn set_checklist_item_done(&self, item: ChecklistItemId, done: bool) -> Result<Issue> {
-        let issue = self.checklist_item_issue(item)?;
-        self.conn.execute(
-            "UPDATE checklist_items SET done = ?2 WHERE id = ?1",
-            params![item, done],
-        )?;
+        let tx = self.conn.unchecked_transaction()?;
+        let (issue, text, was_done): (IssueId, String, bool) = self
+            .conn
+            .query_row(
+                "SELECT issue_id, text, done FROM checklist_items WHERE id = ?1",
+                [item],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .with_context(|| format!("no checklist item {item}"))?;
+        if was_done != done {
+            self.conn.execute(
+                "UPDATE checklist_items SET done = ?2 WHERE id = ?1",
+                params![item, done],
+            )?;
+            let kind = if done {
+                ActivityKind::ChecklistChecked
+            } else {
+                ActivityKind::ChecklistUnchecked
+            };
+            self.record_activity(issue, kind, &text)?;
+        }
+        tx.commit()?;
         self.get_issue(issue)
     }
 
@@ -176,6 +208,7 @@ impl Db {
         self.record_delete(issue, item, &text, position)?;
         self.conn
             .execute("DELETE FROM checklist_items WHERE id = ?1", [item])?;
+        self.record_activity(issue, ActivityKind::ChecklistDeleted, &text)?;
         tx.commit()?;
         self.get_issue(issue)
     }
@@ -222,6 +255,7 @@ impl Db {
                     id: row.get(1)?,
                     text: row.get(2)?,
                     done: row.get(3)?,
+                    author: row.get(4)?,
                 },
             ))
         })?;

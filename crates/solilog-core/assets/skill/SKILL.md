@@ -40,6 +40,9 @@ open issues with nothing open to wait for.
 
 ## Writing
 
+- Identify yourself on every write with `--actor <agent>:<task>` or
+  `SOLILOG_ACTOR=<agent>:<task>` (e.g. `claude:fix-auth`, `codex:triage`).
+  Unidentified CLI writes are recorded as `cli` and flagged for review.
 - New issue: `solilog issue create "Title" -d - -l <label> -i "<item>"`
   (`-` reads text from stdin). Every write prints the resulting issue.
 - Writing `SOL-n` in a description links to that issue.

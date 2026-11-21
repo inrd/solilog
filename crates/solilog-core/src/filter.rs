@@ -32,6 +32,8 @@ pub struct IssueFilter {
     /// The issue is open and has open dependencies (see
     /// [`Issue::is_waiting`]).
     pub waiting: bool,
+    /// The issue has unreviewed non-user changes.
+    pub unreviewed: bool,
 }
 
 impl IssueFilter {
@@ -51,6 +53,7 @@ impl IssueFilter {
             && (!self.no_project || issue.projects.is_empty())
             && (!self.ready || issue.is_ready())
             && (!self.waiting || issue.is_waiting())
+            && (!self.unreviewed || issue.unreviewed)
     }
 
     /// Follows the rename of label `old` (with its sublabels) to `new`.
@@ -110,6 +113,9 @@ impl fmt::Display for IssueFilter {
         }
         if self.waiting {
             parts.push("waiting".to_string());
+        }
+        if self.unreviewed {
+            parts.push("unreviewed".to_string());
         }
         if parts.is_empty() {
             f.write_str("all issues")

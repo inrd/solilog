@@ -69,11 +69,17 @@ impl Db {
         Ok(())
     }
 
-    /// Makes `issue` depend on each of `on`. Call inside a transaction.
-    /// Existing dependencies are left as they are; unknown issues, an issue
-    /// depending on itself and cycles are errors.
-    pub(crate) fn insert_dependencies(&self, issue: IssueId, on: &[IssueId]) -> Result<()> {
+    /// Makes `issue` depend on each of `on`. Returns the dependencies
+    /// actually added. Call inside a transaction. Existing dependencies are
+    /// left as they are; unknown issues, an issue depending on itself and
+    /// cycles are errors.
+    pub(crate) fn insert_dependencies(
+        &self,
+        issue: IssueId,
+        on: &[IssueId],
+    ) -> Result<Vec<IssueId>> {
         self.get_issue(issue)?;
+        let mut added = Vec::new();
         for &on in on {
             self.get_issue(on)?;
             anyhow::ensure!(on != issue, "{issue} can't depend on itself");
@@ -82,26 +88,38 @@ impl Db {
                     "{issue} can't depend on {on}: that would make a cycle ({issue} → {path})"
                 );
             }
-            self.conn.execute(
+            let inserted = self.conn.execute(
                 "INSERT OR IGNORE INTO issue_dependencies (issue_id, depends_on_id) VALUES (?1, ?2)",
                 params![issue, on],
             )?;
+            if inserted > 0 {
+                added.push(on);
+            }
         }
-        Ok(())
+        Ok(added)
     }
 
     /// Removes `issue`'s dependencies on each of `on`; missing ones are
-    /// ignored, unknown issues are errors. Call inside a transaction.
-    pub(crate) fn delete_dependencies(&self, issue: IssueId, on: &[IssueId]) -> Result<()> {
+    /// ignored, unknown issues are errors. Returns the dependencies actually
+    /// removed. Call inside a transaction.
+    pub(crate) fn delete_dependencies(
+        &self,
+        issue: IssueId,
+        on: &[IssueId],
+    ) -> Result<Vec<IssueId>> {
         self.get_issue(issue)?;
+        let mut removed = Vec::new();
         for &on in on {
             self.get_issue(on)?;
-            self.conn.execute(
+            let deleted = self.conn.execute(
                 "DELETE FROM issue_dependencies WHERE issue_id = ?1 AND depends_on_id = ?2",
                 params![issue, on],
             )?;
+            if deleted > 0 {
+                removed.push(on);
+            }
         }
-        Ok(())
+        Ok(removed)
     }
 
     /// The issues that can't become a dependency of every one of `ids`:

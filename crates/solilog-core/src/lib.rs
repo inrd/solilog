@@ -3,6 +3,7 @@
 //! Frontends (the GPUI app, the CLI) call into this crate and contain no
 //! business logic of their own. This crate must never depend on GPUI.
 
+mod activity;
 mod attachment;
 mod backup;
 mod checklist;
@@ -19,6 +20,7 @@ mod skill;
 mod thinning;
 mod view;
 
+pub use activity::{Activity, ActivityId, ActivityKind, Actor};
 pub use attachment::{
     Attachment, AttachmentId, AttachmentKind, attachments_dir_for, format_size,
     normalize_attachment_name,

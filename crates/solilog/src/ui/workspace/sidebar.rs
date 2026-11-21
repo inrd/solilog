@@ -29,6 +29,7 @@ const WIDTH: f32 = 220.;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SidebarItem {
     AllIssues,
+    Unreviewed,
     View(String),
     Project(String),
     /// Expands or collapses the done projects.
@@ -41,6 +42,7 @@ impl SidebarItem {
     pub(super) fn action(&self) -> Box<dyn Action> {
         match self {
             SidebarItem::AllIssues => Box::new(view::ShowAll),
+            SidebarItem::Unreviewed => Box::new(view::ShowUnreviewed),
             SidebarItem::View(name) => Box::new(view::Open {
                 name: Some(name.clone()),
             }),
@@ -155,6 +157,19 @@ impl Workspace {
             color: None,
             collapsed: None,
         }];
+        let unreviewed_count = self.all_issues.iter().filter(|i| i.unreviewed).count();
+        if unreviewed_count > 0 || matches!(self.scope.source, Source::Unreviewed) {
+            rows.push(Row::Item {
+                item: SidebarItem::Unreviewed,
+                label: "Unreviewed".into(),
+                depth: 0,
+                count: unreviewed_count,
+                trailing: None,
+                status: None,
+                color: (unreviewed_count > 0).then_some(theme::ACCENT),
+                collapsed: None,
+            });
+        }
         if !self.views.is_empty() {
             rows.push(Row::Heading("Views", None));
             rows.extend(self.views.iter().map(|v| Row::Item {
@@ -314,6 +329,7 @@ impl Workspace {
     pub(super) fn active_sidebar_item(&self) -> SidebarItem {
         match &self.scope.source {
             Source::All => SidebarItem::AllIssues,
+            Source::Unreviewed => SidebarItem::Unreviewed,
             Source::View(view) => SidebarItem::View(view.name.clone()),
             Source::Project(name) => SidebarItem::Project(name.clone()),
             Source::Label(name) => SidebarItem::Label(name.clone()),

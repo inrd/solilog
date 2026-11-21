@@ -89,6 +89,12 @@ fn criteria(filter: &IssueFilter) -> Vec<Criterion> {
             remove: Box::new(filter::ToggleWaiting),
         });
     }
+    if filter.unreviewed {
+        out.push(Criterion {
+            text: "unreviewed".into(),
+            remove: Box::new(filter::ToggleUnreviewed),
+        });
+    }
     out
 }
 
@@ -321,6 +327,15 @@ impl Workspace {
             },
             cx,
         );
+    }
+
+    pub(super) fn on_toggle_unreviewed(
+        &mut self,
+        _: &filter::ToggleUnreviewed,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_filter(|f| f.unreviewed = !f.unreviewed, cx);
     }
 
     pub(super) fn on_all_statuses(

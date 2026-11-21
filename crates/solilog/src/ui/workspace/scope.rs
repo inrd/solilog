@@ -13,6 +13,8 @@ use crate::ui::picker::{Picker, PickerItem};
 pub enum Source {
     #[default]
     All,
+    /// Issues with unreviewed non-user changes (open or closed).
+    Unreviewed,
     /// A saved view, as stored.
     View(View),
     Project(String),
@@ -20,12 +22,16 @@ pub enum Source {
 }
 
 impl Source {
-    /// The filter this source stands for. Apart from saved views, which
-    /// keep their own, done and cancelled issues are hidden at first.
+    /// The filter this source stands for. Apart from saved views and
+    /// unreviewed, done and cancelled issues are hidden at first.
     pub fn filter(&self) -> IssueFilter {
         match self {
             Source::All => IssueFilter {
                 open_only: true,
+                ..Default::default()
+            },
+            Source::Unreviewed => IssueFilter {
+                unreviewed: true,
                 ..Default::default()
             },
             Source::View(view) => view.filter.clone(),
@@ -45,6 +51,7 @@ impl Source {
     pub fn title(&self) -> &str {
         match self {
             Source::All => "All issues",
+            Source::Unreviewed => "Unreviewed",
             Source::View(view) => &view.name,
             Source::Project(name) | Source::Label(name) => name,
         }
@@ -79,7 +86,7 @@ impl Workspace {
     /// falling back to all issues.
     pub(super) fn refresh_scope(&mut self) -> Option<String> {
         let found = match &self.scope.source {
-            Source::All => return None,
+            Source::All | Source::Unreviewed => return None,
             Source::View(view) => self.db.get_view(&view.name).map(Source::View),
             Source::Project(name) => self.db.get_project(name).map(|p| Source::Project(p.name)),
             Source::Label(name) => self.db.get_label(name).map(|l| Source::Label(l.name)),
@@ -247,6 +254,15 @@ impl Workspace {
         self.show(Ok(Source::All), cx);
     }
 
+    pub(super) fn on_show_unreviewed(
+        &mut self,
+        _: &view::ShowUnreviewed,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show(Ok(Source::Unreviewed), cx);
+    }
+
     pub(super) fn on_open_view(
         &mut self,
         action: &view::Open,
@@ -257,8 +273,13 @@ impl Workspace {
             let view = self.db.get_view(name).map(Source::View);
             return self.show(view, cx);
         }
-        let mut entries: Vec<(PickerItem, Box<dyn Action>)> =
-            vec![(PickerItem::new("All issues"), Box::new(view::ShowAll))];
+        let mut entries: Vec<(PickerItem, Box<dyn Action>)> = vec![
+            (PickerItem::new("All issues"), Box::new(view::ShowAll)),
+            (
+                PickerItem::new("Unreviewed"),
+                Box::new(view::ShowUnreviewed),
+            ),
+        ];
         entries.extend(self.views.iter().map(|v| {
             let item = PickerItem::new(v.name.clone()).hint(Some(v.filter.to_string()));
             let action = view::Open {
@@ -267,11 +288,12 @@ impl Workspace {
             (item, Box::new(action) as Box<dyn Action>)
         }));
         let current = match &self.scope.source {
+            Source::Unreviewed => Some(1),
             Source::View(v) => self
                 .views
                 .iter()
                 .position(|w| w.name == v.name)
-                .map(|i| i + 1),
+                .map(|i| i + 2),
             _ => None,
         };
         self.open_action_picker("Open view…", entries, current.unwrap_or(0), window, cx);

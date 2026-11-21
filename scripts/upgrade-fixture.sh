@@ -20,6 +20,7 @@ bin="$PWD/target/debug/solilog"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export SOLILOG_DB="$work/fixture.db"
+export SOLILOG_ACTOR=user
 s() { "$bin" "$@" >/dev/null; }
 
 s project create "Website v2" -d "Launch the new site" -l web
@@ -40,8 +41,11 @@ s issue archive SOL-3
 s label color web teal
 s label collapse web
 s view save "Open web" --open -l web
-# Dependencies (0.3.0+): the post waits for the header fix.
+# Dependencies (0.2.1+): the post waits for the header fix.
 s issue add-dependency SOL-1 SOL-2
+# Authorship & review (0.2.2+): an agent edit on SOL-2, unreviewed; SOL-1 reviewed.
+SOLILOG_ACTOR=claude:fix-header s issue edit SOL-2 -d "Investigated flexbox wrap."
+s issue review SOL-1
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

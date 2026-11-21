@@ -39,9 +39,10 @@ impl Workspace {
             .iter()
             .map(|r| {
                 let hint = format!(
-                    "{} · {} · {}",
+                    "{} · {} · {} · {}",
                     r.field_label(),
                     r.reason.label(),
+                    r.author,
                     format_age(r.created_at)
                 );
                 PickerItem::new(r.preview(80)).hint(Some(hint))

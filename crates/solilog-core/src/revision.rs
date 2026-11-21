@@ -20,6 +20,7 @@ use rusqlite::{OptionalExtension as _, Row, params};
 use serde::{Deserialize, Serialize};
 
 use crate::Db;
+use crate::activity::{ActivityKind, Actor};
 use crate::checklist::ChecklistItemId;
 use crate::issue::{Issue, IssueId};
 use crate::order::Ordered;
@@ -154,6 +155,8 @@ pub struct Revision {
     /// The text as it was.
     pub text: String,
     pub reason: RevisionReason,
+    /// Who made the change that saved this revision.
+    pub author: Actor,
     /// Unix time, seconds.
     pub created_at: i64,
 }
@@ -272,7 +275,8 @@ fn to_thin(times: &[i64], now: i64) -> Vec<usize> {
 const REVISION_COLUMNS: &str = "r.id, r.issue_id, r.field, r.checklist_item_id, r.text, r.reason,
      r.created_at, r.position,
      r.checklist_item_id IS NOT NULL
-         AND NOT EXISTS (SELECT 1 FROM checklist_items c WHERE c.id = r.checklist_item_id)";
+         AND NOT EXISTS (SELECT 1 FROM checklist_items c WHERE c.id = r.checklist_item_id),
+     r.author";
 
 /// A revision, and where its checklist item was when deleted.
 fn revision_from_row(row: &Row) -> rusqlite::Result<(Revision, Option<i64>)> {
@@ -294,6 +298,7 @@ fn revision_from_row(row: &Row) -> rusqlite::Result<(Revision, Option<i64>)> {
             text: row.get(4)?,
             reason: RevisionReason::from_key(&reason)
                 .ok_or_else(|| invalid(5, "reason", reason))?,
+            author: row.get(9)?,
             created_at: row.get(6)?,
             item_deleted: row.get(8)?,
         },
@@ -355,29 +360,43 @@ impl Db {
                     self.save_revision(issue.id, field, &current, RevisionReason::Restore, None)?;
                 }
                 match field {
-                    Field::Title => self.set_issue_column(issue.id, "title", &revision.text)?,
+                    Field::Title => {
+                        self.set_issue_column(issue.id, "title", &revision.text)?;
+                        self.set_issue_column(issue.id, "title_by", &self.actor)?;
+                    }
                     Field::Description => {
                         self.set_issue_column(issue.id, "description", &revision.text)?;
+                        self.set_issue_column(issue.id, "description_by", &self.actor)?;
                     }
                     Field::ChecklistItem(item) => {
                         self.conn.execute(
-                            "UPDATE checklist_items SET text = ?2 WHERE id = ?1",
-                            params![item, revision.text],
+                            "UPDATE checklist_items SET text = ?2, author = ?3 WHERE id = ?1",
+                            params![item, revision.text, self.actor],
                         )?;
                     }
                 }
+                self.record_activity(
+                    issue.id,
+                    ActivityKind::RevisionRestored,
+                    &revision.field_label(),
+                )?;
             }
             (Field::ChecklistItem(item), None) => {
                 self.conn.execute(
-                    "INSERT INTO checklist_items (id, issue_id, text, position)
-                     VALUES (?1, ?2, ?3, 0)",
-                    params![item, issue.id, revision.text],
+                    "INSERT INTO checklist_items (id, issue_id, text, position, author)
+                     VALUES (?1, ?2, ?3, 0, ?4)",
+                    params![item, issue.id, revision.text, self.actor],
                 )?;
                 let mut order = self.checklist_order(issue.id)?;
                 order.retain(|&i| i != item.0);
                 let at = position.map_or(order.len(), |p| (p.max(0) as usize).min(order.len()));
                 order.insert(at, item.0);
                 self.renumber(Ordered::ChecklistItems, &order)?;
+                self.record_activity(
+                    issue.id,
+                    ActivityKind::RevisionRestored,
+                    &revision.field_label(),
+                )?;
             }
             (Field::Title | Field::Description, None) => unreachable!("issues have both"),
         }
@@ -421,8 +440,8 @@ impl Db {
         Ok(self.conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM revisions
                  WHERE issue_id = ?1 AND field = ?2 AND checklist_item_id IS ?3
-                     AND created_at > unixepoch() - ?4)",
-            params![issue, field.key(), field.item(), COALESCE],
+                     AND created_at > unixepoch() - ?4 AND author = ?5)",
+            params![issue, field.key(), field.item(), COALESCE, self.actor],
             |row| row.get(0),
         )?)
     }
@@ -437,15 +456,16 @@ impl Db {
         position: Option<usize>,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO revisions (issue_id, field, checklist_item_id, text, reason, position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO revisions (issue_id, field, checklist_item_id, text, reason, position, author)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 issue,
                 field.key(),
                 field.item(),
                 text,
                 reason.key(),
-                position.map(|p| p as i64)
+                position.map(|p| p as i64),
+                self.actor
             ],
         )?;
         self.thin_revisions(issue, field)
