@@ -6,10 +6,11 @@
 //! database. It lives in core so it can be tested without gpui, against a
 //! temporary home directory ([`SkillEnv`]).
 //!
-//! Two folders cover every supported agent: `~/.claude/skills/solilog`
-//! (Claude Code) and `~/.agents/skills/solilog` (the shared Agent Skills
-//! folder, read by Codex, Cursor, OpenCode and pi). Each holds its own copy,
-//! so either can be removed without breaking the other. An installed copy
+//! Three folders cover every supported agent: `~/.claude/skills/solilog`
+//! (Claude Code), `~/.agents/skills/solilog` (the shared Agent Skills
+//! folder, read by Codex, Cursor, OpenCode and pi), and
+//! `~/.gemini/config/skills/solilog` (Antigravity). Each holds its own copy,
+//! so any can be removed without breaking the others. An installed copy
 //! carries a marker in its frontmatter (`managed-by: solilog`); a file
 //! without it is never overwritten or removed.
 
@@ -44,6 +45,7 @@ pub fn skill_md() -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Agent {
+    Antigravity,
     Claude,
     Codex,
     Cursor,
@@ -52,7 +54,8 @@ pub enum Agent {
 }
 
 impl Agent {
-    pub const ALL: [Agent; 5] = [
+    pub const ALL: [Agent; 6] = [
+        Agent::Antigravity,
         Agent::Claude,
         Agent::Codex,
         Agent::Cursor,
@@ -63,6 +66,7 @@ impl Agent {
     /// Stable identifier, used on the command line and in JSON.
     pub fn key(self) -> &'static str {
         match self {
+            Agent::Antigravity => "antigravity",
             Agent::Claude => "claude",
             Agent::Codex => "codex",
             Agent::Cursor => "cursor",
@@ -74,6 +78,7 @@ impl Agent {
     /// Where this agent finds the skill.
     pub fn location(self) -> SkillLocation {
         match self {
+            Agent::Antigravity => SkillLocation::Antigravity,
             Agent::Claude => SkillLocation::Claude,
             Agent::Codex | Agent::Cursor | Agent::Opencode | Agent::Pi => SkillLocation::Agents,
         }
@@ -108,10 +113,16 @@ pub enum SkillLocation {
     Claude,
     /// `~/.agents/skills/`, the shared Agent Skills folder.
     Agents,
+    /// `~/.gemini/config/skills/`, for Antigravity.
+    Antigravity,
 }
 
 impl SkillLocation {
-    pub const ALL: [SkillLocation; 2] = [SkillLocation::Claude, SkillLocation::Agents];
+    pub const ALL: [SkillLocation; 3] = [
+        SkillLocation::Claude,
+        SkillLocation::Agents,
+        SkillLocation::Antigravity,
+    ];
 
     /// The agents that get the skill from this folder.
     pub fn agents(self) -> Vec<Agent> {
@@ -150,15 +161,17 @@ impl SkillEnv {
     /// The skill's folder in a location (`~/.claude/skills/solilog`).
     pub fn skill_dir(&self, location: SkillLocation) -> PathBuf {
         let root = match location {
-            SkillLocation::Claude => ".claude",
-            SkillLocation::Agents => ".agents",
+            SkillLocation::Claude => self.home.join(".claude"),
+            SkillLocation::Agents => self.home.join(".agents"),
+            SkillLocation::Antigravity => self.home.join(".gemini").join("config"),
         };
-        self.home.join(root).join("skills").join(SKILL_NAME)
+        root.join("skills").join(SKILL_NAME)
     }
 
     /// The folder whose presence shows that an agent is installed.
     pub fn agent_config_dir(&self, agent: Agent) -> PathBuf {
         match agent {
+            Agent::Antigravity => self.home.join(".gemini").join("antigravity"),
             Agent::Claude => self.home.join(".claude"),
             Agent::Codex => self.home.join(".codex"),
             Agent::Cursor => self.home.join(".cursor"),
@@ -646,7 +659,37 @@ mod tests {
             ]
         );
         assert_eq!(changes[1].agents, SkillLocation::Agents.agents());
-        assert_eq!(states(&env), [SkillState::Current, SkillState::Current]);
+        assert_eq!(
+            states(&env),
+            [
+                SkillState::Current,
+                SkillState::Current,
+                SkillState::Missing
+            ]
+        );
+
+        home.agent(Agent::Antigravity);
+        let changes = install_skill(&env, &[]).unwrap();
+        assert_eq!(
+            actions(&changes),
+            [
+                (SkillLocation::Claude, SkillAction::Unchanged),
+                (SkillLocation::Agents, SkillAction::Unchanged),
+                (SkillLocation::Antigravity, SkillAction::Installed),
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(home.skill(SkillLocation::Antigravity)).unwrap(),
+            skill_md()
+        );
+        assert_eq!(
+            states(&env),
+            [
+                SkillState::Current,
+                SkillState::Current,
+                SkillState::Current
+            ]
+        );
     }
 
     #[test]
@@ -692,7 +735,14 @@ mod tests {
             update_outdated_skills(&env).unwrap().is_empty(),
             "nothing installed"
         );
-        assert_eq!(states(&env), [SkillState::Missing, SkillState::Missing]);
+        assert_eq!(
+            states(&env),
+            [
+                SkillState::Missing,
+                SkillState::Missing,
+                SkillState::Missing
+            ]
+        );
 
         // Claude's is Solilog's but old; the shared folder's is someone else's.
         install_skill(&env, &[Agent::Claude]).unwrap();
@@ -716,7 +766,14 @@ mod tests {
         fs::remove_dir_all(foreign.parent().unwrap()).unwrap();
         fs::write(&claude, old_skill()).unwrap();
         update_outdated_skills(&env).unwrap();
-        assert_eq!(states(&env), [SkillState::Current, SkillState::Missing]);
+        assert_eq!(
+            states(&env),
+            [
+                SkillState::Current,
+                SkillState::Missing,
+                SkillState::Missing
+            ]
+        );
     }
 
     #[test]
@@ -768,7 +825,14 @@ mod tests {
             actions(&changes),
             [(SkillLocation::Claude, SkillAction::Updated)]
         );
-        assert_eq!(states(&env), [SkillState::Current, SkillState::Current]);
+        assert_eq!(
+            states(&env),
+            [
+                SkillState::Current,
+                SkillState::Current,
+                SkillState::Missing
+            ]
+        );
     }
 
     #[test]
@@ -783,7 +847,14 @@ mod tests {
         assert!(err.to_string().contains("not written by Solilog"), "{err}");
         // All or nothing: Claude's copy was not written either.
         assert!(!home.skill(SkillLocation::Claude).exists());
-        assert_eq!(states(&env), [SkillState::Missing, SkillState::Foreign]);
+        assert_eq!(
+            states(&env),
+            [
+                SkillState::Missing,
+                SkillState::Foreign,
+                SkillState::Missing
+            ]
+        );
 
         // Uninstalling leaves it alone too.
         let changes = uninstall_skill(&env, &[]).unwrap();
@@ -792,6 +863,7 @@ mod tests {
             [
                 (SkillLocation::Claude, SkillAction::NotInstalled),
                 (SkillLocation::Agents, SkillAction::Foreign),
+                (SkillLocation::Antigravity, SkillAction::NotInstalled),
             ]
         );
         assert!(foreign.exists());
@@ -831,6 +903,7 @@ mod tests {
             [
                 (SkillLocation::Claude, SkillAction::NotInstalled),
                 (SkillLocation::Agents, SkillAction::Removed),
+                (SkillLocation::Antigravity, SkillAction::NotInstalled),
             ]
         );
         assert_eq!(changes[1].kept, std::slice::from_ref(&extra));

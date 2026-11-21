@@ -186,11 +186,12 @@ One concept, one name, consistent across surfaces:
 - Long text can come from stdin with `-`.
 - Respect `SOLILOG_DB` (database path); tests and agents use it for isolation.
 - `solilog skill install` puts the agent skill (`SKILL.md`, compiled in) in
-  `~/.claude/skills/solilog/` and `~/.agents/skills/solilog/` (Codex, Cursor,
-  OpenCode, pi); its frontmatter marker (`managed-by: solilog`) is how it
-  recognizes its own files, and it never overwrites others. Its `version` is
-  the crate version, filled in when installed. On start, the app updates it
-  where an older version installed it (`update_outdated_skills`), nowhere else.
+  `~/.claude/skills/solilog/`, `~/.agents/skills/solilog/` (Codex, Cursor,
+  OpenCode, pi), and `~/.gemini/config/skills/solilog/` (Antigravity); its
+  frontmatter marker (`managed-by: solilog`) is how it recognizes its own files,
+  and it never overwrites others. Its `version` is the crate version, filled in
+  when installed. On start, the app updates it where an older version installed
+  it (`update_outdated_skills`), nowhere else.
 
 ## Versions and releases
 

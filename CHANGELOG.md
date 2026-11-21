@@ -6,6 +6,12 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- `solilog skill install` now supports Antigravity (`--agent antigravity`,
+  detected via `~/.gemini/antigravity` and installed to
+  `~/.gemini/config/skills/solilog/`).
+
 ## [0.2.1] - 2026-11-18
 
 ### Added

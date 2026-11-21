@@ -63,14 +63,14 @@ Restoring (also "Backup: Restore" in the palette) backs up the current data firs
 The `solilog` command is made for coding agents as much as for people: every command takes `--json`, and `--help` is written for an agent that has never seen Solilog. To let your agents know the tracker exists, install the Solilog skill, built into the binary:
 
 ```sh
-solilog skill install     # for every agent found: Claude Code, Codex, Cursor, OpenCode, pi
+solilog skill install     # for every agent found: Antigravity, Claude Code, Codex, Cursor, OpenCode, pi
 solilog skill status      # where it is, and whether it matches this version
 solilog skill show        # what it says
 ```
 
 Then, from any project, mentioning an issue ("work on SOL-16") or your backlog ("what should I do next?") makes the agent reach for `solilog`: it reads the issue before working on it, ticks checklist items as it goes, and asks before closing an issue.
 
-The skill goes in `~/.claude/skills/solilog/` (Claude Code) and `~/.agents/skills/solilog/` (Codex, Cursor, OpenCode, pi); `--agent claude` (repeatable) picks agents. `make install` installs it too. After upgrading Solilog, run `solilog skill install` again to update it; `solilog` reminds you in the terminal when it's out of date. It never overwrites a skill it didn't write. `solilog skill uninstall` removes it.
+The skill goes in `~/.claude/skills/solilog/` (Claude Code), `~/.agents/skills/solilog/` (Codex, Cursor, OpenCode, pi), and `~/.gemini/config/skills/solilog/` (Antigravity); `--agent claude` (repeatable) picks agents. `make install` installs it too. After upgrading Solilog, run `solilog skill install` again to update it; `solilog` reminds you in the terminal when it's out of date. It never overwrites a skill it didn't write. `solilog skill uninstall` removes it.
 
 ## Keyboard
 

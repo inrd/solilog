@@ -112,16 +112,17 @@ pub enum Command {
     /// those backups are kept at least 90 days.
     #[command(subcommand)]
     Backup(BackupCommand),
-    /// Teach coding agents (Claude Code, Codex, Cursor, OpenCode, pi) to use
-    /// Solilog.
+    /// Teach coding agents (Antigravity, Claude Code, Codex, Cursor, OpenCode,
+    /// pi) to use Solilog.
     ///
     /// The skill is a `SKILL.md` built into this binary: it tells an agent
     /// when to use the `solilog` command (issue ids like SOL-12, "my
     /// issues", …) and how. `skill install` puts it where agents look:
-    /// `~/.claude/skills/solilog/` for Claude Code, and
-    /// `~/.agents/skills/solilog/` for Codex, Cursor, OpenCode and pi. After
-    /// upgrading Solilog, run `skill install` again to update it. Files
-    /// Solilog did not write are never overwritten or removed.
+    /// `~/.claude/skills/solilog/` for Claude Code,
+    /// `~/.agents/skills/solilog/` for Codex, Cursor, OpenCode and pi, and
+    /// `~/.gemini/config/skills/solilog/` for Antigravity. After upgrading
+    /// Solilog, run `skill install` again to update it. Files Solilog did not
+    /// write are never overwritten or removed.
     #[command(subcommand)]
     Skill(SkillCommand),
 }
@@ -133,10 +134,10 @@ pub enum SkillCommand {
     /// Install or update the skill and print what was written where.
     ///
     /// Without `--agent`, installs it for every agent whose configuration
-    /// folder exists (`~/.claude`, `~/.codex`, `~/.cursor`,
-    /// `~/.config/opencode`, `~/.pi/agent` or `$PI_CODING_AGENT_DIR`). Fails
-    /// without writing anything if a target holds a skill Solilog did not
-    /// write.
+    /// folder exists (`~/.gemini/antigravity`, `~/.claude`, `~/.codex`,
+    /// `~/.cursor`, `~/.config/opencode`, `~/.pi/agent` or
+    /// `$PI_CODING_AGENT_DIR`). Fails without writing anything if a target
+    /// holds a skill Solilog did not write.
     Install {
         #[command(flatten)]
         agents: AgentArgs,
@@ -157,8 +158,8 @@ pub enum SkillCommand {
 
 #[derive(Args)]
 pub struct AgentArgs {
-    /// Only for this agent (repeatable): claude, codex, cursor, opencode or
-    /// pi. Codex, Cursor, OpenCode and pi share one folder.
+    /// Only for this agent (repeatable): antigravity, claude, codex, cursor,
+    /// opencode or pi. Codex, Cursor, OpenCode and pi share one folder.
     #[arg(long, value_name = "AGENT")]
     agent: Vec<Agent>,
 }
