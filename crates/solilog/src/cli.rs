@@ -16,10 +16,10 @@ use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
     Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason,
-    ChecklistItemId, Db, Issue, IssueEdit, IssueFilter, IssueId, Label, LabelColor, NewIssue,
-    NewProject, Placement, Project, ProjectStatus, ProjectUpdate, Revision, RevisionId, SKILL_NAME,
-    SKILL_VERSION, SkillChange, SkillEnv, SkillState, SkillStatus, Status, View, format_age,
-    format_size, format_utc,
+    ChecklistItemId, Db, Issue, IssueContext, IssueEdit, IssueFilter, IssueId, IssueSummary, Label,
+    LabelColor, NewIssue, NewProject, Placement, Project, ProjectStatus, ProjectSummary,
+    ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv,
+    SkillState, SkillStatus, Status, View, format_age, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -219,6 +219,9 @@ pub enum IssueCommand {
     },
     /// Show one issue, with its description, checklist and attachments.
     Show { id: IssueId },
+    /// Show an issue together with its projects, dependencies, and any
+    /// `SOL-n` issues referenced in its description, in one call.
+    Context { id: IssueId },
     /// Create an issue and print it.
     #[command(visible_alias = "new")]
     Create {
@@ -712,6 +715,7 @@ fn run_command(
                     })
                 }
                 IssueCommand::Show { id } => out.issue(&db.get_issue(id)?),
+                IssueCommand::Context { id } => out.issue_context(&db.issue_context(id)?),
                 IssueCommand::Create {
                     title,
                     description,
@@ -1106,44 +1110,31 @@ impl Output {
     }
 
     fn issue(&self, issue: &Issue) -> Result<()> {
-        self.print(issue, || {
-            let mut text = issue_line(issue);
-            if !issue.description.is_empty() {
-                text.push_str(&format!("\n\n{}", issue.description));
-            }
-            if !issue.depends_on.is_empty() || !issue.dependents.is_empty() {
-                text.push('\n');
-            }
-            if !issue.depends_on.is_empty() {
-                let deps: Vec<String> = issue
-                    .depends_on
-                    .iter()
-                    .map(|id| {
-                        let state = if issue.waiting_on.contains(id) {
-                            "open"
-                        } else {
-                            "closed"
-                        };
-                        format!("{id} ({state})")
-                    })
-                    .collect();
-                text.push_str(&format!("\nDepends on: {}", deps.join(", ")));
-            }
-            if !issue.dependents.is_empty() {
-                text.push_str(&format!("\nNeeded by: {}", id_list(&issue.dependents)));
-            }
-            if !issue.checklist.is_empty() {
-                text.push('\n');
-                for item in &issue.checklist {
-                    let check = if item.done { "x" } else { " " };
-                    text.push_str(&format!("\n[{check}] {:<4} {}", item.id.0, item.text));
+        self.print(issue, || issue_text(issue))
+    }
+
+    fn issue_context(&self, ctx: &IssueContext) -> Result<()> {
+        self.print(ctx, || {
+            let mut text = issue_text(&ctx.issue);
+            if !ctx.projects.is_empty() {
+                text.push_str("\n\nProjects:");
+                for p in &ctx.projects {
+                    text.push('\n');
+                    text.push_str(&project_summary_line(p));
                 }
             }
-            if !issue.attachments.is_empty() {
-                text.push('\n');
-                for attachment in &issue.attachments {
+            if !ctx.depends_on.is_empty() {
+                text.push_str("\n\nDepends on:");
+                for i in &ctx.depends_on {
                     text.push('\n');
-                    text.push_str(&attachment_line(attachment));
+                    text.push_str(&issue_summary_line(i));
+                }
+            }
+            if !ctx.referenced_issues.is_empty() {
+                text.push_str("\n\nReferenced:");
+                for i in &ctx.referenced_issues {
+                    text.push('\n');
+                    text.push_str(&issue_summary_line(i));
                 }
             }
             text
@@ -1289,6 +1280,65 @@ fn issue_line(issue: &Issue) -> String {
     }
     if issue.archived {
         line.push_str("  (archived)");
+    }
+    line
+}
+
+fn issue_text(issue: &Issue) -> String {
+    let mut text = issue_line(issue);
+    if !issue.description.is_empty() {
+        text.push_str(&format!("\n\n{}", issue.description));
+    }
+    if !issue.depends_on.is_empty() || !issue.dependents.is_empty() {
+        text.push('\n');
+    }
+    if !issue.depends_on.is_empty() {
+        let deps: Vec<String> = issue
+            .depends_on
+            .iter()
+            .map(|id| {
+                let state = if issue.waiting_on.contains(id) {
+                    "open"
+                } else {
+                    "closed"
+                };
+                format!("{id} ({state})")
+            })
+            .collect();
+        text.push_str(&format!("\nDepends on: {}", deps.join(", ")));
+    }
+    if !issue.dependents.is_empty() {
+        text.push_str(&format!("\nNeeded by: {}", id_list(&issue.dependents)));
+    }
+    if !issue.checklist.is_empty() {
+        text.push('\n');
+        for item in &issue.checklist {
+            let check = if item.done { "x" } else { " " };
+            text.push_str(&format!("\n[{check}] {:<4} {}", item.id.0, item.text));
+        }
+    }
+    if !issue.attachments.is_empty() {
+        text.push('\n');
+        for attachment in &issue.attachments {
+            text.push('\n');
+            text.push_str(&attachment_line(attachment));
+        }
+    }
+    text
+}
+
+fn project_summary_line(project: &ProjectSummary) -> String {
+    let mut line = format!("  {} ({})", project.name, project.status.key());
+    if !project.description.is_empty() {
+        line.push_str(&format!(": {}", project.description));
+    }
+    line
+}
+
+fn issue_summary_line(issue: &IssueSummary) -> String {
+    let mut line = format!("  {:<8} {:<12} {}", issue.id, issue.status.key(), issue.title);
+    if !issue.summary.is_empty() {
+        line.push_str(&format!(" — {}", issue.summary));
     }
     line
 }

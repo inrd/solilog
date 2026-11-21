@@ -8,6 +8,7 @@ mod attachment;
 mod backup;
 mod checklist;
 mod cli_link;
+mod context;
 mod db;
 mod dependency;
 mod filter;
@@ -34,6 +35,7 @@ pub use cli_link::{
     CLI_LINK_PATH, CliLinkState, NOT_A_LINK_EXIT, admin_script, app_bundle_binary,
     applescript_string, cli_link_state, install_cli_link,
 };
+pub use context::{IssueContext, IssueSummary, ProjectSummary};
 pub use db::{Db, default_path};
 pub use filter::IssueFilter;
 pub use issue::{

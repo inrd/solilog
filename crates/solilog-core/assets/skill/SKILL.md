@@ -23,10 +23,11 @@ This file covers the workflows. For commands and flags, run
 
 ## Working on an issue
 
-1. Read it first: `solilog issue show SOL-12 --json` (description, status,
-   labels, projects, checklist, attachments with their file paths,
-   dependencies). If `waiting_on` isn't empty, issues it depends on are
-   still open: tell the user before starting.
+1. Read it first: `solilog issue context SOL-12 --json` (the issue with its
+   projects, dependencies, and any `SOL-n` issues mentioned in the
+   description; use `issue show` when you only want the issue). If
+   `waiting_on` isn't empty, issues it depends on are still open: tell the
+   user before starting.
 2. When you start: `solilog issue set-status SOL-12 in_progress`
    (`solilog statuses` lists the keys).
 3. Tick checklist items as you finish them: `solilog checklist check <id>`.

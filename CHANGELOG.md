@@ -8,6 +8,9 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- `solilog issue context <id>` (with `--json`) bundles an issue together with
+  its projects, `depends_on` issues, and any `SOL-n` issues referenced in its
+  description in one call.
 - Authorship, change log and review tracking: every write records who made
   it (`user` in the app, `cli` by default on the CLI, or `--actor` /
   `SOLILOG_ACTOR`, e.g. `claude:fix-auth`) on revisions, issue text fields,
