@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-21
+
 ### Added
 
 - `solilog issue context <id>` (with `--json`) bundles an issue together with
