@@ -3,6 +3,7 @@ name = "solilog-core"
 description = "Solilog domain types, storage and operations. No UI dependencies."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]

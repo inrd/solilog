@@ -7,6 +7,7 @@ default-members = ["crates/solilog"]
 [workspace.package]
 version = "0.2.2"
 edition = "2024"
+rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]

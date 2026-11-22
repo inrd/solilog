@@ -14,7 +14,7 @@ make install      # macOS: builds Solilog.app, installs it in /Applications,
 make uninstall    # removes them; your database is kept
 ```
 
-`BIN_DIR=…`, `APP_DIR=…` (macOS) and `DATA_DIR=…` (Linux) change where they go. `make` lists the other targets (tests, lints, bundle only, …).
+`BIN_DIR=…`, `APP_DIR=…` (macOS) and `DATA_DIR=…` (Linux) change where they go. Building from source requires Rust 1.89 or newer (`rustup update stable`); pass `CARGO="cargo +<toolchain>"` or `RUSTUP_TOOLCHAIN=<toolchain>` to use a specific toolchain. `make` lists the other targets (tests, lints, bundle only, …).
 
 With only `Solilog.app` (not built with `make install`), move it to Applications, open it, and run **Workspace: Install Command Line Tool** from the command palette: it links the `solilog` command into `/usr/local/bin` (asking for an administrator password if needed) and installs the agent skill. Run it again after moving the app.
 

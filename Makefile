@@ -9,6 +9,7 @@
 # agent is installed.
 
 UNAME    ?= $(shell uname -s)
+CARGO    ?= cargo
 APP_ID   := dev.solilog.Solilog
 BIN_DIR  ?= $(HOME)/.local/bin
 APP_DIR  ?= /Applications
@@ -27,7 +28,7 @@ help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
 run: ## Run the desktop app (debug build)
-	cargo run
+	$(CARGO) run
 
 demo: release ## Run the app on a fresh demo database
 	@db="$$(mktemp -d)/solilog.db" && scripts/demo-db.sh "$$db" && SOLILOG_DB="$$db" target/release/solilog
@@ -36,18 +37,18 @@ screenshot: release ## Update docs/screenshot.png (the README image) from the de
 	scripts/screenshot.sh
 
 test: ## Run all tests
-	cargo test --workspace
+	$(CARGO) test --workspace
 
 test-core: ## Run the core tests only (fast, no gpui)
-	cargo test -p solilog-core
+	$(CARGO) test -p solilog-core
 
 clippy: ## Lint, warnings as errors
-	cargo clippy --workspace --all-targets -- -D warnings
+	$(CARGO) clippy --workspace --all-targets -- -D warnings
 
 check: test clippy ## Tests and lints
 
 release: ## Release build of the binary
-	cargo build --release -p solilog
+	$(CARGO) build --release -p solilog
 
 cut-release: ## Version, commit and tag a release: make cut-release V=0.2.0 (see CHANGELOG.md)
 	@[ -n "$(V)" ] || { echo "usage: make cut-release V=0.2.0" >&2; exit 1; }
@@ -100,4 +101,4 @@ icon: ## Regenerate the macOS .icns from packaging/icon.svg (needs rsvg-convert)
 	$(MACOS)/icon.sh
 
 clean: ## Remove build output
-	cargo clean
+	$(CARGO) clean

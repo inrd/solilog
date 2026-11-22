@@ -3,6 +3,7 @@ name = "solilog"
 description = "Solilog desktop app (GUI) and command-line interface."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
