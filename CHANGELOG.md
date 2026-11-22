@@ -6,6 +6,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Fixed
+
+- Checklist items and the new-item field no longer disappear or stop responding
+  to clicks when the window is wider than the issue body.
+
 ## [0.2.2] - 2026-11-21
 
 ### Added

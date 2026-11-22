@@ -1543,8 +1543,8 @@ impl Render for TextInput {
         }
         div()
             .flex()
+            .flex_col()
             .w_full()
-            .when(self.wraps(), |s| s.flex_col())
             .when(self.multiline, |s| s.flex_1())
             .key_context(context)
             .track_focus(&self.focus_handle(cx))
