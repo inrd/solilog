@@ -3,8 +3,8 @@
 //! `issue::AddDependency` / `issue::RemoveDependency`.
 
 use gpui::{
-    Action, ClickEvent, FocusHandle, FontWeight, IntoElement, SharedString, div, prelude::*, px,
-    rgb,
+    Action, ClickEvent, FocusHandle, FontWeight, IntoElement, Pixels, SharedString, div,
+    prelude::*, px, rgb,
 };
 use solilog_core::{IssueId, Status};
 
@@ -61,7 +61,7 @@ impl Workspace {
                         let (title, status) = self
                             .issue_summary(id)
                             .unwrap_or_else(|| (String::new(), Status::Todo));
-                        dependency_row(id, title, status, removable, &focus)
+                        dependency_row(id, title, status, removable, self.id_width, &focus)
                     }))
             })
         };
@@ -80,6 +80,7 @@ fn dependency_row(
     title: String,
     status: Status,
     removable: bool,
+    id_width: Pixels,
     focus: &FocusHandle,
 ) -> impl IntoElement + use<> {
     let group: SharedString = format!("dependency-{}", id.0).into();
@@ -126,8 +127,9 @@ fn dependency_row(
         .child(status_icon(status))
         .child(
             div()
-                .w(px(52.))
+                .w(id_width)
                 .flex_none()
+                .whitespace_nowrap()
                 .text_color(rgb(theme::TEXT_MUTED))
                 .child(id.to_string()),
         )

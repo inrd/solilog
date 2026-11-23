@@ -189,6 +189,9 @@ pub struct Workspace {
     all_issues: Vec<Issue>,
     /// Newest first.
     archived_issues: Vec<Issue>,
+    /// Width of the issue id column (list, archive, dependencies): fits
+    /// the widest id in the database. Updated on every render.
+    id_width: Pixels,
     views: Vec<View>,
     /// Including done and archived ones.
     projects: Vec<Project>,
@@ -288,6 +291,7 @@ impl Workspace {
             collapsed_statuses: Vec::new(),
             all_issues: Vec::new(),
             archived_issues: Vec::new(),
+            id_width: px(0.),
             views: Vec::new(),
             projects: Vec::new(),
             labels: Vec::new(),
@@ -1479,8 +1483,9 @@ impl Workspace {
             .child(status)
             .child(
                 div()
-                    .w(px(52.))
+                    .w(self.id_width)
                     .flex_none()
+                    .whitespace_nowrap()
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(issue_id.to_string()),
             )
@@ -1729,6 +1734,9 @@ fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
 /// The width an issue title keeps in a list row, however many chips follow it.
 pub(super) const MIN_TITLE_WIDTH: f32 = 160.;
 
+/// Text size of the workspace, unless an element sets its own.
+const BODY_TEXT_SIZE: f32 = 14.;
+
 /// A small rounded tag, used for labels (outlined, text in `color`).
 fn chip(text: String, color: u32) -> gpui::Div {
     div()
@@ -1741,6 +1749,23 @@ fn chip(text: String, color: u32) -> gpui::Div {
         .line_height(px(18.))
         .text_color(rgb(color))
         .child(text)
+}
+
+/// Width of an issue id column whose widest id is `widest`, at
+/// `font_size` in the window's font: an id of that many digits (at least
+/// two), all zeros so it doesn't depend on which digits they are.
+fn id_column_width(widest: Option<IssueId>, font_size: Pixels, window: &Window) -> Pixels {
+    let digits = widest.map_or(0, |id| id.0.max(0).to_string().len()).max(2);
+    let text: SharedString = IssueId(10_i64.pow(digits as u32 - 1))
+        .to_string()
+        .replace(|c: char| c.is_ascii_digit(), "0")
+        .into();
+    let style = window.text_style();
+    let run = style.to_run(text.len());
+    let line = window
+        .text_system()
+        .shape_line(text, font_size, &[run], None);
+    px(f32::from(line.width).ceil() + 1.)
 }
 
 /// A project's chip: filled, to tell it apart from label chips.
@@ -1861,6 +1886,13 @@ impl Render for Workspace {
         self.sync_checklist(window, cx);
         self.sync_image_preview(window);
         self.sync_project_description(window, cx);
+        let widest = self
+            .all_issues
+            .iter()
+            .chain(&self.archived_issues)
+            .map(|i| i.id)
+            .max();
+        self.id_width = id_column_width(widest, px(BODY_TEXT_SIZE), window);
         // The footer's hints come from the last rendered frame, which does
         // not have a newly focused element yet: render once more.
         let focused = window.focused(cx);
@@ -1945,7 +1977,7 @@ impl Render for Workspace {
             .flex_col()
             .bg(rgb(theme::BACKGROUND))
             .text_color(rgb(theme::TEXT))
-            .text_size(px(14.))
+            .text_size(px(BODY_TEXT_SIZE))
             .line_height(px(20.))
             .child(
                 div()

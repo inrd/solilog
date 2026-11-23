@@ -376,8 +376,9 @@ impl Workspace {
                 )
                 .child(
                     div()
-                        .w(px(52.))
+                        .w(self.id_width)
                         .flex_none()
+                        .whitespace_nowrap()
                         .text_color(rgb(theme::TEXT_MUTED))
                         .child(id.to_string()),
                 )

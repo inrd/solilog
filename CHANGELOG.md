@@ -6,6 +6,12 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Fixed
+
+- Issue ids from SOL-100 on no longer wrap onto two lines in the issue list,
+  the archive and an issue's dependencies: the id column widens to fit the
+  longest id.
+
 ## [0.2.3] - 2026-11-23
 
 ### Added
