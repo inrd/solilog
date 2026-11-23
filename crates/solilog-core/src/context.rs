@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::Db;
 use crate::issue::{Issue, IssueId, Status, issue_mentions};
+use crate::note::Note;
 use crate::project::ProjectStatus;
 
 const SUMMARY_MAX_CHARS: usize = 160;
@@ -29,13 +30,16 @@ pub struct IssueSummary {
     pub summary: String,
 }
 
-/// An issue together with its projects, dependencies, and referenced issues.
+/// An issue together with its projects, dependencies, referenced issues and
+/// notes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct IssueContext {
     pub issue: Issue,
     pub projects: Vec<ProjectSummary>,
     pub depends_on: Vec<IssueSummary>,
     pub referenced_issues: Vec<IssueSummary>,
+    /// The issue's worklog, oldest first.
+    pub notes: Vec<Note>,
 }
 
 fn brief_summary(description: &str) -> String {
@@ -52,7 +56,8 @@ fn brief_summary(description: &str) -> String {
 
 impl Db {
     /// Returns an issue together with its projects, `depends_on` issues, and
-    /// any existing `SOL-n` issues referenced in its description.
+    /// any existing `SOL-n` issues referenced in its description, and its
+    /// notes.
     pub fn issue_context(&self, id: IssueId) -> Result<IssueContext> {
         let issue = self.get_issue(id)?;
 
@@ -83,11 +88,13 @@ impl Db {
             }
         }
 
+        let notes = self.issue_notes(id)?;
         Ok(IssueContext {
             issue,
             projects,
             depends_on,
             referenced_issues,
+            notes,
         })
     }
 
@@ -164,8 +171,11 @@ mod tests {
                 },
             )
             .unwrap();
-        db.update_issues(&[main.id], &crate::IssueChange::AddDependencies(vec![dep.id]))
-            .unwrap();
+        db.update_issues(
+            &[main.id],
+            &crate::IssueChange::AddDependencies(vec![dep.id]),
+        )
+        .unwrap();
 
         let ctx = db.issue_context(main.id).unwrap();
         assert_eq!(ctx.issue.id, main.id);
@@ -185,6 +195,10 @@ mod tests {
         assert_eq!(ctx.referenced_issues[0].title, "Referenced task");
         assert_eq!(ctx.referenced_issues[0].status, Status::Done);
         assert_eq!(ctx.referenced_issues[0].summary, "Some background details");
+
+        assert!(ctx.notes.is_empty());
+        let note = db.add_note(main.id, "Started on it.").unwrap();
+        assert_eq!(db.issue_context(main.id).unwrap().notes, [note]);
     }
 
     #[test]

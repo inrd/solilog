@@ -62,6 +62,9 @@ fn every_release_upgrades() {
         if before >= ACTIVITY_SCHEMA {
             check_activity(&db);
         }
+        if before >= NOTES_SCHEMA {
+            check_notes(&db);
+        }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
             .list_backups()
@@ -200,8 +203,34 @@ fn check_activity(db: &Db) {
     assert!(header.unreviewed);
     assert_eq!(header.description_by.as_str(), "claude:fix-header");
     assert_eq!(
-        header.unreviewed_actors.iter().map(|a| a.as_str()).collect::<Vec<_>>(),
+        header
+            .unreviewed_actors
+            .iter()
+            .map(|a| a.as_str())
+            .collect::<Vec<_>>(),
         ["claude:fix-header"]
+    );
+}
+
+/// The first schema version with notes.
+const NOTES_SCHEMA: i64 = 20;
+
+/// What `scripts/upgrade-fixture.sh` puts in since notes exist.
+fn check_notes(db: &Db) {
+    let notes = db.issue_notes(IssueId(2)).unwrap();
+    let notes: Vec<(&str, &str)> = notes
+        .iter()
+        .map(|n| (n.author.as_str(), n.text.as_str()))
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            ("user", "Check it on a phone too."),
+            (
+                "claude:fix-header",
+                "Tried flex-wrap.\nThe logo still overflows."
+            ),
+        ]
     );
 }
 

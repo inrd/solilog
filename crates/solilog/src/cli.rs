@@ -17,9 +17,10 @@ use serde_json::json;
 use solilog_core::{
     Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason,
     ChecklistItemId, CompactIssue, Db, Issue, IssueContext, IssueEdit, IssueFilter, IssueId,
-    IssueSummary, Label, LabelColor, NewIssue, NewProject, Placement, Project, ProjectStatus,
-    ProjectSummary, ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange,
-    SkillEnv, SkillState, SkillStatus, Status, View, format_age, format_size, format_utc,
+    IssueSummary, Label, LabelColor, NewIssue, NewProject, Note, NoteId, Placement, Project,
+    ProjectStatus, ProjectSummary, ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION,
+    SkillChange, SkillEnv, SkillState, SkillStatus, Status, View, format_age, format_size,
+    format_utc,
 };
 
 #[derive(Parser)]
@@ -89,6 +90,17 @@ pub enum Command {
     /// `path`). Deleting an issue deletes its attachments.
     #[command(subcommand, visible_alias = "a")]
     Attachment(AttachmentCommand),
+    /// Manage issue notes: an issue's worklog.
+    ///
+    /// Notes are timestamped entries, each attributed to who wrote it (see
+    /// `--actor`), added one after the other, apart from the description
+    /// and the checklist: what was tried, what failed, what was decided,
+    /// what the next session should know, steering from the user. They are
+    /// never edited: add a new note to correct one. `issue context` includes
+    /// them. Notes have ids of their own (`id` in the JSON); a note can be
+    /// deleted only by the user or by its author.
+    #[command(subcommand, visible_alias = "n")]
+    Note(NoteCommand),
     /// List the valid issue statuses, or collapse a status's section in the
     /// GUI issue list.
     ///
@@ -282,7 +294,7 @@ pub enum IssueCommand {
         revision: RevisionId,
     },
     /// List recorded changes on an issue, newest first (creation, edits,
-    /// status, checklist, labels, projects, dependencies, attachments).
+    /// status, checklist, labels, projects, dependencies, attachments, notes).
     Activity {
         id: IssueId,
         /// Only non-user changes since the issue was last marked reviewed.
@@ -423,6 +435,27 @@ pub enum AttachmentCommand {
     /// Delete an attachment and its file, and print it as it was.
     #[command(visible_alias = "rm")]
     Delete { attachment: AttachmentId },
+}
+
+#[derive(Subcommand)]
+pub enum NoteCommand {
+    /// Add a note at the end of an issue's worklog and print it.
+    ///
+    /// Example: `solilog note add SOL-12 "Tried X: fails on Y. Next: Z."`,
+    /// or `-` to read a longer, multi-line note from stdin. Markdown is
+    /// fine; it is stored as written.
+    Add {
+        id: IssueId,
+        /// The note; `-` reads it from stdin.
+        text: String,
+    },
+    /// List an issue's notes, oldest first.
+    #[command(visible_alias = "ls")]
+    List { id: IssueId },
+    /// Delete a note for good and print it as it was. Only the user and the
+    /// note's author can.
+    #[command(visible_alias = "rm")]
+    Delete { note: NoteId },
 }
 
 #[derive(Subcommand)]
@@ -858,6 +891,16 @@ fn run_command(
                 }
             }
         }
+        Command::Note(cmd) => {
+            let db = &*open_db(opened, actor)?;
+            match cmd {
+                NoteCommand::Add { id, text } => {
+                    out.note(&db.add_note(id, &read_arg(text, "note")?)?)
+                }
+                NoteCommand::List { id } => out.notes(&db.issue_notes(id)?),
+                NoteCommand::Delete { note } => out.note(&db.delete_note(note)?),
+            }
+        }
         Command::View(cmd) => {
             let db = &*opened.insert(Db::open_default()?);
             match cmd {
@@ -1165,8 +1208,20 @@ impl Output {
                     text.push_str(&issue_summary_line(i));
                 }
             }
+            if !ctx.notes.is_empty() {
+                text.push_str("\n\nNotes:\n");
+                text.push_str(&notes_text(&ctx.notes));
+            }
             text
         })
+    }
+
+    fn note(&self, note: &Note) -> Result<()> {
+        self.print(note, || note_text(note))
+    }
+
+    fn notes(&self, notes: &[Note]) -> Result<()> {
+        self.print(notes, || notes_text(notes))
     }
 
     fn revisions(&self, revisions: &[Revision]) -> Result<()> {
@@ -1373,7 +1428,12 @@ fn project_summary_line(project: &ProjectSummary) -> String {
 }
 
 fn issue_summary_line(issue: &IssueSummary) -> String {
-    let mut line = format!("  {:<8} {:<12} {}", issue.id, issue.status.key(), issue.title);
+    let mut line = format!(
+        "  {:<8} {:<12} {}",
+        issue.id,
+        issue.status.key(),
+        issue.title
+    );
     if !issue.summary.is_empty() {
         line.push_str(&format!(" — {}", issue.summary));
     }
@@ -1410,6 +1470,29 @@ fn activity_line(activity: &Activity) -> String {
         activity.actor,
         activity.summary()
     )
+}
+
+/// Id, age and author, then the text, indented.
+fn note_text(note: &Note) -> String {
+    let mut text = format!(
+        "{:<4} {:<12} {}",
+        note.id.0,
+        format_age(note.created_at),
+        note.author
+    );
+    for line in note.text.lines() {
+        text.push('\n');
+        if !line.is_empty() {
+            text.push_str("    ");
+            text.push_str(line);
+        }
+    }
+    text
+}
+
+/// Notes, a blank line apart.
+fn notes_text(notes: &[Note]) -> String {
+    notes.iter().map(note_text).collect::<Vec<_>>().join("\n\n")
 }
 
 /// Id, name, size and path.

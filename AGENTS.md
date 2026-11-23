@@ -80,7 +80,7 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, description, status, labels, projects, checklist, attachments. The description is
+- **Issue**: title, description, status, labels, projects, checklist, attachments, notes. The description is
   plain text, stored as written apart from whitespace cleanup
   (`normalize_description`), so it can be rendered as Markdown later. An issue can be archived: it
   keeps everything but is left out of listings, views and counts
@@ -90,6 +90,13 @@ writing SQL or validation in `crates/solilog`, move it to core.
   GUI list groups issues by status (`Status::LIST_ORDER`), each in that order.
   A status's section can be collapsed to its header (`Db::set_status_collapsed`,
   saved in the `settings` table; display only).
+- **Note**: an entry in an issue's worklog (`note.rs`): text (stored as
+  written, like a description), author, time. Apart from the description
+  (the spec) so agents log progress and handoffs without rewriting it.
+  Never edited; deleted only by the user or by its author
+  (`Db::delete_note`). Listed oldest first, and in `Db::issue_context`.
+  Adding or deleting one is an activity (unreviewed when an agent does it).
+  Deleting an issue deletes its notes; archiving keeps them.
 - **Checklist**: an issue's ordered list of one-line items (`ChecklistItem`:
   text, done), each with a global id (`ChecklistItemId`, shown as a plain
   number). It only tracks progress (`Issue::checklist_progress`, shown as
@@ -266,7 +273,8 @@ migration in one transaction (a failure applies none and leaves
   `~/.config/solilog/keymap.json` (`$SOLILOG_CONFIG_DIR` / `$XDG_CONFIG_HOME`
   are respected). The file is reloaded automatically when it changes.
 - Contexts: `Workspace` > `Sidebar` | `IssueList` | `Archive` | `IssueDetail` | `NewIssue > TextInput`;
-  `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items
+  `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items,
+  `IssueDetail > NoteDraft > TextInput` for the new-note field
   (attachment commands are registered on `IssueDetail`);
   `ProjectHeader > TextInput` for the description of the project the list
   shows (`workspace/project_header.rs`; outside `IssueList`, so its

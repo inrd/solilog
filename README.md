@@ -32,6 +32,7 @@ pbpaste | solilog issue edit SOL-1 -d -    # description from stdin
 solilog checklist add SOL-1 "Write tests" "Update docs"
 solilog checklist check 1                  # item ids are shown by `issue show`
 solilog attachment add SOL-1 crash.log     # copied next to the database
+solilog note add SOL-1 "Tried X, fails on Y" # the issue's worklog
 solilog issue create "Crash on load" -l acme/reverb -l bug
 solilog issue ls -l acme                   # also matches sublabels like acme/reverb
 solilog issue add-dependency SOL-3 SOL-1   # SOL-3 depends on SOL-1
@@ -111,12 +112,15 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 
 Title, description and checklist are edited in place and saved as you type. `Escape` goes back.
 
+Below the checklist, notes are the issue's worklog: what you or an agent tried, decided or left for next time, each with its author and time. Notes are never edited; a note being written is added when you leave the issue.
+
 | Key | Action |
 |---|---|
 | `e` / `d` | Edit the title / the description |
 | `a` | Add a checklist item (`Enter` goes to the next one) |
 | `cmd-enter` | Check the item being edited |
 | `alt-up` / `alt-down` | Move the item (or drag its handle) |
+| `n` | Write a note (`cmd-enter` adds it) |
 | `shift-a` | Attach a file |
 | `cmd-z` / `cmd-shift-z` | Undo / redo while editing text (also `ctrl-y` on Linux) |
 

@@ -8,6 +8,14 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- Notes on issues: a worklog of timestamped entries, each showing who wrote
+  it, apart from the description and the checklist. Write and read them below
+  the checklist of an open issue (`n`, then `cmd-enter` to add), or with
+  `solilog note add`, `note ls` and `note rm`. `solilog issue context` includes
+  them, and the agent skill tells agents to log progress and handoffs there
+  instead of rewriting descriptions. Notes can't be edited; a note can be
+  deleted by you or by the agent that wrote it.
+
 - `solilog issue ls --compact --json` returns lightweight issue summaries
   (`id`, `title`, `status`, `labels`, `projects`, `checklist_progress`,
   `waiting_on`, `unreviewed`, `updated_at`), omitting descriptions, full

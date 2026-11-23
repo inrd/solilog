@@ -24,16 +24,24 @@ This file covers the workflows. For commands and flags, run
 ## Working on an issue
 
 1. Read it first: `solilog issue context SOL-12 --json` (the issue with its
-   projects, dependencies, and any `SOL-n` issues mentioned in the
-   description; use `issue show` when you only want the issue). If
-   `waiting_on` isn't empty, issues it depends on are still open: tell the
-   user before starting.
+   projects, dependencies, any `SOL-n` issues mentioned in the
+   description, and its `notes`; use `issue show` when you only want the
+   issue). Read the notes: they hold what earlier sessions tried and
+   decided, and steering from the user. If `waiting_on` isn't empty,
+   issues it depends on are still open: tell the user before starting.
 2. When you start: `solilog issue set-status SOL-12 in_progress`
    (`solilog statuses` lists the keys).
 3. Tick checklist items as you finish them: `solilog checklist check <id>`.
    Item ids are global numbers from `checklist[].id`, not positions: the
    third item of SOL-12 may be 41.
-4. Keep the status true (`blocked` if you are stuck), but ask the user
+4. Log your work as notes: `solilog note add SOL-12 "<text>"` (`-` reads a
+   longer note from stdin). Add one when you learn something the next
+   session needs (what you tried and what failed, a decision and why,
+   files or commits touched) and a short handoff before you stop: done,
+   left, next step. Notes are the place for this, not the description:
+   leave the description (the user's spec) alone unless asked to change it.
+   Notes can't be edited; add a new one to correct one.
+5. Keep the status true (`blocked` if you are stuck), but ask the user
    before setting `done` or `cancelled`.
 
 To triage or suggest what to work on next, start from

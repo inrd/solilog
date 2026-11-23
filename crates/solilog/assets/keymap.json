@@ -11,6 +11,7 @@
 //                        title and description fields are TextInputs in it
 //   Checklist            the open issue's checklist, in IssueDetail; each
 //                        item is a ChecklistItem holding a TextInput
+//   NoteDraft            the open issue's new-note field, in IssueDetail
 //   NewIssue > TextInput the new-issue input has focus
 //   ImagePreview         an image attachment shown over the window
 //   Picker               any popup list (command palette, status picker)
@@ -138,6 +139,7 @@
       "enter": "issue_detail::EditDescription",
       "d": "issue_detail::EditDescription",
       "a": "checklist::AddItem",
+      "n": "note::Add",
       "shift-a": "attachment::Add",
       "secondary-v": "attachment::Paste",
       "s": "issue::SetStatus",
@@ -296,6 +298,12 @@
       "alt-up": "checklist::MoveItemUp",
       "alt-down": "checklist::MoveItemDown",
       "secondary-shift-backspace": "checklist::DeleteItem"
+    }
+  },
+  {
+    "context": "NoteDraft > TextInput",
+    "bindings": {
+      "secondary-enter": "note::AddDraft"
     }
   }
 ]

@@ -172,6 +172,8 @@ pub enum ActivityKind {
     AttachmentAdded,
     AttachmentRemoved,
     RevisionRestored,
+    NoteAdded,
+    NoteDeleted,
 }
 
 impl ActivityKind {
@@ -197,6 +199,8 @@ impl ActivityKind {
             Self::AttachmentAdded => "attachment_added",
             Self::AttachmentRemoved => "attachment_removed",
             Self::RevisionRestored => "revision_restored",
+            Self::NoteAdded => "note_added",
+            Self::NoteDeleted => "note_deleted",
         }
     }
 
@@ -222,6 +226,8 @@ impl ActivityKind {
             ActivityKind::AttachmentAdded,
             ActivityKind::AttachmentRemoved,
             ActivityKind::RevisionRestored,
+            ActivityKind::NoteAdded,
+            ActivityKind::NoteDeleted,
         ];
         ALL.iter().copied().find(|k| k.key() == key)
     }
@@ -293,6 +299,8 @@ impl Activity {
             ActivityKind::AttachmentAdded => with_detail("attached"),
             ActivityKind::AttachmentRemoved => with_detail("removed attachment"),
             ActivityKind::RevisionRestored => with_detail("restored"),
+            ActivityKind::NoteAdded => with_detail("added note"),
+            ActivityKind::NoteDeleted => with_detail("deleted note"),
         }
     }
 }

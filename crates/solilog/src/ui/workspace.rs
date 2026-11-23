@@ -1017,7 +1017,10 @@ impl Workspace {
         if ids.is_empty() {
             return;
         }
-        if self.report(self.db.mark_issues_reviewed(&ids), cx).is_some() {
+        if self
+            .report(self.db.mark_issues_reviewed(&ids), cx)
+            .is_some()
+        {
             self.reload(cx);
             self.notice = Some(match ids.as_slice() {
                 [id] => format!("Marked {id} reviewed"),
@@ -1067,7 +1070,10 @@ impl Workspace {
                 cx,
             );
         }
-        if self.report(self.db.mark_issues_reviewed(&ids), cx).is_some() {
+        if self
+            .report(self.db.mark_issues_reviewed(&ids), cx)
+            .is_some()
+        {
             self.reload(cx);
             self.notice = Some(match ids.as_slice() {
                 [id] => format!("Marked {id} reviewed"),
@@ -1870,6 +1876,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_show_history))
             .on_action(cx.listener(Self::on_open_url))
             .on_action(cx.listener(Self::on_add_checklist_item))
+            .on_action(cx.listener(Self::on_add_note))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))
@@ -2017,7 +2024,7 @@ impl Workspace {
     /// focused element show, so each context gets its own.
     fn footer_hints(&self) -> Vec<(Box<dyn Action>, &'static str)> {
         use actions::{
-            archive, attachment, checklist, image_preview, issue_detail, picker, sidebar,
+            archive, attachment, checklist, image_preview, issue_detail, note, picker, sidebar,
         };
         let mut hints: Vec<(Box<dyn Action>, &'static str)> = vec![
             (Box::new(picker::Confirm), "Choose"),
@@ -2033,6 +2040,7 @@ impl Workspace {
             (Box::new(sidebar::Open), "Open"),
             (Box::new(issue_detail::Close), "Back"),
             (Box::new(archive::Close), "Back"),
+            (Box::new(note::AddDraft), "Add note"),
             (Box::new(issue_detail::StopEditing), "Done"),
             (Box::new(checklist::ToggleItem::default()), "Check"),
             (Box::new(issue_detail::EditDescription), "Description"),
@@ -2127,9 +2135,10 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_move_issue_down))
                     .on_action(cx.listener(Self::on_toggle_status_collapsed))
                     .on_action(cx.listener(Self::on_expand_all_statuses))
-                    .when(matches!(self.scope.source, scope::Source::Unreviewed), |d| {
-                        d.on_action(cx.listener(Self::on_mark_all_reviewed))
-                    })
+                    .when(
+                        matches!(self.scope.source, scope::Source::Unreviewed),
+                        |d| d.on_action(cx.listener(Self::on_mark_all_reviewed)),
+                    )
                     .flex_1()
                     .flex()
                     .flex_col()

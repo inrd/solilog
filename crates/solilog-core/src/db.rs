@@ -200,6 +200,16 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
     CREATE INDEX activities_by_issue ON activities (issue_id, id);",
+    // 20: notes: an issue's worklog, oldest first (see `note.rs`). Ids are
+    // never reused.
+    "CREATE TABLE notes (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        text       TEXT    NOT NULL,
+        author     TEXT    NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX notes_by_issue ON notes (issue_id, id);",
 ];
 
 /// The schema version of a database with every migration applied.
@@ -1154,7 +1164,12 @@ mod tests {
         let err = classify_create_dir_error(
             dir,
             Error::new(ErrorKind::AlreadyExists, "File exists"),
-            || Err(Error::new(ErrorKind::PermissionDenied, "Operation not permitted")),
+            || {
+                Err(Error::new(
+                    ErrorKind::PermissionDenied,
+                    "Operation not permitted",
+                ))
+            },
         )
         .unwrap_err();
         let msg = format!("{err:#}");
@@ -1194,10 +1209,8 @@ mod tests {
 
     #[test]
     fn open_fails_clearly_when_parent_is_a_file() {
-        let dir = std::env::temp_dir().join(format!(
-            "solilog-test-parent-file-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("solilog-test-parent-file-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("not-a-dir");
@@ -1215,10 +1228,8 @@ mod tests {
     fn open_fails_clearly_when_parent_is_unreadable() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let dir = std::env::temp_dir().join(format!(
-            "solilog-test-unreadable-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("solilog-test-unreadable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();

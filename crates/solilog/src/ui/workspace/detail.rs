@@ -1,6 +1,6 @@
 //! The issue detail: one issue, in place of the issue list (or the archive),
 //! with its title, description and checklist editable in place, its
-//! attachments and its dependencies. Opened with
+//! attachments, its dependencies and its notes. Opened with
 //! `issue::Open` (Enter or double click in the list), left with
 //! `issue_detail::Close` (Escape).
 //!
@@ -17,6 +17,7 @@
 mod attachments;
 mod checklist;
 mod dependencies;
+mod notes;
 mod preview;
 
 use std::ops::Range;
@@ -41,6 +42,7 @@ use crate::ui::status_icon::status_icon;
 use crate::ui::text_input::{Changed, Link, Submit, TextInput};
 use crate::ui::theme;
 use checklist::Checklist;
+use notes::Notes;
 use preview::ImagePreview;
 
 pub const CONTEXT: &str = "IssueDetail";
@@ -56,6 +58,7 @@ pub(super) struct IssueDetail {
     title: Entity<TextInput>,
     description: Entity<TextInput>,
     checklist: Checklist,
+    notes: Notes,
     /// The image attachment shown over the window, if any.
     preview: Option<ImagePreview>,
     focus: FocusHandle,
@@ -130,6 +133,11 @@ impl Workspace {
             }),
         ];
         let checklist = Checklist::new(window, cx);
+        let notes = Notes::new(
+            self.db.issue_notes(id).unwrap_or_default(),
+            scroll.clone(),
+            cx,
+        );
         let focus = cx.focus_handle();
         window.focus(&focus);
         let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
@@ -139,6 +147,7 @@ impl Workspace {
             title,
             description,
             checklist,
+            notes,
             preview: None,
             focus,
             scroll,
@@ -259,6 +268,7 @@ impl Workspace {
             return;
         };
         let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
+        let notes = self.db.issue_notes(id).unwrap_or_default();
         let Some(detail) = &mut self.detail else {
             return;
         };
@@ -280,12 +290,15 @@ impl Workspace {
         }
         detail.issue = issue;
         detail.unreviewed_activities = unreviewed_activities;
+        detail.notes.set_notes(notes);
     }
 
-    /// Saves and closes the detail; the caller moves the focus.
+    /// Saves (adding the note being written) and closes the detail; the
+    /// caller moves the focus.
     pub(super) fn close_detail(&mut self, cx: &mut Context<Self>) {
         if self.detail.is_some() {
             self.save_detail(true, cx);
+            self.add_drafted_note(cx);
             self.detail = None;
             cx.notify();
         }
@@ -466,10 +479,7 @@ impl Workspace {
             const MAX_SHOWN: usize = 5;
             let focus = focus.clone();
             let shown = detail.unreviewed_activities.iter().take(MAX_SHOWN);
-            let extra = detail
-                .unreviewed_activities
-                .len()
-                .saturating_sub(MAX_SHOWN);
+            let extra = detail.unreviewed_activities.len().saturating_sub(MAX_SHOWN);
             div()
                 .flex()
                 .flex_col()
@@ -508,10 +518,7 @@ impl Workspace {
                                 .child("Mark reviewed")
                                 .on_click(move |_: &ClickEvent, window, cx| {
                                     window.focus(&focus);
-                                    window.dispatch_action(
-                                        issue::MarkReviewed.boxed_clone(),
-                                        cx,
-                                    );
+                                    window.dispatch_action(issue::MarkReviewed.boxed_clone(), cx);
                                 }),
                         ),
                 )
@@ -541,8 +548,7 @@ impl Workspace {
                 })
         });
 
-        let agent_description =
-            !issue.description.is_empty() && issue.description_by.is_agent();
+        let agent_description = !issue.description.is_empty() && issue.description_by.is_agent();
 
         let body = div()
             .flex()
@@ -600,7 +606,8 @@ impl Workspace {
             )
             .child(self.render_attachments(detail))
             .child(self.render_dependencies(detail))
-            .child(self.render_checklist(detail, cx));
+            .child(self.render_checklist(detail, cx))
+            .child(self.render_notes(detail, cx));
 
         div()
             .flex_1()
@@ -629,6 +636,7 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_reveal_attachment))
                     .on_action(cx.listener(Self::on_delete_attachment))
                     .on_action(cx.listener(Self::on_preview_attachment))
+                    .on_action(cx.listener(Self::on_delete_note))
                     // Files dropped anywhere on the issue are attached to it.
                     .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(rgb(theme::SELECTION)))
                     .on_drop({

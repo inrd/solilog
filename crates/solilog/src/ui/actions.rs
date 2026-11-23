@@ -625,6 +625,48 @@ pub mod checklist {
     }
 }
 
+/// Notes: an issue's worklog, below its checklist. Timestamped entries,
+/// each by the user or an agent, never edited: what was tried, decided, or
+/// should be done next. Agents read them with `solilog issue context`.
+pub mod note {
+    use gpui::{Action, actions};
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::NoteId;
+
+    actions!(
+        note,
+        [
+            /// Add the note being written to the open issue's notes.
+            AddDraft,
+        ]
+    );
+
+    /// Add a note to the open (else the highlighted) issue. With a `text`,
+    /// adds it; without, opens the issue and puts the cursor in its
+    /// new-note field.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = note)]
+    #[serde(deny_unknown_fields)]
+    pub struct Add {
+        #[serde(default)]
+        pub text: Option<String>,
+    }
+
+    /// Delete a note of the open issue for good: the given `id`, else one
+    /// picked from its notes. Asks for confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = note)]
+    #[serde(deny_unknown_fields)]
+    pub struct Delete {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<NoteId>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
+}
+
 /// Files attached to the open issue. They are copied into the attachments
 /// directory next to the database, one folder per issue.
 pub mod attachment {

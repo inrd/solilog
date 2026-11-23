@@ -46,6 +46,10 @@ s issue add-dependency SOL-1 SOL-2
 # Authorship & review (0.2.2+): an agent edit on SOL-2, unreviewed; SOL-1 reviewed.
 SOLILOG_ACTOR=claude:fix-header s issue edit SOL-2 -d "Investigated flexbox wrap."
 s issue review SOL-1
+# Notes (0.2.3+): one by the user, one by the agent on SOL-2.
+s note add SOL-2 "Check it on a phone too."
+SOLILOG_ACTOR=claude:fix-header s note add SOL-2 "Tried flex-wrap.
+The logo still overflows."
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

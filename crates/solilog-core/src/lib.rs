@@ -14,6 +14,7 @@ mod dependency;
 mod filter;
 mod issue;
 mod label;
+mod note;
 mod order;
 mod project;
 mod revision;
@@ -47,6 +48,7 @@ pub use issue::{
 pub use label::{
     LABEL_SEPARATOR, Label, LabelColor, label_matches, normalize_label_name, renamed_label,
 };
+pub use note::{Note, NoteId, normalize_note_text};
 pub use order::Placement;
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
 pub use revision::{Revision, RevisionField, RevisionId, RevisionReason, format_age};
