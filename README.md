@@ -1,8 +1,27 @@
 # Solilog
 
-A fast, minimal, offline issue tracker for one. Native desktop app built in Rust with [GPUI](https://gpui.rs), plus a CLI that works on the same data (handy for scripts and AI agents).
+A fast, minimal, offline issue tracker for you and your coding agents. Native desktop app built in Rust with [GPUI](https://gpui.rs), plus a CLI over the same local database.
 
 ![Solilog](docs/screenshot.png)
+
+## Working with AI agents
+
+The `solilog` CLI is built for coding agents as much as for people: every command takes `--json`, and `--help` is written for an agent that has never seen Solilog. To let your agents know the tracker exists, install the built-in Solilog skill:
+
+```sh
+solilog skill install     # for every agent found: Antigravity, Claude Code, Codex, Cursor, OpenCode, pi
+solilog skill status      # where it is, and whether it matches this version
+solilog skill show        # what it says
+```
+
+From any project, mentioning an issue ("work on SOL-16") or your backlog ("what should I do next?") makes the agent reach for `solilog`:
+
+- **Read in one call:** agents scan ready work with `issue ls --ready --compact --json` and pull an issue together with its projects, dependencies, referenced `SOL-n` issues, and notes via `issue context`.
+- **Worklog, not spec:** as an agent works, it ticks checklist items and logs progress, decisions, and handoffs in append-only **notes**, leaving your description alone. If text is ever overwritten by mistake, revision history (`shift-h` / `issue history`) lets you restore it.
+- **Authorship and review tracking:** agents identify themselves with `--actor` or `SOLILOG_ACTOR` (e.g. `claude:fix-auth`). Changes made outside the app are attributed, marked subtly in the UI, recorded in an activity log, and collected in the sidebar's **Unreviewed** view until you clear them (`r` / `shift-r`).
+- **Review handoff with receipts:** when finished, the agent doesn't close the issue — it hands it to you (`In Review`, at the top of the list) with a receipt of the checks it ran (pass or fail) and the commits and files it changed. You approve it in the app (`cmd-enter`, marking it done) or send it back to Todo with a note (`cmd-backspace`).
+
+The skill goes in `~/.claude/skills/solilog/` (Claude Code), `~/.agents/skills/solilog/` (Codex, Cursor, OpenCode, pi), and `~/.gemini/config/skills/solilog/` (Antigravity); `--agent claude` (repeatable) picks agents. `make install` and **Workspace: Install Command Line Tool** install it too. Opening a newer version of the app updates any skill Solilog previously installed (or run `solilog skill install`; `solilog` reminds you in the terminal when it's out of date). It never overwrites a skill it didn't write. `solilog skill uninstall` removes it.
 
 ## Install
 
@@ -27,16 +46,18 @@ On Linux, building needs a C compiler and the development packages of GPUI's dep
 ```sh
 solilog issue create "Fix the thing"
 solilog issue ls --open --json
+solilog issue ls --ready --compact --json    # open issues with nothing open to wait for
+solilog issue context SOL-1 --json           # issue + projects, dependencies, refs, notes
 solilog issue set-status SOL-1 done
-pbpaste | solilog issue edit SOL-1 -d -    # description from stdin
+pbpaste | solilog issue edit SOL-1 -d -      # description from stdin
 solilog checklist add SOL-1 "Write tests" "Update docs"
-solilog checklist check 1                  # item ids are shown by `issue show`
-solilog attachment add SOL-1 crash.log     # copied next to the database
+solilog checklist check 1                    # item ids are shown by `issue show`
+solilog attachment add SOL-1 crash.log       # copied next to the database
 solilog note add SOL-1 "Tried X, fails on Y" # the issue's worklog
+solilog issue request-review SOL-1 -m "Fixed X" --pass "cargo test" --commit a1b2c3d
 solilog issue create "Crash on load" -l acme/reverb -l bug
-solilog issue ls -l acme                   # also matches sublabels like acme/reverb
-solilog issue add-dependency SOL-3 SOL-1   # SOL-3 depends on SOL-1
-solilog issue ls --ready                   # open issues with nothing open to wait for
+solilog issue ls -l acme                     # also matches sublabels like acme/reverb
+solilog issue add-dependency SOL-3 SOL-1     # SOL-3 depends on SOL-1
 solilog label ls
 solilog project create "Reverb v1.1" -l acme/reverb
 solilog issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
@@ -58,20 +79,6 @@ solilog backup restore solilog-2026-11-14-153012-a1b2c3d4.zip
 ```
 
 Restoring (also "Backup: Restore" in the palette) backs up the current data first, so it can be undone.
-
-## Using Solilog with AI agents
-
-The `solilog` command is made for coding agents as much as for people: every command takes `--json`, and `--help` is written for an agent that has never seen Solilog. To let your agents know the tracker exists, install the Solilog skill, built into the binary:
-
-```sh
-solilog skill install     # for every agent found: Antigravity, Claude Code, Codex, Cursor, OpenCode, pi
-solilog skill status      # where it is, and whether it matches this version
-solilog skill show        # what it says
-```
-
-Then, from any project, mentioning an issue ("work on SOL-16") or your backlog ("what should I do next?") makes the agent reach for `solilog`: it reads the issue before working on it, ticks checklist items as it goes, and logs its work in notes. When it's done, it doesn't close the issue: it hands it to you for review (status In Review) with a receipt of the checks it ran, pass or fail, and the commits and files it changed. You approve it in the app, or send it back with a note saying what to change.
-
-The skill goes in `~/.claude/skills/solilog/` (Claude Code), `~/.agents/skills/solilog/` (Codex, Cursor, OpenCode, pi), and `~/.gemini/config/skills/solilog/` (Antigravity); `--agent claude` (repeatable) picks agents. `make install` installs it too. After upgrading Solilog, run `solilog skill install` again to update it; `solilog` reminds you in the terminal when it's out of date. It never overwrites a skill it didn't write. `solilog skill uninstall` removes it.
 
 ## Keyboard
 
@@ -103,7 +110,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `p` / `shift-p` | Add to / remove from a project |
 | `b` / `shift-b` | Add / remove a dependency (an issue to finish first) |
 | `y` | Copy the issue id (`SOL-12`) |
-| `r` / `shift-r` | Mark non-user changes as reviewed / mark all reviewed (in the Unreviewed view) |
+| `r` / `shift-r` | Mark agent or CLI changes as reviewed / mark all reviewed (in the Unreviewed view) |
 | `cmd-enter` / `cmd-backspace` | Approve an issue in review (it becomes done) / send it back to Todo with a note |
 | `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
@@ -131,7 +138,7 @@ An issue id in the description (`SOL-12`) links to that issue and shows its titl
 
 The issues it depends on, and those that depend on it, are listed under "Dependencies": click one to open it. An issue is *waiting* (a clock in the list, with the number of open dependencies) until every issue it depends on is done or cancelled; nothing changes its status by itself.
 
-To delete a checklist item, empty it. Files dropped on the issue, or pasted with `cmd-v` (screenshots too), become attachments. Click an image to preview it (`←` / `→` for the issue's other images, `r` to show it in the file manager); other files open in the file manager.
+To delete a checklist item, empty it or press `cmd-shift-backspace`. Files dropped on the issue, or pasted with `cmd-v` (screenshots too), become attachments. Click an image to preview it (`←` / `→` for the issue's other images, `r` to show it in the file manager); other files open in the file manager.
 
 ### Filters and views
 
@@ -142,7 +149,7 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 | `l` / `x` | By label / excluding a label |
 | `p` / `n` | By project / issues in no project |
 | `t` / `w` | Ready to start / waiting on an open dependency |
-| `u` | Unreviewed non-user changes (`g u` opens the Unreviewed view) |
+| `u` | Unreviewed agent or CLI changes (`g u` opens the Unreviewed view) |
 | `s` | By status |
 | `o` / `a` | Open issues only / all statuses |
 | `c` / `r` | Clear / revert to the saved view |
