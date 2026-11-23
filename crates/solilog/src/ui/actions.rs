@@ -375,6 +375,9 @@ pub mod issue {
             /// Mark the selected issues' non-user changes as reviewed. Any
             /// later non-user write marks them unreviewed again.
             MarkReviewed,
+            /// Mark every unreviewed issue in the Unreviewed view as reviewed. Any
+            /// later non-user write marks them unreviewed again.
+            MarkAllReviewed,
         ]
     );
 

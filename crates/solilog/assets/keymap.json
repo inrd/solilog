@@ -51,6 +51,7 @@
       "y": "issue::CopyId",
       "shift-h": "issue::ShowHistory",
       "r": "issue::MarkReviewed",
+      "shift-r": "issue::MarkAllReviewed",
       "v": "view::Open",
       "shift-v": "view::ShowAll",
       "g u": "view::ShowUnreviewed",

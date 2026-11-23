@@ -6,6 +6,12 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- Mark all unreviewed issues as reviewed at once in the Unreviewed view
+  ("Issue: Mark All Reviewed", `shift-r`, header button, or
+  `solilog issue review --all`).
+
 ### Changed
 
 - The "Unreviewed" view now stays pinned in the sidebar even when empty,

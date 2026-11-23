@@ -13,7 +13,7 @@ use solilog_core::{IssueFilter, Status};
 
 use super::Workspace;
 use super::scope::Source;
-use crate::ui::actions::filter;
+use crate::ui::actions::{filter, issue};
 use crate::ui::picker::PickerItem;
 use crate::ui::status_icon::status_icon;
 use crate::ui::theme;
@@ -371,6 +371,11 @@ impl Workspace {
             .enumerate()
             .map(|(ix, criterion)| filter_chip(ix, criterion, cx))
             .collect();
+        let has_unreviewed = matches!(self.scope.source, Source::Unreviewed)
+            && self
+                .all_issues
+                .iter()
+                .any(|i| i.unreviewed && self.scope.filter.matches(i));
         div()
             .flex()
             .flex_wrap()
@@ -389,6 +394,9 @@ impl Workspace {
                 s.child(div().text_color(rgb(theme::TEXT_MUTED)).child("edited"))
             })
             .children(chips)
+            .when(has_unreviewed, |s| {
+                s.child(mark_all_reviewed_button(cx))
+            })
             .child(status_bar(&self.scope.filter, cx))
             .when(!self.selection.is_empty(), |s| {
                 s.child(
@@ -527,4 +535,23 @@ fn toggle_pill(
             window.dispatch_action(action.boxed_clone(), cx);
         }))
         .child(text)
+}
+
+fn mark_all_reviewed_button(cx: &mut Context<Workspace>) -> impl IntoElement + use<> {
+    div()
+        .id("mark-all-reviewed")
+        .flex_none()
+        .px_2()
+        .rounded_sm()
+        .border_1()
+        .border_color(rgb(theme::BORDER))
+        .line_height(px(18.))
+        .text_color(rgb(theme::TEXT))
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            window.focus(&this.list_focus);
+            window.dispatch_action(issue::MarkAllReviewed.boxed_clone(), cx);
+        }))
+        .child("Mark all reviewed")
 }

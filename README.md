@@ -102,7 +102,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `p` / `shift-p` | Add to / remove from a project |
 | `b` / `shift-b` | Add / remove a dependency (an issue to finish first) |
 | `y` | Copy the issue id (`SOL-12`) |
-| `r` | Mark non-user changes as reviewed |
+| `r` / `shift-r` | Mark non-user changes as reviewed / mark all reviewed (in the Unreviewed view) |
 | `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
 | `z` / `shift-z` | Collapse or expand a status section (or click its header) / expand all sections |

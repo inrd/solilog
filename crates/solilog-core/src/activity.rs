@@ -17,6 +17,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::Db;
+use crate::filter::IssueFilter;
 use crate::issue::{Issue, IssueId};
 
 /// Coalescing window (seconds) for consecutive text-edit activities by the
@@ -393,6 +394,23 @@ impl Db {
         ids.iter().map(|&id| self.get_issue(id)).collect()
     }
 
+    /// Marks every non-archived unreviewed issue as reviewed, all or nothing,
+    /// and returns the updated issues in list order.
+    pub fn mark_all_issues_reviewed(&self) -> Result<Vec<Issue>> {
+        let ids: Vec<IssueId> = self
+            .list_issues(&IssueFilter {
+                unreviewed: true,
+                ..Default::default()
+            })?
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.mark_issues_reviewed(&ids)
+    }
+
     /// Records a write on `issue` by `self.actor` and updates `updated_by` /
     /// `updated_at`. Call inside a transaction.
     pub(crate) fn record_activity(
@@ -646,5 +664,43 @@ mod tests {
         assert_eq!(revisions[0].author, agent);
         assert_eq!(revisions[1].text, "v0");
         assert_eq!(revisions[1].author, Actor::user());
+    }
+
+    #[test]
+    fn mark_all_issues_reviewed_clears_non_archived_unreviewed() {
+        let mut db = Db::open_in_memory().unwrap();
+        let user_issue = db.create_issue(&NewIssue::new("user")).unwrap();
+
+        db.set_actor(Actor::parse("claude:triage").unwrap());
+        let first = db.create_issue(&NewIssue::new("first")).unwrap();
+        let second = db
+            .create_issue(&NewIssue::new("second").status(Status::Done))
+            .unwrap();
+        let archived = db.create_issue(&NewIssue::new("archived")).unwrap();
+        db.set_archived(archived.id, true).unwrap();
+
+        db.set_actor(Actor::user());
+        let marked = db.mark_all_issues_reviewed().unwrap();
+        assert_eq!(marked.len(), 2);
+        assert!(marked.iter().all(|i| !i.unreviewed));
+        let marked_ids: Vec<_> = marked.iter().map(|i| i.id).collect();
+        assert!(marked_ids.contains(&first.id));
+        assert!(marked_ids.contains(&second.id));
+        assert!(!marked_ids.contains(&user_issue.id));
+        assert!(!marked_ids.contains(&archived.id));
+
+        assert!(
+            db.list_issues(&IssueFilter {
+                unreviewed: true,
+                ..Default::default()
+            })
+            .unwrap()
+            .is_empty()
+        );
+        let archived_list = db.list_archived_issues(&IssueFilter::default()).unwrap();
+        assert_eq!(archived_list.len(), 1);
+        assert!(archived_list[0].unreviewed);
+
+        assert!(db.mark_all_issues_reviewed().unwrap().is_empty());
     }
 }

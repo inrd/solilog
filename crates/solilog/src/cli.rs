@@ -283,9 +283,17 @@ pub enum IssueCommand {
         #[arg(long)]
         unreviewed: bool,
     },
-    /// Mark an issue's non-user changes as reviewed and print it. Any later
-    /// non-user write marks it unreviewed again.
-    Review { id: IssueId },
+    /// Mark an issue's non-user changes as reviewed and print it, or use
+    /// `--all` to mark every unreviewed issue reviewed. Any later non-user
+    /// write marks an issue unreviewed again.
+    #[command(group = clap::ArgGroup::new("target").required(true))]
+    Review {
+        #[arg(group = "target")]
+        id: Option<IssueId>,
+        /// Mark every non-archived unreviewed issue as reviewed.
+        #[arg(long, group = "target")]
+        all: bool,
+    },
     /// Change an issue's status and print it. The issue goes first in the
     /// order of its new status (unless it already had that status).
     SetStatus { id: IssueId, status: Status },
@@ -765,7 +773,15 @@ fn run_command(
                     };
                     out.activities(&activities)
                 }
-                IssueCommand::Review { id } => out.issue(&db.mark_issue_reviewed(id)?),
+                IssueCommand::Review { id, all } => {
+                    if all {
+                        out.issues(&db.mark_all_issues_reviewed()?)
+                    } else if let Some(id) = id {
+                        out.issue(&db.mark_issue_reviewed(id)?)
+                    } else {
+                        unreachable!("clap group requires id or --all")
+                    }
+                }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
                 IssueCommand::Move { id, before, after } => {
                     out.issue(&db.move_issue(id, &Placement::from_options(before, after)?)?)

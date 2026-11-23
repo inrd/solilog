@@ -1027,6 +1027,36 @@ impl Workspace {
         }
     }
 
+    fn on_mark_all_reviewed(
+        &mut self,
+        _: &issue::MarkAllReviewed,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !matches!(self.scope.source, scope::Source::Unreviewed) {
+            return;
+        }
+        let Some(listed) = self.report(self.db.list_issues(&self.scope.filter), cx) else {
+            return;
+        };
+        let ids: Vec<IssueId> = listed
+            .into_iter()
+            .filter(|i| i.unreviewed)
+            .map(|i| i.id)
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        if self.report(self.db.mark_issues_reviewed(&ids), cx).is_some() {
+            self.reload(cx);
+            self.notice = Some(match ids.as_slice() {
+                [id] => format!("Marked {id} reviewed"),
+                many => format!("Marked {} issues reviewed", many.len()),
+            });
+            cx.notify();
+        }
+    }
+
     fn on_show_issue_menu(
         &mut self,
         _: &issue_list::ShowContextMenu,
@@ -2077,6 +2107,9 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_move_issue_down))
                     .on_action(cx.listener(Self::on_toggle_status_collapsed))
                     .on_action(cx.listener(Self::on_expand_all_statuses))
+                    .when(matches!(self.scope.source, scope::Source::Unreviewed), |d| {
+                        d.on_action(cx.listener(Self::on_mark_all_reviewed))
+                    })
                     .flex_1()
                     .flex()
                     .flex_col()
