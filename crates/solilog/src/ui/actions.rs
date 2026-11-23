@@ -375,11 +375,19 @@ pub mod issue {
             /// Mark the selected issues' non-user changes as reviewed. Any
             /// later non-user write marks them unreviewed again.
             MarkReviewed,
-            /// Mark every unreviewed issue in the Unreviewed view as reviewed. Any
-            /// later non-user write marks them unreviewed again.
-            MarkAllReviewed,
         ]
     );
+
+    /// Mark every unreviewed issue in the Unreviewed view as reviewed. Any
+    /// later non-user write marks them unreviewed again. Asks for confirmation
+    /// unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct MarkAllReviewed {
+        #[serde(default)]
+        pub confirmed: bool,
+    }
 
     /// Delete issues for good: the given `id` (`SOL-12`) or `ids`, else the
     /// selected ones. Asks for confirmation unless `confirmed` is true.

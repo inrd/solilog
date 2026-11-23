@@ -1029,8 +1029,8 @@ impl Workspace {
 
     fn on_mark_all_reviewed(
         &mut self,
-        _: &issue::MarkAllReviewed,
-        _: &mut Window,
+        action: &issue::MarkAllReviewed,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if !matches!(self.scope.source, scope::Source::Unreviewed) {
@@ -1046,6 +1046,26 @@ impl Workspace {
             .collect();
         if ids.is_empty() {
             return;
+        }
+        if !action.confirmed {
+            let (prompt, label) = match ids.as_slice() {
+                [id] => (
+                    format!("Mark {id} as reviewed?"),
+                    format!("Mark {id} reviewed"),
+                ),
+                many => (
+                    format!("Mark {} issues as reviewed?", many.len()),
+                    format!("Mark {} issues reviewed", many.len()),
+                ),
+            };
+            let confirm = issue::MarkAllReviewed { confirmed: true };
+            return self.open_action_picker(
+                &prompt,
+                vec![(PickerItem::new(label), Box::new(confirm))],
+                0,
+                window,
+                cx,
+            );
         }
         if self.report(self.db.mark_issues_reviewed(&ids), cx).is_some() {
             self.reload(cx);

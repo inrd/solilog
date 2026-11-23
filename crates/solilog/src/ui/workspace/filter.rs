@@ -394,9 +394,6 @@ impl Workspace {
                 s.child(div().text_color(rgb(theme::TEXT_MUTED)).child("edited"))
             })
             .children(chips)
-            .when(has_unreviewed, |s| {
-                s.child(mark_all_reviewed_button(cx))
-            })
             .child(status_bar(&self.scope.filter, cx))
             .when(!self.selection.is_empty(), |s| {
                 s.child(
@@ -415,6 +412,17 @@ impl Workspace {
                         .to_string(),
                 ),
             )
+            .when(has_unreviewed, |s| {
+                s.child(
+                    div()
+                        .flex_none()
+                        .w(px(1.))
+                        .h(px(16.))
+                        .mx_1()
+                        .bg(rgb(theme::DIVIDER)),
+                )
+                .child(mark_all_reviewed_button(cx))
+            })
     }
 }
 
@@ -541,17 +549,26 @@ fn mark_all_reviewed_button(cx: &mut Context<Workspace>) -> impl IntoElement + u
     div()
         .id("mark-all-reviewed")
         .flex_none()
-        .px_2()
-        .rounded_sm()
+        .flex()
+        .items_center()
+        .gap_1()
+        .px(px(10.))
+        .py(px(2.))
+        .rounded(px(5.))
+        .bg(rgb(theme::SURFACE))
         .border_1()
         .border_color(rgb(theme::BORDER))
-        .line_height(px(18.))
+        .font_weight(FontWeight::MEDIUM)
         .text_color(rgb(theme::TEXT))
         .cursor_pointer()
-        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+        .hover(|s| {
+            s.bg(rgb(theme::HIGHLIGHT))
+                .border_color(rgb(theme::ACCENT))
+        })
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
             window.focus(&this.list_focus);
-            window.dispatch_action(issue::MarkAllReviewed.boxed_clone(), cx);
+            window.dispatch_action(issue::MarkAllReviewed::default().boxed_clone(), cx);
         }))
+        .child(div().text_color(rgb(theme::ACCENT)).child("✓"))
         .child("Mark all reviewed")
 }
