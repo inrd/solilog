@@ -8,6 +8,10 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- `solilog issue ls --compact --json` returns lightweight issue summaries
+  (`id`, `title`, `status`, `labels`, `projects`, `checklist_progress`,
+  `waiting_on`, `unreviewed`, `updated_at`), omitting descriptions, full
+  checklists, attachments and authorship details so large listings stay small.
 - Mark all unreviewed issues as reviewed at once in the Unreviewed view
   ("Issue: Mark All Reviewed", `shift-r`, header button, or
   `solilog issue review --all`).

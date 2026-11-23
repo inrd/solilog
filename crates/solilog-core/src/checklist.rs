@@ -66,6 +66,13 @@ pub struct ChecklistItem {
     pub author: Actor,
 }
 
+/// Done and total items of an issue's checklist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ChecklistProgress {
+    pub done: usize,
+    pub total: usize,
+}
+
 /// Done and total items of a checklist, or `None` when it has no items.
 pub fn checklist_progress(items: &[ChecklistItem]) -> Option<(usize, usize)> {
     (!items.is_empty()).then(|| (items.iter().filter(|i| i.done).count(), items.len()))

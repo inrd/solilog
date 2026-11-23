@@ -36,8 +36,10 @@ This file covers the workflows. For commands and flags, run
 4. Keep the status true (`blocked` if you are stuck), but ask the user
    before setting `done` or `cancelled`.
 
-To suggest what to work on next, start from `solilog issue ls --ready`:
-open issues with nothing open to wait for.
+To triage or suggest what to work on next, start from
+`solilog issue ls --ready --compact --json` (or `solilog issue ls --compact --json`
+for the full backlog): lightweight summaries without descriptions or full
+checklists, then drill into the few issues you need with `issue context`.
 
 ## Writing
 

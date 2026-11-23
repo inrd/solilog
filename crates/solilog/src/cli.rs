@@ -16,10 +16,10 @@ use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
     Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason,
-    ChecklistItemId, Db, Issue, IssueContext, IssueEdit, IssueFilter, IssueId, IssueSummary, Label,
-    LabelColor, NewIssue, NewProject, Placement, Project, ProjectStatus, ProjectSummary,
-    ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv,
-    SkillState, SkillStatus, Status, View, format_age, format_size, format_utc,
+    ChecklistItemId, CompactIssue, Db, Issue, IssueContext, IssueEdit, IssueFilter, IssueId,
+    IssueSummary, Label, LabelColor, NewIssue, NewProject, Placement, Project, ProjectStatus,
+    ProjectSummary, ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange,
+    SkillEnv, SkillState, SkillStatus, Status, View, format_age, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -214,6 +214,12 @@ pub enum IssueCommand {
         /// List archived issues instead (the filter still applies).
         #[arg(long)]
         archived: bool,
+        /// Return lightweight JSON summaries (`id`, `title`, `status`,
+        /// `labels`, `projects`, `checklist_progress`, `waiting_on`,
+        /// `unreviewed`, `updated_at`), omitting descriptions, full
+        /// checklists, attachments and authorship details.
+        #[arg(long)]
+        compact: bool,
         #[command(flatten)]
         filter: FilterArgs,
     },
@@ -710,17 +716,23 @@ fn run_command(
                 IssueCommand::List {
                     view,
                     archived,
+                    compact,
                     filter,
                 } => {
                     let filter = match view {
                         Some(name) => db.get_view(&name)?.filter,
                         None => filter.into(),
                     };
-                    out.issues(&if archived {
+                    let issues = if archived {
                         db.list_archived_issues(&filter)?
                     } else {
                         db.list_issues(&filter)?
-                    })
+                    };
+                    if compact {
+                        out.compact_issues(&issues)
+                    } else {
+                        out.issues(&issues)
+                    }
                 }
                 IssueCommand::Show { id } => out.issue(&db.get_issue(id)?),
                 IssueCommand::Context { id } => out.issue_context(&db.issue_context(id)?),
@@ -1269,6 +1281,15 @@ impl Output {
             issues.iter().map(issue_line).collect::<Vec<_>>().join("\n")
         })
     }
+
+    fn compact_issues(&self, issues: &[Issue]) -> Result<()> {
+        if self.json {
+            let compact: Vec<CompactIssue> = issues.iter().map(CompactIssue::from).collect();
+            self.print(&compact, String::new)
+        } else {
+            self.issues(issues)
+        }
+    }
 }
 
 fn issue_line(issue: &Issue) -> String {
@@ -1502,5 +1523,53 @@ pub fn report_error(json: bool, err: &anyhow::Error) {
         eprintln!("{}", json!({ "error": format!("{err:#}") }));
     } else {
         eprintln!("error: {err:#}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_issue_ls_compact() {
+        let cli = Cli::try_parse_from(["solilog", "issue", "ls", "--compact", "--json"]).unwrap();
+        assert!(cli.json);
+        match cli.command {
+            Some(Command::Issue(IssueCommand::List {
+                compact,
+                archived,
+                view,
+                ..
+            })) => {
+                assert!(compact);
+                assert!(!archived);
+                assert!(view.is_none());
+            }
+            _ => panic!("expected IssueCommand::List"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "solilog",
+            "issue",
+            "ls",
+            "--compact",
+            "--archived",
+            "--view",
+            "Inbox",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Command::Issue(IssueCommand::List {
+                compact,
+                archived,
+                view,
+                ..
+            })) => {
+                assert!(compact);
+                assert!(archived);
+                assert_eq!(view.as_deref(), Some("Inbox"));
+            }
+            _ => panic!("expected IssueCommand::List"),
+        }
     }
 }

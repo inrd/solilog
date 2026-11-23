@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::activity::Actor;
 use crate::attachment::Attachment;
-use crate::checklist::{ChecklistItem, checklist_progress};
+use crate::checklist::{ChecklistItem, ChecklistProgress, checklist_progress};
 use crate::db::Db;
 
 /// Prefix of human-facing issue ids (`SOL-12`).
@@ -135,6 +135,59 @@ impl Issue {
     /// Done and total checklist items, or `None` without a checklist.
     pub fn checklist_progress(&self) -> Option<(usize, usize)> {
         checklist_progress(&self.checklist)
+    }
+}
+
+/// Lightweight summary of an [`Issue`], for compact listings
+/// (`issue ls --compact --json`). Omits description, full checklist,
+/// attachments, and detailed authorship fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CompactIssue {
+    pub id: IssueId,
+    pub title: String,
+    pub status: Status,
+    pub labels: Vec<String>,
+    pub projects: Vec<String>,
+    pub checklist_progress: Option<ChecklistProgress>,
+    pub waiting_on: Vec<IssueId>,
+    pub unreviewed: bool,
+    pub updated_at: i64,
+}
+
+impl From<&Issue> for CompactIssue {
+    fn from(issue: &Issue) -> Self {
+        Self {
+            id: issue.id,
+            title: issue.title.clone(),
+            status: issue.status,
+            labels: issue.labels.clone(),
+            projects: issue.projects.clone(),
+            checklist_progress: issue
+                .checklist_progress()
+                .map(|(done, total)| ChecklistProgress { done, total }),
+            waiting_on: issue.waiting_on.clone(),
+            unreviewed: issue.unreviewed,
+            updated_at: issue.updated_at,
+        }
+    }
+}
+
+impl From<Issue> for CompactIssue {
+    fn from(issue: Issue) -> Self {
+        let checklist_progress = issue
+            .checklist_progress()
+            .map(|(done, total)| ChecklistProgress { done, total });
+        Self {
+            id: issue.id,
+            title: issue.title,
+            status: issue.status,
+            labels: issue.labels,
+            projects: issue.projects,
+            checklist_progress,
+            waiting_on: issue.waiting_on,
+            unreviewed: issue.unreviewed,
+            updated_at: issue.updated_at,
+        }
     }
 }
 
@@ -588,5 +641,65 @@ mod tests {
             [Status::Cancelled]
         );
         assert!(db.set_collapsed_statuses(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn compact_issue_serializes_expected_fields() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_project(&crate::NewProject::new("alpha")).unwrap();
+        let dep = db.create_issue(&NewIssue::new("Blocker")).unwrap();
+        let db = db.with_actor("claude:triage".parse().unwrap());
+        let issue = db
+            .create_issue(
+                &NewIssue::new("Main task")
+                    .description("Long description that should be omitted")
+                    .labels(["solilog"])
+                    .projects(["alpha"])
+                    .checklist(["First", "Second"]),
+            )
+            .unwrap();
+        let issue = db.set_checklist_item_done(issue.checklist[0].id, true).unwrap();
+        let issue = db.add_dependencies(issue.id, &[dep.id]).unwrap();
+
+        let compact = CompactIssue::from(&issue);
+        assert_eq!(compact, CompactIssue::from(issue.clone()));
+
+        let json = serde_json::to_value(&compact).unwrap();
+        let obj = json.as_object().unwrap();
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "checklist_progress",
+                "id",
+                "labels",
+                "projects",
+                "status",
+                "title",
+                "unreviewed",
+                "updated_at",
+                "waiting_on",
+            ]
+        );
+        assert_eq!(json["id"], issue.id.to_string());
+        assert_eq!(json["title"], "Main task");
+        assert_eq!(json["status"], "todo");
+        assert_eq!(json["labels"], serde_json::json!(["solilog"]));
+        assert_eq!(json["projects"], serde_json::json!(["alpha"]));
+        assert_eq!(
+            json["checklist_progress"],
+            serde_json::json!({ "done": 1, "total": 2 })
+        );
+        assert_eq!(json["waiting_on"], serde_json::json!([dep.id.to_string()]));
+        assert_eq!(json["unreviewed"], true);
+        assert_eq!(json["updated_at"], issue.updated_at);
+
+        let no_checklist = CompactIssue::from(&dep);
+        assert_eq!(no_checklist.checklist_progress, None);
+        assert_eq!(
+            serde_json::to_value(&no_checklist).unwrap()["checklist_progress"],
+            serde_json::Value::Null
+        );
     }
 }
