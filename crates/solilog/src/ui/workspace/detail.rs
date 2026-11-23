@@ -395,10 +395,10 @@ impl Workspace {
                     window.dispatch_action(issue_detail::Close.boxed_clone(), cx);
                 }
             });
+        // Margins, not a gap: the row's gap doesn't show alongside ml_auto.
         let header = div()
             .flex()
             .items_center()
-            .gap_2()
             .px_2()
             .py_3()
             .border_b_1()
@@ -406,23 +406,26 @@ impl Workspace {
             .child(back)
             .child(
                 div()
+                    .ml_3()
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(issue.id.to_string()),
             )
             .when(issue.title_by.is_agent(), |s| {
                 s.child(
                     div()
+                        .ml_3()
                         .text_size(px(12.))
                         .text_color(rgb(theme::TEXT_MUTED))
                         .child(format!("by {}", issue.title_by)),
                 )
             })
             .when(issue.archived, |s| {
-                s.child(chip("archived".into(), theme::TEXT_MUTED))
+                s.child(chip("archived".into(), theme::TEXT_MUTED).ml_3())
             })
             .child(
                 div()
                     .ml_auto()
+                    .pl_3()
                     .pr_2()
                     .flex_none()
                     .text_size(px(12.))

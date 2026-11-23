@@ -21,6 +21,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 - Checklist items and the new-item field no longer disappear or stop responding
   to clicks when the window is wider than the issue body.
+- The back button, issue id, author, and archived badge in the issue detail
+  header now have spacing between them.
 
 ## [0.2.2] - 2026-11-21
 
