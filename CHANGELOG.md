@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-23
+
 ### Added
 
 - Review handoff: an agent that has finished an issue hands it to you with
