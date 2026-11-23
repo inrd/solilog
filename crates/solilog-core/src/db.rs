@@ -248,7 +248,7 @@ impl Db {
 
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+            ensure_dir(dir)?;
         }
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         Self::init(conn, Some(attachments_dir_for(path)))
@@ -775,6 +775,58 @@ pub fn default_path() -> Result<PathBuf> {
     Ok(dir.join("Solilog").join("solilog.db"))
 }
 
+/// Creates `dir` (and any missing parents) if it does not exist yet.
+///
+/// Inside a macOS Seatbelt sandbox that blocks `dir`, `create_dir_all` can
+/// fail with a misleading `EEXIST` ("File exists"): `mkdir` sees the existing
+/// directory, then `is_dir()` calls `stat`, which fails with `EPERM` and gets
+/// swallowed as `false`. We inspect `metadata(dir)` on `AlreadyExists` so
+/// permission and sandbox blocks report their real cause.
+pub(crate) fn ensure_dir(dir: &Path) -> Result<()> {
+    if dir.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let Err(err) = std::fs::create_dir_all(dir) else {
+        return Ok(());
+    };
+    classify_create_dir_error(dir, err, || std::fs::metadata(dir).map(|m| m.is_dir()))
+}
+
+fn classify_create_dir_error(
+    dir: &Path,
+    err: std::io::Error,
+    stat: impl FnOnce() -> std::io::Result<bool>,
+) -> Result<()> {
+    use std::io::ErrorKind;
+
+    match err.kind() {
+        ErrorKind::AlreadyExists => match stat() {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                anyhow::bail!(
+                    "creating {}: path exists and is not a directory",
+                    dir.display()
+                )
+            }
+            Err(stat_err) if stat_err.kind() == ErrorKind::PermissionDenied => Err(stat_err)
+                .with_context(|| {
+                    format!(
+                        "cannot access {} (blocked by permissions or a sandbox)",
+                        dir.display()
+                    )
+                }),
+            Err(_) => Err(err).with_context(|| format!("creating {}", dir.display())),
+        },
+        ErrorKind::PermissionDenied => Err(err).with_context(|| {
+            format!(
+                "cannot access {} (blocked by permissions or a sandbox)",
+                dir.display()
+            )
+        }),
+        _ => Err(err).with_context(|| format!("creating {}", dir.display())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1090,5 +1142,98 @@ mod tests {
         b.create_issue(&NewIssue::new("other write")).unwrap();
         assert_ne!(a.data_version().unwrap(), before);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn sandbox_blocked_dir_reports_permission_error() {
+        use std::io::{Error, ErrorKind};
+
+        let dir = Path::new("/Users/example/Library/Application Support/Solilog");
+
+        // macOS Seatbelt: mkdir returns EEXIST, stat returns EPERM.
+        let err = classify_create_dir_error(
+            dir,
+            Error::new(ErrorKind::AlreadyExists, "File exists"),
+            || Err(Error::new(ErrorKind::PermissionDenied, "Operation not permitted")),
+        )
+        .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("cannot access"), "{msg}");
+        assert!(msg.contains("sandbox"), "{msg}");
+        assert!(msg.contains("Operation not permitted"), "{msg}");
+        assert!(!msg.contains("File exists"), "{msg}");
+
+        // Direct EPERM/EACCES when the directory doesn't exist yet.
+        let err = classify_create_dir_error(
+            dir,
+            Error::new(ErrorKind::PermissionDenied, "Operation not permitted"),
+            || unreachable!("stat should not be called on PermissionDenied"),
+        )
+        .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("cannot access"), "{msg}");
+        assert!(msg.contains("sandbox"), "{msg}");
+
+        // Genuine file collision: EEXIST and stat confirms it's not a directory.
+        let err = classify_create_dir_error(
+            dir,
+            Error::new(ErrorKind::AlreadyExists, "File exists"),
+            || Ok(false),
+        )
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("not a directory"), "{err:#}");
+
+        // Directory appeared concurrently.
+        classify_create_dir_error(
+            dir,
+            Error::new(ErrorKind::AlreadyExists, "File exists"),
+            || Ok(true),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn open_fails_clearly_when_parent_is_a_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "solilog-test-parent-file-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("not-a-dir");
+        std::fs::write(&file, b"").unwrap();
+
+        let err = Db::open(&file.join("solilog.db")).err().unwrap();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("not a directory"), "{msg}");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_fails_clearly_when_parent_is_unreadable() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = std::env::temp_dir().join(format!(
+            "solilog-test-unreadable-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = Db::open(&dir.join("sub").join("solilog.db"));
+
+        // Restore permissions before asserting so cleanup always succeeds.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Running as root ignores 0o000 permissions.
+        if let Err(err) = result {
+            let msg = format!("{err:#}");
+            assert!(msg.contains("cannot access"), "{msg}");
+            assert!(msg.contains("sandbox"), "{msg}");
+        }
     }
 }

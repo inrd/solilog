@@ -234,7 +234,7 @@ impl Db {
                 .with_context(|| format!("invalid directory {}", dir.display()))?,
             None => default.clone(),
         };
-        fs::create_dir_all(&new).with_context(|| format!("creating {}", new.display()))?;
+        crate::db::ensure_dir(&new)?;
         let is_default = same_dir(&new, &default);
         let setting = if is_default {
             None
@@ -480,7 +480,7 @@ impl Db {
         reason: BackupReason,
         snapshot: &Snapshot,
     ) -> Result<Backup> {
-        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        crate::db::ensure_dir(dir)?;
         let id = self.database_id()?;
         // Names have the time to the second: a second backup within the
         // same second waits for the next.

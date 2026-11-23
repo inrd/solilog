@@ -23,6 +23,9 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Fixed
 
+- Opening a database whose directory is blocked by a sandbox (such as macOS
+  Seatbelt) now reports a permission/sandbox access error instead of a
+  misleading `File exists (os error 17)` error.
 - Checklist items and the new-item field no longer disappear or stop responding
   to clicks when the window is wider than the issue body.
 - The back button, issue id, author, and archived badge in the issue detail

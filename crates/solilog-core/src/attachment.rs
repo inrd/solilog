@@ -232,7 +232,7 @@ impl Db {
     ) -> Result<Vec<Attachment>> {
         self.get_issue(issue)?;
         let dir = self.issue_attachments_dir(issue)?;
-        fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        crate::db::ensure_dir(&dir)?;
         let mut written: Vec<(String, PathBuf, u64)> = Vec::new();
         let result = (|| -> Result<Vec<AttachmentId>> {
             for (name, source) in &sources {

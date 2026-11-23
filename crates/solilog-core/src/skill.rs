@@ -350,7 +350,7 @@ pub fn install_skill(env: &SkillEnv, agents: &[Agent]) -> Result<Vec<SkillChange
         };
         if action != SkillAction::Unchanged {
             let dir = env.skill_dir(status.location);
-            fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+            crate::db::ensure_dir(&dir)?;
             fs::write(&status.path, &content)
                 .with_context(|| format!("writing {}", status.path.display()))?;
         }
