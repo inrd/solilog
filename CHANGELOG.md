@@ -6,6 +6,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Changed
+
+- The "Unreviewed" view now stays pinned in the sidebar even when empty,
+  showing "Nothing to review." when there are no unreviewed changes.
+
 ### Fixed
 
 - Checklist items and the new-item field no longer disappear or stop responding

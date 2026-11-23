@@ -2094,6 +2094,8 @@ impl Workspace {
                                     "No issues yet. Type a title above and press Enter."
                                 } else if self.scope.filter == scope::Source::All.filter() {
                                     "No open issues. Type a title above and press Enter."
+                                } else if self.scope.filter == scope::Source::Unreviewed.filter() {
+                                    "Nothing to review."
                                 } else {
                                     "No issues here."
                                 }),
