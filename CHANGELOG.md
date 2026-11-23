@@ -8,6 +8,9 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Fixed
 
+- Long wrapped descriptions (and note drafts) in the issue detail no longer
+  shrink below their text and leak into the sections below when the window is
+  wider than the issue body.
 - Issue ids from SOL-100 on no longer wrap onto two lines in the issue list,
   the archive and an issue's dependencies: the id column widens to fit the
   longest id.

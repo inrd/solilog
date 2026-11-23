@@ -292,6 +292,7 @@ impl Workspace {
             .on_action(cx.listener(Self::on_add_draft_note))
             .flex()
             .flex_col()
+            .flex_shrink_0()
             .min_h(px(52.))
             .px_2()
             .py_1()

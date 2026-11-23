@@ -587,6 +587,11 @@ impl Workspace {
                     .mt_2()
                     .flex()
                     .flex_col()
+                    // Explicit `min_h` replaces flexbox's content-based min
+                    // height, so without `flex_shrink_0` this section shrinks
+                    // below its wrapped text in wide windows and leaks into
+                    // what follows.
+                    .flex_shrink_0()
                     .min_h(px(120.))
                     .line_height(px(22.))
                     .when(agent_description, |s| {
