@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
 use solilog_core::{
-    BackupReason, Db, IssueFilter, IssueId, LabelColor, ProjectStatus, RevisionField, Status,
+    BackupReason, Check, Db, IssueFilter, IssueId, LabelColor, NoteKind, ProjectStatus, Receipt,
+    RevisionField, Status, Verdict,
 };
 
 fn fixtures() -> Vec<PathBuf> {
@@ -65,6 +66,9 @@ fn every_release_upgrades() {
         if before >= NOTES_SCHEMA {
             check_notes(&db);
         }
+        if before >= REVIEW_SCHEMA {
+            check_review(&db);
+        }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
             .list_backups()
@@ -95,7 +99,12 @@ fn every_release_upgrades() {
 /// What `scripts/upgrade-fixture.sh` puts in.
 fn check_data(db: &Db) {
     let issues = db.list_issues(&IssueFilter::default()).unwrap();
-    let titles: Vec<&str> = issues.iter().map(|i| i.title.as_str()).collect();
+    // Issues added for later features come after these.
+    let titles: Vec<&str> = issues
+        .iter()
+        .filter(|i| i.id.0 <= 3)
+        .map(|i| i.title.as_str())
+        .collect();
     assert_eq!(titles, ["Fix the header layout", "Write the launch post"]);
 
     let post = db.get_issue(IssueId(1)).unwrap();
@@ -218,6 +227,7 @@ const NOTES_SCHEMA: i64 = 20;
 /// What `scripts/upgrade-fixture.sh` puts in since notes exist.
 fn check_notes(db: &Db) {
     let notes = db.issue_notes(IssueId(2)).unwrap();
+    assert!(notes.iter().all(|n| n.kind == NoteKind::Note));
     let notes: Vec<(&str, &str)> = notes
         .iter()
         .map(|n| (n.author.as_str(), n.text.as_str()))
@@ -229,6 +239,54 @@ fn check_notes(db: &Db) {
             (
                 "claude:fix-header",
                 "Tried flex-wrap.\nThe logo still overflows."
+            ),
+        ]
+    );
+}
+
+/// The first schema version with the review handoff.
+const REVIEW_SCHEMA: i64 = 21;
+
+/// What `scripts/upgrade-fixture.sh` puts in since the review handoff exists.
+fn check_review(db: &Db) {
+    let footer = db.get_issue(IssueId(4)).unwrap();
+    assert_eq!(footer.status, Status::InReview);
+    assert!(footer.unreviewed);
+    let notes = db.issue_notes(IssueId(4)).unwrap();
+    let notes: Vec<(&str, &str, &NoteKind)> = notes
+        .iter()
+        .map(|n| (n.author.as_str(), n.text.as_str(), &n.kind))
+        .collect();
+    let check = |command: &str, passed| Check {
+        command: command.into(),
+        passed,
+    };
+    assert_eq!(
+        notes,
+        [
+            (
+                "claude:footer",
+                "Footer updated.",
+                &NoteKind::Receipt(Receipt {
+                    checks: vec![check("make test", true), check("make lint", false)],
+                    commits: vec!["abc1234".into()],
+                    files: vec!["footer.html".into()],
+                })
+            ),
+            (
+                "user",
+                "Fix the lint first.",
+                &NoteKind::Review {
+                    verdict: Verdict::ChangesRequested
+                }
+            ),
+            (
+                "claude:footer",
+                "Lint fixed.",
+                &NoteKind::Receipt(Receipt {
+                    checks: vec![check("make lint", true)],
+                    ..Default::default()
+                })
             ),
         ]
     );

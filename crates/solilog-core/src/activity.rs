@@ -174,6 +174,9 @@ pub enum ActivityKind {
     RevisionRestored,
     NoteAdded,
     NoteDeleted,
+    ReviewRequested,
+    Approved,
+    SentBack,
 }
 
 impl ActivityKind {
@@ -201,6 +204,9 @@ impl ActivityKind {
             Self::RevisionRestored => "revision_restored",
             Self::NoteAdded => "note_added",
             Self::NoteDeleted => "note_deleted",
+            Self::ReviewRequested => "review_requested",
+            Self::Approved => "approved",
+            Self::SentBack => "sent_back",
         }
     }
 
@@ -228,6 +234,9 @@ impl ActivityKind {
             ActivityKind::RevisionRestored,
             ActivityKind::NoteAdded,
             ActivityKind::NoteDeleted,
+            ActivityKind::ReviewRequested,
+            ActivityKind::Approved,
+            ActivityKind::SentBack,
         ];
         ALL.iter().copied().find(|k| k.key() == key)
     }
@@ -301,6 +310,9 @@ impl Activity {
             ActivityKind::RevisionRestored => with_detail("restored"),
             ActivityKind::NoteAdded => with_detail("added note"),
             ActivityKind::NoteDeleted => with_detail("deleted note"),
+            ActivityKind::ReviewRequested => with_detail("requested review"),
+            ActivityKind::Approved => with_detail("approved"),
+            ActivityKind::SentBack => with_detail("sent back"),
         }
     }
 }
@@ -386,20 +398,27 @@ impl Db {
     pub fn mark_issues_reviewed(&self, ids: &[IssueId]) -> Result<Vec<Issue>> {
         let tx = self.conn.unchecked_transaction()?;
         for &id in ids {
-            let updated = self.conn.execute(
-                "UPDATE issues
-                 SET reviewed_at = unixepoch(),
-                     reviewed_activity_id = coalesce(
-                         (SELECT max(id) FROM activities WHERE issue_id = ?1),
-                         reviewed_activity_id
-                     )
-                 WHERE id = ?1",
-                [id],
-            )?;
-            anyhow::ensure!(updated == 1, "no issue {id}");
+            self.set_reviewed(id)?;
         }
         tx.commit()?;
         ids.iter().map(|&id| self.get_issue(id)).collect()
+    }
+
+    /// Marks an issue as reviewed up to its latest activity. Call inside a
+    /// transaction.
+    pub(crate) fn set_reviewed(&self, id: IssueId) -> Result<()> {
+        let updated = self.conn.execute(
+            "UPDATE issues
+             SET reviewed_at = unixepoch(),
+                 reviewed_activity_id = coalesce(
+                     (SELECT max(id) FROM activities WHERE issue_id = ?1),
+                     reviewed_activity_id
+                 )
+             WHERE id = ?1",
+            [id],
+        )?;
+        anyhow::ensure!(updated == 1, "no issue {id}");
+        Ok(())
     }
 
     /// Marks every non-archived unreviewed issue as reviewed, all or nothing,

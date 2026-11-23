@@ -10,10 +10,11 @@ use gpui::{
     Action, ClickEvent, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
     ScrollHandle, Window, div, prelude::*, px, rgb,
 };
-use solilog_core::{Note, NoteId, format_age};
+use solilog_core::{Note, NoteId, NoteKind, Verdict, format_age};
 
 use super::super::Workspace;
 use super::IssueDetail;
+use super::review::receipt_details;
 use crate::ui::actions::note::{Add, AddDraft, Delete};
 use crate::ui::picker::PickerItem;
 use crate::ui::text_input::TextInput;
@@ -45,6 +46,11 @@ impl Notes {
 
     pub(super) fn set_notes(&mut self, notes: Vec<Note>) {
         self.notes = notes;
+    }
+
+    /// The issue's notes as last read, oldest first.
+    pub(super) fn all(&self) -> &[Note] {
+        &self.notes
     }
 
     fn draft_focus(&self, cx: &gpui::App) -> FocusHandle {
@@ -225,6 +231,21 @@ impl Workspace {
             } else {
                 note.author.to_string()
             };
+            // Receipts and reviews say so, in the review panel's colors.
+            let (tag, tag_color) = match &note.kind {
+                NoteKind::Note => (None, theme::TEXT_MUTED),
+                NoteKind::Receipt(_) => (Some("handed off for review"), theme::REVIEW),
+                NoteKind::Review {
+                    verdict: Verdict::Approved,
+                } => (Some("approved"), theme::REVIEW),
+                NoteKind::Review {
+                    verdict: Verdict::ChangesRequested,
+                } => (Some("sent back"), theme::ERROR),
+            };
+            let details = match &note.kind {
+                NoteKind::Receipt(receipt) => Some(receipt_details(receipt)),
+                _ => None,
+            };
             div()
                 .id(("note", id.0 as u64))
                 .group("note")
@@ -234,7 +255,9 @@ impl Workspace {
                 .pr_1()
                 .py_1()
                 .border_l_2()
-                .border_color(rgb(if note.author.is_agent() {
+                .border_color(rgb(if tag.is_some() {
+                    tag_color
+                } else if note.author.is_agent() {
                     theme::ACCENT
                 } else {
                     theme::BORDER
@@ -253,11 +276,15 @@ impl Workspace {
                                 .text_color(rgb(theme::TEXT))
                                 .child(author),
                         )
+                        .children(tag.map(|t| div().text_color(rgb(tag_color)).child(t)))
                         .child(format_age(note.created_at))
                         .child(div().flex_1())
                         .child(delete),
                 )
-                .child(div().line_height(px(22.)).child(note.text.clone()))
+                .when(!note.text.is_empty(), |s| {
+                    s.child(div().line_height(px(22.)).child(note.text.clone()))
+                })
+                .children(details)
         });
 
         let draft = div()

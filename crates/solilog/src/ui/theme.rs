@@ -14,6 +14,8 @@ pub const TEXT: u32 = 0xe6e6e6;
 pub const TEXT_MUTED: u32 = 0x7a7a85;
 pub const ACCENT: u32 = 0x7c8cff;
 pub const ERROR: u32 = 0xeb5757;
+/// Work waiting for the user's review (the `in_review` status).
+pub const REVIEW: u32 = 0xa27cf0;
 
 /// Chip color of a label: its own, or muted when it has none.
 pub fn label_color(color: Option<solilog_core::LabelColor>) -> u32 {

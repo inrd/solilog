@@ -78,6 +78,12 @@ q issue add-dependency 7 16  # the sync server needs "Sync conflicts…"
 q issue add-dependency 9 14 8  # the announcement waits for search and the review
 
 # One issue updated by an agent, so the Unreviewed view and badge show up.
-SOLILOG_ACTOR=claude:sync-fix q checklist check 10
+q --actor claude:sync-fix checklist check 10
+
+# One issue an agent handed off for review, with its receipt.
+issue in_progress 0 "Word count in the editor footer" -l feature -l platform/desktop
+q --actor claude:word-count issue request-review 17 \
+    -m "Counts words in the open note; updates as you type." \
+    --pass "npm test" --pass "npm run lint" --commit 4e1b9d2 --file src/editor/footer.ts
 
 q statuses collapse backlog

@@ -935,6 +935,10 @@ impl Workspace {
         if issues.len() == 1 {
             entries.push(("History…", Box::new(issue::ShowHistory)));
         }
+        if issues.iter().any(|i| i.status == Status::InReview) {
+            entries.push(("Approve", Box::new(issue::Approve)));
+            entries.push(("Send Back…", Box::new(issue::SendBack::default())));
+        }
         if issues.iter().any(|i| i.unreviewed) {
             entries.push(("Mark Reviewed", Box::new(issue::MarkReviewed)));
         }
@@ -1902,6 +1906,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_toggle_waiting))
             .on_action(cx.listener(Self::on_toggle_unreviewed))
             .on_action(cx.listener(Self::on_mark_reviewed))
+            .on_action(cx.listener(Self::on_approve))
+            .on_action(cx.listener(Self::on_send_back))
             .on_action(cx.listener(Self::on_clear_filter))
             .on_action(cx.listener(Self::on_all_statuses))
             .on_action(cx.listener(Self::on_save_view))

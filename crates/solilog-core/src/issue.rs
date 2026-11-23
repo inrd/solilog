@@ -127,9 +127,10 @@ impl Issue {
         !self.status.is_closed() && !self.waiting_on.is_empty()
     }
 
-    /// Open, without dependencies still open: it can be started.
+    /// Open, without dependencies still open, and not waiting for the
+    /// user's review: it can be started.
     pub fn is_ready(&self) -> bool {
-        !self.status.is_closed() && self.waiting_on.is_empty()
+        !self.status.is_closed() && self.status != Status::InReview && self.waiting_on.is_empty()
     }
 
     /// Done and total checklist items, or `None` without a checklist.
@@ -385,22 +386,28 @@ pub enum Status {
     Done,
     Blocked,
     Cancelled,
+    /// Handed to the user for review (`Db::request_review`): the work is
+    /// finished as far as its author can tell, waiting for the user to
+    /// approve it (done) or send it back. Open.
+    InReview,
 }
 
 impl Status {
     /// All statuses, in menu order.
-    pub const ALL: [Status; 6] = [
+    pub const ALL: [Status; 7] = [
         Status::Backlog,
         Status::Todo,
         Status::InProgress,
+        Status::InReview,
         Status::Blocked,
         Status::Done,
         Status::Cancelled,
     ];
 
-    /// All statuses, in the order the issue list groups them: work under way
-    /// first, finished work last.
-    pub const LIST_ORDER: [Status; 6] = [
+    /// All statuses, in the order the issue list groups them: work waiting
+    /// on the user's review and work under way first, finished work last.
+    pub const LIST_ORDER: [Status; 7] = [
+        Status::InReview,
         Status::InProgress,
         Status::Todo,
         Status::Blocked,
@@ -426,6 +433,7 @@ impl Status {
             Status::Done => "done",
             Status::Blocked => "blocked",
             Status::Cancelled => "cancelled",
+            Status::InReview => "in_review",
         }
     }
 
@@ -441,6 +449,7 @@ impl Status {
             Status::Done => "Done",
             Status::Blocked => "Blocked",
             Status::Cancelled => "Cancelled",
+            Status::InReview => "In Review",
         }
     }
 
@@ -547,7 +556,7 @@ mod tests {
         let mut ranks: Vec<_> = Status::ALL.iter().map(|s| s.list_rank()).collect();
         ranks.sort();
         assert_eq!(ranks, (0..Status::ALL.len()).collect::<Vec<_>>());
-        assert_eq!(Status::InProgress.list_rank(), 0);
+        assert_eq!(Status::InReview.list_rank(), 0);
     }
 
     #[test]
@@ -658,7 +667,9 @@ mod tests {
                     .checklist(["First", "Second"]),
             )
             .unwrap();
-        let issue = db.set_checklist_item_done(issue.checklist[0].id, true).unwrap();
+        let issue = db
+            .set_checklist_item_done(issue.checklist[0].id, true)
+            .unwrap();
         let issue = db.add_dependencies(issue.id, &[dep.id]).unwrap();
 
         let compact = CompactIssue::from(&issue);

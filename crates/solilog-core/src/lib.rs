@@ -17,6 +17,7 @@ mod label;
 mod note;
 mod order;
 mod project;
+mod review;
 mod revision;
 mod skill;
 mod thinning;
@@ -48,9 +49,10 @@ pub use issue::{
 pub use label::{
     LABEL_SEPARATOR, Label, LabelColor, label_matches, normalize_label_name, renamed_label,
 };
-pub use note::{Note, NoteId, normalize_note_text};
+pub use note::{Note, NoteId, NoteKind, normalize_note_text};
 pub use order::Placement;
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
+pub use review::{Check, Handoff, Receipt, Verdict, latest_receipt};
 pub use revision::{Revision, RevisionField, RevisionId, RevisionReason, format_age};
 pub use skill::{
     Agent, SKILL_NAME, SKILL_VERSION, SkillAction, SkillChange, SkillEnv, SkillLocation,

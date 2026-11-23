@@ -375,8 +375,25 @@ pub mod issue {
             /// Mark the selected issues' non-user changes as reviewed. Any
             /// later non-user write marks them unreviewed again.
             MarkReviewed,
+            /// Approve the selected issues that are in review: they become
+            /// done, with an approval in their notes, and are marked reviewed.
+            Approve,
         ]
     );
+
+    /// Send issues in review back to Todo, with a note saying what to
+    /// change: the given `ids` (`SOL-12`), else the selected issues in
+    /// review. Asks for the note unless `message` is given.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = issue)]
+    #[serde(deny_unknown_fields)]
+    pub struct SendBack {
+        #[serde(default)]
+        #[schemars(with = "Vec<String>")]
+        pub ids: Vec<IssueId>,
+        #[serde(default)]
+        pub message: Option<String>,
+    }
 
     /// Mark every unreviewed issue in the Unreviewed view as reviewed. Any
     /// later non-user write marks them unreviewed again. Asks for confirmation

@@ -22,6 +22,8 @@ trap 'rm -rf "$work"' EXIT
 export SOLILOG_DB="$work/fixture.db"
 export SOLILOG_ACTOR=user
 s() { "$bin" "$@" >/dev/null; }
+# `--actor`, not `SOLILOG_ACTOR=… s`: sh keeps a variable set before a
+# function call, so every later write would be the agent's.
 
 s project create "Website v2" -d "Launch the new site" -l web
 s project create "Old site" -s done
@@ -44,12 +46,18 @@ s view save "Open web" --open -l web
 # Dependencies (0.2.1+): the post waits for the header fix.
 s issue add-dependency SOL-1 SOL-2
 # Authorship & review (0.2.2+): an agent edit on SOL-2, unreviewed; SOL-1 reviewed.
-SOLILOG_ACTOR=claude:fix-header s issue edit SOL-2 -d "Investigated flexbox wrap."
+s --actor claude:fix-header issue edit SOL-2 -d "Investigated flexbox wrap."
 s issue review SOL-1
 # Notes (0.2.3+): one by the user, one by the agent on SOL-2.
 s note add SOL-2 "Check it on a phone too."
-SOLILOG_ACTOR=claude:fix-header s note add SOL-2 "Tried flex-wrap.
+s --actor claude:fix-header note add SOL-2 "Tried flex-wrap.
 The logo still overflows."
+# Review handoff (0.2.3+): SOL-4 handed off, sent back, handed off again.
+s issue create "Update the footer" -l docs
+s --actor claude:footer issue request-review SOL-4 -m "Footer updated." \
+    --pass "make test" --fail "make lint" --commit abc1234 --file footer.html
+s issue send-back SOL-4 -m "Fix the lint first."
+s --actor claude:footer issue request-review SOL-4 -m "Lint fixed." --pass "make lint"
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

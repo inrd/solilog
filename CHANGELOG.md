@@ -8,6 +8,16 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- Review handoff: an agent that has finished an issue hands it to you with
+  `solilog issue request-review`, which sets the new In Review status and
+  adds a receipt to its notes: a summary, the checks it ran (pass or fail),
+  and the commits and files it changed. Open the issue to see the receipt,
+  then approve it (`cmd-enter`; it becomes done) or send it back to Todo with
+  a note (`cmd-backspace`); also from the list, the context menu, or
+  `solilog issue approve` / `send-back`. Issues in review come first in the
+  list and are left out of `--ready`. The agent skill now has agents hand
+  work off this way instead of asking in chat before closing.
+
 - Notes on issues: a worklog of timestamped entries, each showing who wrote
   it, apart from the description and the checklist. Write and read them below
   the checklist of an open issue (`n`, then `cmd-enter` to add), or with

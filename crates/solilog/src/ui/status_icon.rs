@@ -9,6 +9,7 @@ pub fn status_icon(status: Status) -> impl IntoElement {
         Status::Backlog => (rgb(0x6e6e78).into(), None),
         Status::Todo => (rgb(0xb4b4bc).into(), None),
         Status::InProgress => (rgb(0xf2c94c).into(), None),
+        Status::InReview => (rgb(theme::REVIEW).into(), None),
         Status::Blocked => (rgb(theme::ERROR).into(), Some("!")),
         Status::Done => (rgb(theme::ACCENT).into(), Some("✓")),
         Status::Cancelled => (rgb(0x6e6e78).into(), Some("×")),
@@ -32,6 +33,11 @@ pub fn status_icon(status: Status) -> impl IntoElement {
             .border_1()
             .border_color(color)
             .child(div().size(px(6.)).rounded_full().bg(color)),
+        // Almost full: one step from done.
+        Status::InReview => circle
+            .border_1()
+            .border_color(color)
+            .child(div().size(px(9.)).rounded_full().bg(color)),
         _ => circle
             .bg(color)
             .text_color(rgb(theme::BACKGROUND))

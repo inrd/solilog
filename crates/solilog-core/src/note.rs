@@ -8,6 +8,10 @@
 //! deleted by the user, or by the actor who wrote it, never by another
 //! agent, so that an agent can't remove the user's steering or another
 //! agent's log.
+//!
+//! A note has a kind ([`NoteKind`]): most are plain notes; the review
+//! handoff (`review.rs`) adds receipts and reviews to the same worklog, so
+//! it reads in order: receipt, sent back, receipt, approved.
 
 use std::fmt;
 use std::str::FromStr;
@@ -20,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::Db;
 use crate::activity::{ActivityKind, Actor};
 use crate::issue::{IssueId, normalize_description};
+use crate::review::{Receipt, Verdict};
 
 /// How much of a note the activity log keeps.
 const ACTIVITY_DETAIL_CHARS: usize = 80;
@@ -63,14 +68,72 @@ impl FromSql for NoteId {
     }
 }
 
+/// What a note is, with the fields of its kind. In JSON, `kind` (`note`,
+/// `receipt` or `review`) and the kind's fields sit in the note itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NoteKind {
+    /// A plain worklog entry.
+    Note,
+    /// Work handed to the user for review, with what was checked and
+    /// changed; the note's text is its summary.
+    Receipt(Receipt),
+    /// The user's answer to a receipt; the note's text is the reason
+    /// (required to send work back, optional to approve it).
+    Review { verdict: Verdict },
+}
+
+impl NoteKind {
+    /// Stable identifier, used in the database and JSON.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Note => "note",
+            Self::Receipt(_) => "receipt",
+            Self::Review { .. } => "review",
+        }
+    }
+
+    /// The kind's fields, as stored in the `data` column.
+    fn data(&self) -> Result<Option<String>> {
+        Ok(match self {
+            Self::Note => None,
+            Self::Receipt(receipt) => Some(serde_json::to_string(receipt)?),
+            Self::Review { verdict } => {
+                Some(serde_json::to_string(&ReviewData { verdict: *verdict })?)
+            }
+        })
+    }
+
+    fn from_stored(key: &str, data: Option<&str>) -> Result<Self> {
+        let data = data.unwrap_or("{}");
+        Ok(match key {
+            "note" => Self::Note,
+            "receipt" => Self::Receipt(serde_json::from_str(data)?),
+            "review" => {
+                let ReviewData { verdict } = serde_json::from_str(data)?;
+                Self::Review { verdict }
+            }
+            _ => anyhow::bail!("unknown note kind {key:?}"),
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ReviewData {
+    verdict: Verdict,
+}
+
 /// One entry of an issue's worklog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Note {
     pub id: NoteId,
     pub issue_id: IssueId,
     /// Plain text, any number of lines (kept as written, like a
-    /// description), never empty.
+    /// description). Never empty, except for an approval without a reason.
     pub text: String,
+    /// The note's kind and its fields.
+    #[serde(flatten)]
+    pub kind: NoteKind,
     /// Who wrote it.
     pub author: Actor,
     /// Unix timestamp (seconds).
@@ -86,7 +149,7 @@ pub fn normalize_note_text(text: &str) -> Result<String> {
 }
 
 /// The start of a note, on one line, for the activity log.
-fn note_excerpt(text: &str) -> String {
+pub(crate) fn note_excerpt(text: &str) -> String {
     let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= ACTIVITY_DETAIL_CHARS {
         return line;
@@ -95,13 +158,19 @@ fn note_excerpt(text: &str) -> String {
     format!("{}…", cut.trim_end())
 }
 
-const NOTE_COLUMNS: &str = "id, issue_id, text, author, created_at";
+const NOTE_COLUMNS: &str = "id, issue_id, text, author, created_at, kind, data";
 
 fn note_from_row(row: &Row) -> rusqlite::Result<Note> {
+    let key: String = row.get(5)?;
+    let data: Option<String> = row.get(6)?;
+    let kind = NoteKind::from_stored(&key, data.as_deref()).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, e.into())
+    })?;
     Ok(Note {
         id: row.get(0)?,
         issue_id: row.get(1)?,
         text: row.get(2)?,
+        kind,
         author: row.get(3)?,
         created_at: row.get(4)?,
     })
@@ -112,15 +181,37 @@ impl Db {
     pub fn add_note(&self, issue: IssueId, text: &str) -> Result<Note> {
         let text = normalize_note_text(text)?;
         let tx = self.conn.unchecked_transaction()?;
-        self.get_issue(issue)?;
-        self.conn.execute(
-            "INSERT INTO notes (issue_id, text, author) VALUES (?1, ?2, ?3)",
-            params![issue, text, self.actor],
-        )?;
-        let id = NoteId(self.conn.last_insert_rowid());
-        self.record_activity(issue, ActivityKind::NoteAdded, &note_excerpt(&text))?;
+        let id = self.insert_note(issue, &text, &NoteKind::Note)?;
         tx.commit()?;
         self.get_note(id)
+    }
+
+    /// Adds a note of any kind, with its text already cleaned up, and
+    /// records it as an activity. Call inside a transaction.
+    pub(crate) fn insert_note(
+        &self,
+        issue: IssueId,
+        text: &str,
+        kind: &NoteKind,
+    ) -> Result<NoteId> {
+        self.get_issue(issue)?;
+        self.conn.execute(
+            "INSERT INTO notes (issue_id, text, author, kind, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![issue, text, self.actor, kind.key(), kind.data()?],
+        )?;
+        let id = NoteId(self.conn.last_insert_rowid());
+        let activity = match kind {
+            NoteKind::Note => ActivityKind::NoteAdded,
+            NoteKind::Receipt(_) => ActivityKind::ReviewRequested,
+            NoteKind::Review {
+                verdict: Verdict::Approved,
+            } => ActivityKind::Approved,
+            NoteKind::Review {
+                verdict: Verdict::ChangesRequested,
+            } => ActivityKind::SentBack,
+        };
+        self.record_activity(issue, activity, &note_excerpt(text))?;
+        Ok(id)
     }
 
     /// One note.
@@ -209,6 +300,9 @@ mod tests {
             .add_note(issue.id, "Look at the parser first.\n")
             .unwrap();
         assert_eq!(first.text, "Look at the parser first.");
+        assert_eq!(first.kind, NoteKind::Note);
+        let json = serde_json::to_value(&first).unwrap();
+        assert_eq!(json["kind"], "note");
         assert_eq!(first.author, Actor::user());
         assert_eq!(first.issue_id, issue.id);
 

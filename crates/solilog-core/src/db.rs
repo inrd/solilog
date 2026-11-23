@@ -210,6 +210,38 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
     CREATE INDEX notes_by_issue ON notes (issue_id, id);",
+    // 21: review handoff (see `review.rs`): the `in_review` status (the
+    // status check is part of the table, so `issues` is rebuilt), and typed
+    // notes: `kind` (`note`, `receipt`, `review`; checked in the code, so
+    // later kinds need no rebuild) and `data`, the kind's fields as JSON.
+    "CREATE TABLE issues_new (
+        id                   INTEGER PRIMARY KEY,
+        title                TEXT    NOT NULL,
+        created_at           INTEGER NOT NULL DEFAULT (unixepoch()),
+        status               TEXT    NOT NULL DEFAULT 'todo'
+            CHECK (status IN ('backlog', 'todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled')),
+        archived             INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+        description          TEXT    NOT NULL DEFAULT '',
+        position             INTEGER NOT NULL DEFAULT 0,
+        created_by           TEXT    NOT NULL DEFAULT 'user',
+        title_by             TEXT    NOT NULL DEFAULT 'user',
+        description_by       TEXT    NOT NULL DEFAULT 'user',
+        updated_by           TEXT    NOT NULL DEFAULT 'user',
+        updated_at           INTEGER NOT NULL DEFAULT 0,
+        reviewed_at          INTEGER,
+        reviewed_activity_id INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO issues_new (id, title, created_at, status, archived, description, position,
+                            created_by, title_by, description_by, updated_by, updated_at,
+                            reviewed_at, reviewed_activity_id)
+        SELECT id, title, created_at, status, archived, description, position,
+               created_by, title_by, description_by, updated_by, updated_at,
+               reviewed_at, reviewed_activity_id
+        FROM issues;
+    DROP TABLE issues;
+    ALTER TABLE issues_new RENAME TO issues;
+    ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'note';
+    ALTER TABLE notes ADD COLUMN data TEXT;",
 ];
 
 /// The schema version of a database with every migration applied.
@@ -547,7 +579,7 @@ impl Db {
     }
 
     /// Applies a change to one issue. Call inside a transaction.
-    fn apply_change(&self, id: IssueId, change: &IssueChange) -> Result<()> {
+    pub(crate) fn apply_change(&self, id: IssueId, change: &IssueChange) -> Result<()> {
         match change {
             IssueChange::SetStatus(status) => {
                 let old = self.get_issue(id)?.status;

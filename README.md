@@ -69,7 +69,7 @@ solilog skill status      # where it is, and whether it matches this version
 solilog skill show        # what it says
 ```
 
-Then, from any project, mentioning an issue ("work on SOL-16") or your backlog ("what should I do next?") makes the agent reach for `solilog`: it reads the issue before working on it, ticks checklist items as it goes, and asks before closing an issue.
+Then, from any project, mentioning an issue ("work on SOL-16") or your backlog ("what should I do next?") makes the agent reach for `solilog`: it reads the issue before working on it, ticks checklist items as it goes, and logs its work in notes. When it's done, it doesn't close the issue: it hands it to you for review (status In Review) with a receipt of the checks it ran, pass or fail, and the commits and files it changed. You approve it in the app, or send it back with a note saying what to change.
 
 The skill goes in `~/.claude/skills/solilog/` (Claude Code), `~/.agents/skills/solilog/` (Codex, Cursor, OpenCode, pi), and `~/.gemini/config/skills/solilog/` (Antigravity); `--agent claude` (repeatable) picks agents. `make install` installs it too. After upgrading Solilog, run `solilog skill install` again to update it; `solilog` reminds you in the terminal when it's out of date. It never overwrites a skill it didn't write. `solilog skill uninstall` removes it.
 
@@ -104,6 +104,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `b` / `shift-b` | Add / remove a dependency (an issue to finish first) |
 | `y` | Copy the issue id (`SOL-12`) |
 | `r` / `shift-r` | Mark non-user changes as reviewed / mark all reviewed (in the Unreviewed view) |
+| `cmd-enter` / `cmd-backspace` | Approve an issue in review (it becomes done) / send it back to Todo with a note |
 | `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
 | `z` / `shift-z` | Collapse or expand a status section (or click its header) / expand all sections |
@@ -113,6 +114,8 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 Title, description and checklist are edited in place and saved as you type. `Escape` goes back.
 
 Below the checklist, notes are the issue's worklog: what you or an agent tried, decided or left for next time, each with its author and time. Notes are never edited; a note being written is added when you leave the issue.
+
+An issue an agent handed off for review shows its latest receipt above the description: a summary, the checks run (✓ pass, ✗ fail), and the commits and files changed, with buttons to approve it or send it back (`cmd-enter` / `cmd-backspace`). Each handoff and your answer stay in the notes.
 
 | Key | Action |
 |---|---|

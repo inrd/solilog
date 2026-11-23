@@ -19,6 +19,7 @@ mod checklist;
 mod dependencies;
 mod notes;
 mod preview;
+mod review;
 
 use std::ops::Range;
 use std::time::Duration;
@@ -548,6 +549,8 @@ impl Workspace {
                 })
         });
 
+        let review_panel = self.render_review_panel(detail, &focus);
+
         let agent_description = !issue.description.is_empty() && issue.description_by.is_agent();
 
         let body = div()
@@ -577,6 +580,7 @@ impl Workspace {
             .when(has_chips, |s| {
                 s.child(div().flex().flex_wrap().gap_1().children(chips))
             })
+            .children(review_panel)
             .children(unreviewed_banner)
             .child(
                 div()

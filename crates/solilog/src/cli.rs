@@ -15,12 +15,12 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason,
-    ChecklistItemId, CompactIssue, Db, Issue, IssueContext, IssueEdit, IssueFilter, IssueId,
-    IssueSummary, Label, LabelColor, NewIssue, NewProject, Note, NoteId, Placement, Project,
-    ProjectStatus, ProjectSummary, ProjectUpdate, Revision, RevisionId, SKILL_NAME, SKILL_VERSION,
-    SkillChange, SkillEnv, SkillState, SkillStatus, Status, View, format_age, format_size,
-    format_utc,
+    Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, Check,
+    ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueContext, IssueEdit, IssueFilter,
+    IssueId, IssueSummary, Label, LabelColor, NewIssue, NewProject, Note, NoteId, NoteKind,
+    Placement, Project, ProjectStatus, ProjectSummary, ProjectUpdate, Receipt, Revision,
+    RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv, SkillState, SkillStatus, Status,
+    Verdict, View, format_age, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -312,8 +312,60 @@ pub enum IssueCommand {
         #[arg(long, group = "target")]
         all: bool,
     },
+    /// Hand a finished issue to the user for review, with a receipt, and
+    /// print the issue and the receipt.
+    ///
+    /// Sets the status to `in_review` and adds a receipt to the issue's
+    /// notes: a short summary of what was done, the checks run (commands or
+    /// tests) with pass or fail, and the commits and files changed. The user
+    /// approves it in the app (it becomes `done`) or sends it back to
+    /// `todo` with a note saying why. Report failing checks with `--fail`
+    /// rather than leaving them out. Handing off again adds a new receipt;
+    /// earlier ones stay.
+    ///
+    /// Example: `solilog issue request-review SOL-12 -m "Parser fixed; the
+    /// old syntax still works." --pass "cargo test" --fail "cargo clippy: 1
+    /// lint in tests" --commit 3f2a9c1 --file src/parser.rs`
+    RequestReview {
+        id: IssueId,
+        /// What was done, in a few lines; `-` reads it from stdin.
+        #[arg(short = 'm', long = "message", value_name = "SUMMARY")]
+        summary: String,
+        /// A check that passed: the command or test run (repeatable).
+        #[arg(long = "pass", value_name = "COMMAND")]
+        passed: Vec<String>,
+        /// A check that failed, with a short reason if useful (repeatable).
+        #[arg(long = "fail", value_name = "COMMAND")]
+        failed: Vec<String>,
+        /// A commit made for this issue: hash or other reference (repeatable).
+        #[arg(long = "commit", value_name = "REF")]
+        commits: Vec<String>,
+        /// A file changed (repeatable).
+        #[arg(long = "file", value_name = "PATH")]
+        files: Vec<String>,
+    },
+    /// Approve issues in review (`in_review`): set them done and print them
+    /// with the review note added. All or nothing. Meant for the user: an
+    /// agent should only record an approval the user gave it.
+    Approve {
+        #[arg(required = true)]
+        ids: Vec<IssueId>,
+        /// An optional comment; `-` reads it from stdin.
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+    /// Send issues in review (`in_review`) back to `todo` with a note saying
+    /// what to change, and print them with that note. All or nothing.
+    SendBack {
+        #[arg(required = true)]
+        ids: Vec<IssueId>,
+        /// What to change; `-` reads it from stdin.
+        #[arg(short, long)]
+        message: String,
+    },
     /// Change an issue's status and print it. The issue goes first in the
-    /// order of its new status (unless it already had that status).
+    /// order of its new status (unless it already had that status). To hand
+    /// finished work to the user, use `issue request-review`.
     SetStatus { id: IssueId, status: Status },
     /// Reorder an issue before or after another issue with the same status,
     /// and print it. `issue list` and the GUI (which groups issues by
@@ -548,8 +600,9 @@ pub struct FilterArgs {
     /// Only issues that are in no project.
     #[arg(long)]
     no_project: bool,
-    /// Only issues that can be started: open, and every issue they depend
-    /// on is done or cancelled (see `issue add-dependency`).
+    /// Only issues that can be started: open, not in review (`in_review`
+    /// waits for the user), and every issue they depend on is done or
+    /// cancelled (see `issue add-dependency`).
     #[arg(long, conflicts_with = "waiting")]
     ready: bool,
     /// Only open issues that depend on an issue still open.
@@ -826,6 +879,38 @@ fn run_command(
                     } else {
                         unreachable!("clap group requires id or --all")
                     }
+                }
+                IssueCommand::RequestReview {
+                    id,
+                    summary,
+                    passed,
+                    failed,
+                    commits,
+                    files,
+                } => {
+                    let check = |passed| move |command| Check { command, passed };
+                    let receipt = Receipt {
+                        checks: passed
+                            .into_iter()
+                            .map(check(true))
+                            .chain(failed.into_iter().map(check(false)))
+                            .collect(),
+                        commits,
+                        files,
+                    };
+                    let summary = read_arg(summary, "summary")?;
+                    out.handoff(&db.request_review(id, &summary, &receipt)?)
+                }
+                IssueCommand::Approve { ids, message } => {
+                    let message = message
+                        .map(|m| read_arg(m, "message"))
+                        .transpose()?
+                        .unwrap_or_default();
+                    out.handoffs(&db.approve_issues(&ids, &message)?)
+                }
+                IssueCommand::SendBack { ids, message } => {
+                    let message = read_arg(message, "message")?;
+                    out.handoffs(&db.send_back_issues(&ids, &message)?)
                 }
                 IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
                 IssueCommand::Move { id, before, after } => {
@@ -1220,6 +1305,20 @@ impl Output {
         self.print(note, || note_text(note))
     }
 
+    fn handoff(&self, handoff: &Handoff) -> Result<()> {
+        self.print(handoff, || handoff_text(handoff))
+    }
+
+    fn handoffs(&self, handoffs: &[Handoff]) -> Result<()> {
+        self.print(handoffs, || {
+            handoffs
+                .iter()
+                .map(handoff_text)
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+    }
+
     fn notes(&self, notes: &[Note]) -> Result<()> {
         self.print(notes, || notes_text(notes))
     }
@@ -1472,15 +1571,34 @@ fn activity_line(activity: &Activity) -> String {
     )
 }
 
-/// Id, age and author, then the text, indented.
+/// Id, age, author and kind, then the text and the kind's fields, indented.
 fn note_text(note: &Note) -> String {
+    let kind = match &note.kind {
+        NoteKind::Note => "",
+        NoteKind::Receipt(_) => "  receipt",
+        NoteKind::Review {
+            verdict: Verdict::Approved,
+        } => "  approved",
+        NoteKind::Review {
+            verdict: Verdict::ChangesRequested,
+        } => "  sent back",
+    };
     let mut text = format!(
-        "{:<4} {:<12} {}",
+        "{:<4} {:<12} {}{kind}",
         note.id.0,
         format_age(note.created_at),
         note.author
     );
-    for line in note.text.lines() {
+    let mut lines: Vec<String> = note.text.lines().map(str::to_owned).collect();
+    if let NoteKind::Receipt(receipt) = &note.kind {
+        for check in &receipt.checks {
+            let mark = if check.passed { "pass" } else { "FAIL" };
+            lines.push(format!("{mark}  {}", check.command));
+        }
+        lines.extend(receipt.commits.iter().map(|c| format!("commit  {c}")));
+        lines.extend(receipt.files.iter().map(|f| format!("file  {f}")));
+    }
+    for line in &lines {
         text.push('\n');
         if !line.is_empty() {
             text.push_str("    ");
@@ -1488,6 +1606,15 @@ fn note_text(note: &Note) -> String {
         }
     }
     text
+}
+
+/// The issue's line, then the note the review step added.
+fn handoff_text(handoff: &Handoff) -> String {
+    format!(
+        "{}\n{}",
+        issue_line(&handoff.issue),
+        note_text(&handoff.note)
+    )
 }
 
 /// Notes, a blank line apart.

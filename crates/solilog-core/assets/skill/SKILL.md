@@ -41,13 +41,23 @@ This file covers the workflows. For commands and flags, run
    left, next step. Notes are the place for this, not the description:
    leave the description (the user's spec) alone unless asked to change it.
    Notes can't be edited; add a new one to correct one.
-5. Keep the status true (`blocked` if you are stuck), but ask the user
-   before setting `done` or `cancelled`.
+5. Keep the status true (`blocked` if you are stuck).
+6. When the work is finished, don't set `done`: hand it to the user for
+   review with a receipt, then tell them in your session and move on:
+   `solilog issue request-review SOL-12 -m "<what was done>" --pass "<command>"
+   --fail "<command: what failed>" --commit <sha> --file <path>`
+   (each flag repeatable). List the checks you actually ran, failures
+   included, and the commits and files you changed. The issue goes to
+   `in_review`; the user approves it (`done`) or sends it back to `todo`
+   with a note saying what to change: read the latest notes before picking
+   it up again, and hand it off again when fixed. Approve or set `done`
+   yourself only when the user tells you to, and ask before `cancelled`.
 
 To triage or suggest what to work on next, start from
 `solilog issue ls --ready --compact --json` (or `solilog issue ls --compact --json`
 for the full backlog): lightweight summaries without descriptions or full
 checklists, then drill into the few issues you need with `issue context`.
+`--ready` leaves out issues in review: they wait for the user, not for you.
 
 ## Writing
 
