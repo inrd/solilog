@@ -6,6 +6,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- Hovering a cropped issue title, checklist item, sidebar entry, project name,
+  or picker item now shows the full text in a tooltip.
+
 ### Fixed
 
 - Long wrapped descriptions (and note drafts) in the issue detail no longer

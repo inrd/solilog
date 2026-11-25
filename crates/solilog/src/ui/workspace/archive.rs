@@ -18,6 +18,7 @@ use crate::ui::actions::{archive, issue, project, workspace};
 use crate::ui::picker::PickerItem;
 use crate::ui::status_icon::{project_status_icon, status_icon};
 use crate::ui::theme;
+use crate::ui::tooltip::truncated_text;
 
 pub const CONTEXT: &str = "Archive";
 
@@ -349,7 +350,12 @@ impl Workspace {
                         .justify_center()
                         .child(project_status_icon(ProjectStatus::Archived)),
                 )
-                .child(div().flex_1().truncate().child(name))
+                .child(
+                    div()
+                        .flex_1()
+                        .truncate()
+                        .child(truncated_text(("archive-project-name", ix), name)),
+                )
                 .child(
                     div()
                         .flex_none()
@@ -387,7 +393,10 @@ impl Workspace {
                         .flex_1()
                         .min_w(px(MIN_TITLE_WIDTH))
                         .truncate()
-                        .child(issue.title.clone()),
+                        .child(truncated_text(
+                            ("archive-issue-title", id.0 as u64),
+                            issue.title.clone(),
+                        )),
                 )
                 .child(self.issue_chips(issue))
                 .into_any_element()

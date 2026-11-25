@@ -12,6 +12,7 @@ use super::IssueDetail;
 use crate::ui::actions::issue::{AddDependency, Open, RemoveDependency};
 use crate::ui::status_icon::status_icon;
 use crate::ui::theme;
+use crate::ui::tooltip::truncated_text;
 use crate::ui::workspace::Workspace;
 
 impl Workspace {
@@ -139,7 +140,7 @@ fn dependency_row(
                 .min_w_0()
                 .truncate()
                 .when(status.is_closed(), |s| s.text_color(rgb(theme::TEXT_MUTED)))
-                .child(title),
+                .child(truncated_text(("dependency-title", id.0 as u64), title)),
         )
         .children(remove)
 }

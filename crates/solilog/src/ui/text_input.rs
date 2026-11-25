@@ -29,6 +29,7 @@ use gpui::{
 use unicode_segmentation::*;
 
 use crate::ui::theme;
+use crate::ui::tooltip::TooltipState;
 
 const CONTEXT: &str = "TextInput";
 /// Added to [`CONTEXT`] for multi-line inputs.
@@ -227,6 +228,9 @@ pub struct TextInput {
     is_selecting: bool,
     /// Edits made here, to undo; cleared when the text is set from elsewhere.
     history: History,
+    /// Show the full text in a tooltip on hover when clipped and not focused.
+    tooltip_when_cropped: bool,
+    tooltip: TooltipState,
 }
 
 impl EventEmitter<Submit> for TextInput {}
@@ -252,6 +256,8 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
             history: History::default(),
+            tooltip_when_cropped: false,
+            tooltip: TooltipState::default(),
         }
     }
 
@@ -266,6 +272,13 @@ impl TextInput {
     /// scrolling it sideways, so all of it shows. Enter still submits.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
+        self
+    }
+
+    /// Shows the full text in a tooltip on hover when a single-line input
+    /// clips it and isn't being edited.
+    pub fn tooltip_when_cropped(mut self) -> Self {
+        self.tooltip_when_cropped = true;
         self
     }
 
@@ -1125,6 +1138,8 @@ struct PrepaintState {
     selection: Vec<PaintQuad>,
     /// Where the pointer shows that a link can be clicked.
     link_hitboxes: Vec<Hitbox>,
+    /// Set when the input's text is clipped and a hover tooltip should show.
+    tooltip_hitbox: Option<(Hitbox, Bounds<Pixels>)>,
 }
 
 impl IntoElement for TextElement {
@@ -1460,6 +1475,22 @@ impl Element for TextElement {
             }
         }
 
+        let visible_bounds = bounds.intersect(&window.content_mask().bounds);
+        let text_width = layout.lines.first().map_or(px(0.), |line| line.width());
+        let cropped = input.tooltip_when_cropped
+            && !input.wraps()
+            && !focused
+            && !input.content.is_empty()
+            && !visible_bounds.is_empty()
+            && text_width > visible_bounds.size.width;
+        input.tooltip.prepaint(cropped, &input.content, window);
+        let tooltip_hitbox = cropped.then(|| {
+            (
+                window.insert_hitbox(visible_bounds, HitboxBehavior::Normal),
+                visible_bounds,
+            )
+        });
+
         PrepaintState {
             layout: Some(layout),
             text_bounds,
@@ -1467,6 +1498,7 @@ impl Element for TextElement {
             cursor: cursor_quad,
             selection,
             link_hitboxes,
+            tooltip_hitbox,
         }
     }
 
@@ -1521,6 +1553,14 @@ impl Element for TextElement {
             for hitbox in &prepaint.link_hitboxes {
                 window.set_cursor_style(CursorStyle::PointingHand, hitbox);
             }
+        }
+
+        if let Some((hitbox, visible_bounds)) = prepaint.tooltip_hitbox.take() {
+            let (tooltip, text) = {
+                let input = self.input.read(cx);
+                (input.tooltip.clone(), input.content.clone())
+            };
+            tooltip.paint(hitbox, visible_bounds, text, window);
         }
 
         self.input.update(cx, |input, _| {

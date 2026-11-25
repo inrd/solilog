@@ -8,6 +8,7 @@ mod picker;
 mod status_icon;
 mod text_input;
 mod theme;
+mod tooltip;
 mod window_frame;
 mod workspace;
 

@@ -23,6 +23,7 @@ use crate::ui::actions::project;
 use crate::ui::status_icon::project_status_icon;
 use crate::ui::text_input::{Changed, TextInput};
 use crate::ui::theme;
+use crate::ui::tooltip::truncated_text;
 
 pub const CONTEXT: &str = "ProjectHeader";
 
@@ -230,7 +231,7 @@ impl Workspace {
                             .text_size(px(18.))
                             .line_height(px(26.))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(project.name.clone()),
+                            .child(truncated_text("project-header-name", project.name.clone())),
                     )
                     .child(status_chip)
                     .child(progress(project)),

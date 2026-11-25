@@ -21,6 +21,7 @@ use crate::ui::actions::{label, project, sidebar, view, workspace};
 use crate::ui::assets;
 use crate::ui::status_icon::project_status_icon;
 use crate::ui::theme;
+use crate::ui::tooltip::truncated_text;
 
 pub const CONTEXT: &str = "Sidebar";
 const WIDTH: f32 = 220.;
@@ -721,7 +722,7 @@ impl Workspace {
                                 .flex_1()
                                 .truncate()
                                 .when(muted, |s| s.text_color(rgb(theme::TEXT_MUTED)))
-                                .child(label),
+                                .child(truncated_text(("sidebar-label", ix), label)),
                         )
                         .when_some(
                             trailing

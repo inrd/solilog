@@ -131,7 +131,7 @@ impl Checklist {
 fn item_row(item: ChecklistItem, window: &mut Window, cx: &mut Context<Workspace>) -> ItemRow {
     let id = item.id;
     let input = cx.new(|cx| {
-        let mut input = TextInput::new("Item", cx);
+        let mut input = TextInput::new("Item", cx).tooltip_when_cropped();
         input.reset_text(item.text.clone(), cx);
         input
     });

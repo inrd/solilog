@@ -42,6 +42,7 @@ use super::keymap;
 use super::picker::{Picker, PickerEvent, PickerItem};
 use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
+use super::tooltip::truncated_text;
 use super::{SHOW_IN_FILE_MANAGER, assets, theme};
 use archive::ArchiveItem;
 use chip_row::chip_row;
@@ -1497,7 +1498,10 @@ impl Workspace {
                     .when(issue.status.is_closed(), |s| {
                         s.text_color(rgb(theme::TEXT_MUTED))
                     })
-                    .child(issue.title.clone()),
+                    .child(truncated_text(
+                        ("issue-title", issue_id.0 as u64),
+                        issue.title.clone(),
+                    )),
             )
             .when(!issue.description.is_empty(), |row| {
                 row.child(description_icon())

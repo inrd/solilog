@@ -16,6 +16,7 @@ use gpui::{
 use super::actions::picker::{Confirm, Dismiss, SelectNext, SelectPrevious};
 use super::text_input::{Changed, Submit, TextInput};
 use super::theme;
+use super::tooltip::truncated_text;
 
 pub const CONTEXT: &str = "Picker";
 
@@ -205,7 +206,12 @@ impl Picker {
                 this.confirm(cx);
             }))
             .children(item.icon.as_ref().map(|icon| icon()))
-            .child(div().flex_1().truncate().child(item.label.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .truncate()
+                    .child(truncated_text(("picker-label", row), item.label.clone())),
+            )
             .children(item.hint.clone().map(|hint| {
                 div()
                     .flex_none()
