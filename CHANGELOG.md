@@ -8,7 +8,7 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
-- Themes: switch between built-in themes (`Dark`, `8086`, `MMX`, `SSE2`,
+- Themes: switch between built-in themes (`Dark`, `Light`, `8086`, `MMX`, `SSE2`,
   `SSE2 Dark`) with "Workspace: Set Theme", or add custom JSON themes in
   `~/.config/solilog/themes/` (hot-reloaded on save; see `docs/THEMES.md`).
 - Hovering a cropped issue title, checklist item, sidebar entry, project name,

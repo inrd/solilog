@@ -15,7 +15,7 @@ crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast t
   tests/upgrades.rs    every release's database (tests/fixtures/v*.db) opens and keeps its data
 crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   assets/keymap.json   default key bindings
-  assets/themes/       built-in JSON themes (`dark.json`, `8086.json`, `mmx.json`, `sse2.json`, `sse2-dark.json`)
+  assets/themes/       built-in JSON themes (`dark.json`, `light.json`, `8086.json`, `mmx.json`, `sse2.json`, `sse2-dark.json`)
   assets/icons/        default SVG icons, plus `pixel/` variants for pixel-icon themes
   assets/fonts/        bundled fonts (`W95F.otf` + `OFL.txt`)
   src/ui/actions.rs    every GUI action, grouped by namespace
@@ -84,9 +84,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
    corners (use `highlight_text`/`selection_text` on highlighted/selected rows
    so light and classic themes stay legible). If a feature adds a new theme
    token or chrome option, add it to `Theme` in `src/ui/theme.rs`, set it in
-   every built-in theme (`assets/themes/dark.json`, `assets/themes/8086.json`,
-   `assets/themes/mmx.json`, `assets/themes/sse2.json`,
-   `assets/themes/sse2-dark.json`),
+   every built-in theme (`assets/themes/dark.json`, `assets/themes/light.json`,
+   `assets/themes/8086.json`, `assets/themes/mmx.json`,
+   `assets/themes/sse2.json`, `assets/themes/sse2-dark.json`),
    and document it in `docs/THEMES.md`. If a new SVG icon is added to
    `assets/icons/`, add a 16×16 pixel variant in `assets/icons/pixel/` and wire
    it into `assets::icon_for`.

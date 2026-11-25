@@ -22,6 +22,7 @@ pub const DEFAULT_THEME_ID: &str = "dark";
 
 const BUILTIN_THEMES: &[(&str, &str)] = &[
     ("dark", include_str!("../../assets/themes/dark.json")),
+    ("light", include_str!("../../assets/themes/light.json")),
     ("8086", include_str!("../../assets/themes/8086.json")),
     ("mmx", include_str!("../../assets/themes/mmx.json")),
     ("sse2", include_str!("../../assets/themes/sse2.json")),
@@ -1093,32 +1094,36 @@ mod tests {
     #[test]
     fn builtin_themes_are_valid() {
         let builtins = load_builtins();
-        assert_eq!(builtins.len(), 5);
+        assert_eq!(builtins.len(), 6);
         assert_eq!(builtins[0].id, "dark");
         assert_eq!(builtins[0].appearance, Appearance::Dark);
         assert_eq!(builtins[0].chrome, Chrome::Flat);
 
-        assert_eq!(builtins[1].id, "8086");
-        assert_eq!(builtins[1].appearance, Appearance::Dark);
-        assert_eq!(builtins[1].chrome, Chrome::Crt);
-        assert_eq!(builtins[1].titlebar, TitlebarStyle::Crt);
-        assert_eq!(builtins[1].radius, 0.);
+        assert_eq!(builtins[1].id, "light");
+        assert_eq!(builtins[1].appearance, Appearance::Light);
+        assert_eq!(builtins[1].chrome, Chrome::Flat);
 
-        assert_eq!(builtins[2].id, "mmx");
-        assert_eq!(builtins[2].appearance, Appearance::Light);
-        assert_eq!(builtins[2].chrome, Chrome::Bevel);
+        assert_eq!(builtins[2].id, "8086");
+        assert_eq!(builtins[2].appearance, Appearance::Dark);
+        assert_eq!(builtins[2].chrome, Chrome::Crt);
+        assert_eq!(builtins[2].titlebar, TitlebarStyle::Crt);
         assert_eq!(builtins[2].radius, 0.);
-        assert_eq!(builtins[2].shadow, ShadowStyle::Hard);
 
-        assert_eq!(builtins[3].id, "sse2");
+        assert_eq!(builtins[3].id, "mmx");
         assert_eq!(builtins[3].appearance, Appearance::Light);
-        assert_eq!(builtins[3].chrome, Chrome::Glass);
-        assert_eq!(builtins[3].titlebar, TitlebarStyle::Glass);
+        assert_eq!(builtins[3].chrome, Chrome::Bevel);
+        assert_eq!(builtins[3].radius, 0.);
+        assert_eq!(builtins[3].shadow, ShadowStyle::Hard);
 
-        assert_eq!(builtins[4].id, "sse2-dark");
-        assert_eq!(builtins[4].appearance, Appearance::Dark);
+        assert_eq!(builtins[4].id, "sse2");
+        assert_eq!(builtins[4].appearance, Appearance::Light);
         assert_eq!(builtins[4].chrome, Chrome::Glass);
         assert_eq!(builtins[4].titlebar, TitlebarStyle::Glass);
+
+        assert_eq!(builtins[5].id, "sse2-dark");
+        assert_eq!(builtins[5].appearance, Appearance::Dark);
+        assert_eq!(builtins[5].chrome, Chrome::Glass);
+        assert_eq!(builtins[5].titlebar, TitlebarStyle::Glass);
     }
 
     #[test]
@@ -1144,7 +1149,7 @@ mod tests {
         assert_eq!(custom.colors.surface, rgb(0xff0000).into());
         assert_eq!(custom.colors.highlight, rgb(0xffff00).into());
         // Inherited from mmx:
-        assert_eq!(custom.colors.background, builtins[2].colors.background);
+        assert_eq!(custom.colors.background, builtins[3].colors.background);
     }
 
     #[test]

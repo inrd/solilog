@@ -164,7 +164,7 @@ Every command can be bound. Run "Workspace: Open Keymap" from the palette to edi
 
 ### Themes
 
-Run "Workspace: Set Theme" from the palette to switch between built-in themes (`Dark`, `8086`, `MMX`, `SSE2`, `SSE2 Dark`) or your own JSON themes in `~/.config/solilog/themes/` (changes apply when you save). See [docs/THEMES.md](docs/THEMES.md) for the format and token reference.
+Run "Workspace: Set Theme" from the palette to switch between built-in themes (`Dark`, `Light`, `8086`, `MMX`, `SSE2`, `SSE2 Dark`) or your own JSON themes in `~/.config/solilog/themes/` (changes apply when you save). See [docs/THEMES.md](docs/THEMES.md) for the format and token reference.
 
 ## Development
 
