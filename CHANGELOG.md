@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-25
+
 ### Added
 
 - Themes: switch between built-in themes (`Dark`, `Light`, `8086`, `MMX`, `SSE2`,
