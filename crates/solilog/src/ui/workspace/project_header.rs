@@ -400,17 +400,27 @@ fn progress(project: &Project, t: &theme::Theme) -> impl IntoElement + use<> {
         div()
             .relative()
             .w(px(120.))
-            .h(if t.is_bevel() { px(12.) } else { px(4.) })
+            .h(if t.is_bevel() {
+                px(12.)
+            } else if t.is_glass() {
+                px(8.)
+            } else {
+                px(4.)
+            })
             .when(!t.is_bevel(), |s| {
-                s.rounded_full().bg(t.colors.highlight)
+                s.rounded_full()
+                    .bg(t.colors.highlight)
+                    .when(t.is_glass(), |s| s.border_1().border_color(t.colors.border))
             })
             .when(t.is_bevel(), |s| s.p(px(2.)).bg(t.colors.input))
             .child(
                 div()
+                    .relative()
                     .h_full()
                     .when(!t.is_bevel(), |s| s.rounded_full())
                     .bg(t.colors.accent)
-                    .w(relative(closed as f32 / total as f32)),
+                    .w(relative(closed as f32 / total as f32))
+                    .children(t.gloss_overlay()),
             )
             .children(t.sunken_bevel_thin()),
     )

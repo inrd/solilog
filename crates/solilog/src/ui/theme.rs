@@ -23,6 +23,8 @@ pub const DEFAULT_THEME_ID: &str = "dark";
 const BUILTIN_THEMES: &[(&str, &str)] = &[
     ("dark", include_str!("../../assets/themes/dark.json")),
     ("mmx", include_str!("../../assets/themes/mmx.json")),
+    ("sse2", include_str!("../../assets/themes/sse2.json")),
+    ("sse2-dark", include_str!("../../assets/themes/sse2-dark.json")),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -37,6 +39,7 @@ pub enum Appearance {
 pub enum Chrome {
     Flat,
     Bevel,
+    Glass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -44,6 +47,7 @@ pub enum Chrome {
 pub enum TitlebarStyle {
     Native,
     Classic,
+    Glass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -119,6 +123,8 @@ pub struct ThemeColors {
     pub titlebar_inactive_end: Hsla,
     pub titlebar_text: Hsla,
     pub titlebar_inactive_text: Hsla,
+    pub glass_highlight: Hsla,
+    pub glass_glow: Hsla,
     pub status: StatusColors,
     pub labels: LabelPalette,
 }
@@ -142,8 +148,20 @@ impl Theme {
         self.chrome == Chrome::Bevel
     }
 
+    pub fn is_glass(&self) -> bool {
+        self.chrome == Chrome::Glass
+    }
+
     pub fn is_classic_titlebar(&self) -> bool {
         self.titlebar == TitlebarStyle::Classic
+    }
+
+    pub fn is_glass_titlebar(&self) -> bool {
+        self.titlebar == TitlebarStyle::Glass
+    }
+
+    pub fn uses_custom_titlebar(&self) -> bool {
+        self.titlebar != TitlebarStyle::Native
     }
 
     pub fn is_pixel_icons(&self) -> bool {
@@ -239,6 +257,34 @@ impl Theme {
         self.is_bevel().then(|| dotted_focus_canvas(color))
     }
 
+    /// Vista / PSP-style two-tone top-half specular gloss sheen with a crisp
+    /// 1px inner highlight rim. Returns `None` in non-glass themes.
+    pub fn gloss_overlay(&self) -> Option<AnyElement> {
+        self.is_glass()
+            .then(|| glass_gloss_canvas(self.colors.glass_highlight, None))
+    }
+
+    /// Subtle horizontal glass reflection band for toolbars and headers.
+    pub fn glass_bar_overlay(&self) -> Option<AnyElement> {
+        if !self.is_glass() {
+            return None;
+        }
+        let mut sheen = self.colors.glass_highlight;
+        sheen.a *= 0.65;
+        Some(glass_gloss_canvas(sheen, None))
+    }
+
+    /// Glossy selection highlight (top-half sheen + luminous outer glow rim)
+    /// for active rows in lists, sidebars, and pickers.
+    pub fn glass_selection_overlay(&self) -> Option<AnyElement> {
+        if !self.is_glass() {
+            return None;
+        }
+        let mut sheen = self.colors.glass_highlight;
+        sheen.a *= 0.55;
+        Some(glass_gloss_canvas(sheen, Some(self.colors.glass_glow)))
+    }
+
     /// Applies the theme's popup shadow (pickers, menus).
     pub fn apply_popup_shadow(&self, el: Div) -> Div {
         match self.shadow {
@@ -317,6 +363,37 @@ fn paint_bevel_ring(
         Bounds::new(point(x + w - one, y), size(one, h)),
         br,
     ));
+}
+
+/// Paints a glossy top-half specular reflection and 1px inner rim (plus an
+/// optional luminous outer border) inside its parent container.
+fn glass_gloss_canvas(sheen: Hsla, glow_border: Option<Hsla>) -> AnyElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds: Bounds<Pixels>, _, window, _| {
+            let w = bounds.size.width;
+            let h = bounds.size.height;
+            if w <= px(2.) || h <= px(2.) {
+                return;
+            }
+            let x = bounds.origin.x;
+            let y = bounds.origin.y;
+            let one = px(1.);
+            // Top-half specular gloss band (signature Vista / Aqua / PSP look).
+            let half_h = (h * 0.48).max(one);
+            window.paint_quad(fill(Bounds::new(point(x + one, y + one), size(w - one * 2., half_h)), sheen));
+            // Crisp 1px top specular catch-light.
+            let mut rim = sheen;
+            rim.a = (rim.a * 1.4).min(0.85);
+            window.paint_quad(fill(Bounds::new(point(x + one, y + one), size(w - one * 2., one)), rim));
+            if let Some(glow) = glow_border {
+                paint_bevel_ring(bounds, px(0.), glow, glow, window);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }
 
 /// Paints a 1px alternating-pixel dotted rectangle inset by 2px.
@@ -408,6 +485,8 @@ struct RawColors {
     titlebar_inactive_end: Option<String>,
     titlebar_text: Option<String>,
     titlebar_inactive_text: Option<String>,
+    glass_highlight: Option<String>,
+    glass_glow: Option<String>,
     #[serde(default)]
     status: RawStatusColors,
     #[serde(default)]
@@ -525,6 +604,8 @@ fn parse_complete(id: &str, source: &str) -> Result<Theme> {
             titlebar_inactive_end: rgb(0x19191c).into(),
             titlebar_text: rgb(0x7a7a85).into(),
             titlebar_inactive_text: rgb(0x5a5a64).into(),
+            glass_highlight: rgba(0xffffff20).into(),
+            glass_glow: rgba(0x7c8cff66).into(),
             status: StatusColors {
                 backlog: rgb(0).into(),
                 todo: rgb(0).into(),
@@ -677,6 +758,12 @@ fn merge_raw(theme: &mut Theme, raw: &RawTheme) -> Result<()> {
         rc.titlebar_inactive_text.as_deref(),
         "titlebar_inactive_text",
     )?;
+    apply_color(
+        &mut c.glass_highlight,
+        rc.glass_highlight.as_deref(),
+        "glass_highlight",
+    )?;
+    apply_color(&mut c.glass_glow, rc.glass_glow.as_deref(), "glass_glow")?;
 
     let s = &mut c.status;
     let rs = &rc.status;
@@ -895,7 +982,7 @@ pub fn reload_if_changed(cx: &mut App) -> bool {
 /// native traffic lights when a theme draws its own classic titlebar).
 pub fn apply_window_chrome(theme: &Theme) {
     apply_appearance(theme.appearance);
-    apply_native_window_buttons(!theme.is_classic_titlebar());
+    apply_native_window_buttons(!theme.uses_custom_titlebar());
 }
 
 /// Matches the native macOS window chrome (title bar, scrollbars) to the
@@ -953,7 +1040,7 @@ mod tests {
     #[test]
     fn builtin_themes_are_valid() {
         let builtins = load_builtins();
-        assert_eq!(builtins.len(), 2);
+        assert_eq!(builtins.len(), 4);
         assert_eq!(builtins[0].id, "dark");
         assert_eq!(builtins[0].appearance, Appearance::Dark);
         assert_eq!(builtins[0].chrome, Chrome::Flat);
@@ -963,6 +1050,16 @@ mod tests {
         assert_eq!(builtins[1].chrome, Chrome::Bevel);
         assert_eq!(builtins[1].radius, 0.);
         assert_eq!(builtins[1].shadow, ShadowStyle::Hard);
+
+        assert_eq!(builtins[2].id, "sse2");
+        assert_eq!(builtins[2].appearance, Appearance::Light);
+        assert_eq!(builtins[2].chrome, Chrome::Glass);
+        assert_eq!(builtins[2].titlebar, TitlebarStyle::Glass);
+
+        assert_eq!(builtins[3].id, "sse2-dark");
+        assert_eq!(builtins[3].appearance, Appearance::Dark);
+        assert_eq!(builtins[3].chrome, Chrome::Glass);
+        assert_eq!(builtins[3].titlebar, TitlebarStyle::Glass);
     }
 
     #[test]

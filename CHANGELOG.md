@@ -8,7 +8,7 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
-- Themes: switch between the default Dark theme and the retro beveled MMX theme
+- Themes: switch between built-in themes (`Dark`, `MMX`, `SSE2`, `SSE2 Dark`)
   with "Workspace: Set Theme", or add custom JSON themes in
   `~/.config/solilog/themes/` (hot-reloaded on save; see `docs/THEMES.md`).
 - Hovering a cropped issue title, checklist item, sidebar entry, project name,

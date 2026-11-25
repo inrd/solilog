@@ -201,6 +201,7 @@ impl Picker {
                 s.bg(t.colors.highlight)
                     .text_color(t.colors.highlight_text)
                     .children(t.dotted_focus(t.colors.highlight_text))
+                    .children(t.glass_selection_overlay())
             })
             .on_mouse_move(cx.listener(move |this, _, _, cx| {
                 if this.highlighted != row {

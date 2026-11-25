@@ -39,6 +39,8 @@
     "titlebar_inactive_end": "#19191c",
     "titlebar_text": "#7a7a85",
     "titlebar_inactive_text": "#5a5a64",
+    "glass_highlight": "#ffffff20",
+    "glass_glow": "#7c8cff66",
     "status": {
       "backlog": "#6e6e78",
       "todo": "#b4b4bc",

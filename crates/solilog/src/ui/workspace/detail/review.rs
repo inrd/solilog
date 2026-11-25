@@ -90,6 +90,7 @@ fn button(
         })
         .child(label)
         .children(t.raised_bevel())
+        .children(t.gloss_overlay())
         .on_click(move |_: &ClickEvent, window, cx| {
             window.focus(&focus);
             window.dispatch_action(action.boxed_clone(), cx);

@@ -380,16 +380,18 @@ impl Workspace {
                 .any(|i| i.unreviewed && self.scope.filter.matches(i));
         let t = theme::current(cx);
         div()
+            .relative()
             .flex()
             .flex_wrap()
             .items_center()
             .gap_2()
             .px_4()
             .py_1()
-            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .when(t.is_bevel() || t.is_glass(), |s| s.bg(t.colors.surface))
             .border_b_1()
             .border_color(t.colors.divider)
             .text_size(px(12.))
+            .children(t.glass_bar_overlay())
             // A project's name is in the project header already.
             .when(!matches!(self.scope.source, Source::Project(_)), |s| {
                 s.child(div().font_weight(FontWeight::SEMIBOLD).child(title))
@@ -557,7 +559,9 @@ fn toggle_pill(
                         .children(t.raised_bevel_thin())
                 }
             } else if on {
-                s.bg(t.colors.highlight).text_color(t.colors.highlight_text)
+                s.bg(t.colors.highlight)
+                    .text_color(t.colors.highlight_text)
+                    .children(t.gloss_overlay())
             } else {
                 s.text_color(t.colors.text_muted)
             }
@@ -606,4 +610,5 @@ fn mark_all_reviewed_button(cx: &mut Context<Workspace>) -> impl IntoElement + u
         .child(div().text_color(t.colors.accent).child("✓"))
         .child("Mark all reviewed")
         .children(t.raised_bevel())
+        .children(t.gloss_overlay())
 }

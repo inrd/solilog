@@ -710,6 +710,9 @@ impl Workspace {
                         .rounded(t.radius_sm())
                         .cursor_pointer()
                         .when_some(highlight, |s, (bg, fg)| s.bg(bg).text_color(fg))
+                        .when(is_primary || is_active, |s| {
+                            s.children(t.glass_selection_overlay())
+                        })
                         .when(focused && item == self.sidebar_cursor, |s| {
                             s.children(t.dotted_focus(t.colors.highlight_text))
                         })

@@ -1,4 +1,4 @@
-use gpui::{IntoElement, ParentElement, Styled, div, prelude::*, px};
+use gpui::{IntoElement, ParentElement, Styled, div, prelude::*, px, rgba};
 use solilog_core::{ProjectStatus, Status};
 
 use super::theme::Theme;
@@ -42,8 +42,21 @@ pub fn status_icon(status: Status, theme: &Theme) -> impl IntoElement + use<> {
                 .bg(color),
         ),
         _ => base
+            .relative()
             .bg(color)
             .text_color(theme.colors.status.glyph)
+            .when(theme.is_glass(), |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .top(px(1.5))
+                        .left(px(2.5))
+                        .w(px(6.))
+                        .h(px(3.))
+                        .rounded_full()
+                        .bg(rgba(0xffffff66)),
+                )
+            })
             .children(glyph),
     }
 }

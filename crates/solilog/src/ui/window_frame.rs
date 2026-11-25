@@ -10,7 +10,7 @@
 use gpui::{
     AnyElement, App, ClickEvent, Context, CursorStyle, Decorations, Entity, FontWeight,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ResizeEdge, Tiling,
-    Window, WindowDecorations, div, linear_color_stop, linear_gradient, prelude::*, px, svg,
+    Window, WindowDecorations, div, linear_color_stop, linear_gradient, prelude::*, px, rgba, svg,
 };
 
 use super::workspace::Workspace;
@@ -19,6 +19,7 @@ use super::{APP_NAME, assets, theme};
 const TITLE_BAR_HEIGHT: f32 = 34.;
 const MACOS_TITLE_BAR_HEIGHT: f32 = 28.;
 const CLASSIC_TITLE_BAR_HEIGHT: f32 = 24.;
+const GLASS_TITLE_BAR_HEIGHT: f32 = 28.;
 /// Width of the zone along each window edge that resizes the window.
 const RESIZE_EDGE: f32 = 5.;
 /// Size of the corner zones, which resize in both directions.
@@ -93,9 +94,9 @@ pub struct WindowFrame {
     /// The title bar was pressed and not released yet: moving the mouse now
     /// moves the window. (Moving on press would swallow double clicks.)
     drag_pending: bool,
-    /// Last `titlebar == Classic` value requested from the Linux WM, so theme
+    /// Last `uses_custom_titlebar` value requested from the Linux WM, so theme
     /// changes toggle client/server decorations live without redundant requests.
-    last_classic_titlebar: Option<bool>,
+    last_custom_titlebar: Option<bool>,
 }
 
 impl WindowFrame {
@@ -103,8 +104,113 @@ impl WindowFrame {
         Self {
             workspace,
             drag_pending: false,
-            last_classic_titlebar: None,
+            last_custom_titlebar: None,
         }
+    }
+
+    fn render_glass_title_bar(
+        &self,
+        window: &Window,
+        t: &theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = window.is_window_active();
+        let maximized = window.is_maximized();
+        let (start, end, text_color) = if active {
+            (
+                t.colors.titlebar_active_start,
+                t.colors.titlebar_active_end,
+                t.colors.titlebar_text,
+            )
+        } else {
+            (
+                t.colors.titlebar_inactive_start,
+                t.colors.titlebar_inactive_end,
+                t.colors.titlebar_inactive_text,
+            )
+        };
+        let pixel = t.is_pixel_icons();
+        div()
+            .id("glass-title-bar")
+            .relative()
+            .flex_none()
+            .h(px(GLASS_TITLE_BAR_HEIGHT))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .bg(linear_gradient(
+                105.,
+                linear_color_stop(start, 0.),
+                linear_color_stop(end, 1.),
+            ))
+            .border_b_1()
+            .border_color(t.colors.border)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, _| this.drag_pending = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseUpEvent, _, _| this.drag_pending = false),
+            )
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, window, _| {
+                if this.drag_pending {
+                    this.drag_pending = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+            .children(t.gloss_overlay())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(text_color)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(APP_NAME),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(3.))
+                    .child(glass_window_button(
+                        "minimize",
+                        assets::icon_for(assets::WINDOW_MINIMIZE, pixel),
+                        false,
+                        t,
+                        |window, _| window.minimize_window(),
+                    ))
+                    .child(glass_window_button(
+                        "maximize",
+                        assets::icon_for(
+                            if maximized {
+                                assets::WINDOW_RESTORE
+                            } else {
+                                assets::WINDOW_MAXIMIZE
+                            },
+                            pixel,
+                        ),
+                        false,
+                        t,
+                        |window, _| window.zoom_window(),
+                    ))
+                    .child(glass_window_button(
+                        "close",
+                        assets::icon_for(assets::WINDOW_CLOSE, pixel),
+                        true,
+                        t,
+                        |window, _| window.remove_window(),
+                    )),
+            )
     }
 
     fn render_classic_title_bar(
@@ -338,12 +444,12 @@ impl WindowFrame {
 impl Render for WindowFrame {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::current(cx);
-        let classic = t.is_classic_titlebar();
+        let custom = t.uses_custom_titlebar();
         if cfg!(any(target_os = "linux", target_os = "freebsd"))
-            && self.last_classic_titlebar != Some(classic)
+            && self.last_custom_titlebar != Some(custom)
         {
-            self.last_classic_titlebar = Some(classic);
-            window.request_decorations(decorations(classic));
+            self.last_custom_titlebar = Some(custom);
+            window.request_decorations(decorations(custom));
         }
         let workspace = div()
             .flex_1()
@@ -352,7 +458,7 @@ impl Render for WindowFrame {
             .child(self.workspace.clone());
 
         if let Decorations::Client { tiling } = window.window_decorations() {
-            if classic {
+            if t.is_classic_titlebar() {
                 return div()
                     .size_full()
                     .flex()
@@ -365,6 +471,23 @@ impl Render for WindowFrame {
                     .child(self.render_classic_title_bar(window, &t, cx))
                     .child(workspace)
                     .children(t.raised_bevel())
+                    .children(resize_edges(tiling));
+            }
+            if t.is_glass_titlebar() {
+                return div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .relative()
+                    .bg(t.colors.background)
+                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .border_color(t.colors.border)
+                    .when(!tiling.top, |d| d.border_t_1())
+                    .when(!tiling.bottom, |d| d.border_b_1())
+                    .when(!tiling.left, |d| d.border_l_1())
+                    .when(!tiling.right, |d| d.border_r_1())
+                    .child(self.render_glass_title_bar(window, &t, cx))
+                    .child(workspace)
                     .children(resize_edges(tiling));
             }
             return div()
@@ -399,6 +522,16 @@ impl Render for WindowFrame {
                     .child(workspace)
                     .children(t.raised_bevel());
             }
+            if t.is_glass_titlebar() {
+                return div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .bg(t.colors.background)
+                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .child(self.render_glass_title_bar(window, &t, cx))
+                    .child(workspace);
+            }
             return div()
                 .size_full()
                 .flex()
@@ -411,6 +544,51 @@ impl Render for WindowFrame {
 
         div().size_full().flex().flex_col().child(workspace)
     }
+}
+
+/// Glossy Vista-style capsule window button (`–`, `□`, `×`).
+fn glass_window_button(
+    id: &'static str,
+    icon: &'static str,
+    is_close: bool,
+    t: &theme::Theme,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let base_bg = if is_close {
+        rgba(0xc83c3c99)
+    } else {
+        rgba(0xffffff24)
+    };
+    let hover_bg = if is_close {
+        rgba(0xe84848e6)
+    } else {
+        rgba(0x7cd4ff59)
+    };
+    div()
+        .id(id)
+        .relative()
+        .w(if is_close { px(32.) } else { px(24.) })
+        .h(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .bg(base_bg)
+        .border_1()
+        .border_color(rgba(0xffffff44))
+        .hover(move |s| s.bg(hover_bg).border_color(rgba(0xffffff99)))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            on_click(window, cx);
+        })
+        .children(t.gloss_overlay())
+        .child(
+            svg()
+                .path(icon)
+                .size(px(11.))
+                .text_color(t.colors.titlebar_text),
+        )
 }
 
 /// Classic 18×16 raised titlebar button (`_`, `□`, `×`).

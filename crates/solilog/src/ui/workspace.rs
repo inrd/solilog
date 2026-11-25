@@ -1530,6 +1530,9 @@ impl Workspace {
                 }
             })
             .when_some(row_colors, |s, (bg, fg)| s.bg(bg).text_color(fg))
+            .when(highlighted || in_selection, |s| {
+                s.children(t.glass_selection_overlay())
+            })
             .when(highlighted, |s| {
                 let focus_color = if in_selection {
                     t.colors.selection_text
@@ -1864,6 +1867,7 @@ fn project_chip(name: String, t: &theme::Theme) -> gpui::Div {
     chip(name, t.colors.status.glyph, t)
         .border_color(t.colors.accent)
         .bg(t.colors.accent)
+        .children(t.gloss_overlay())
 }
 
 /// An issue being dragged to reorder it; also renders what follows the mouse.
@@ -2148,6 +2152,7 @@ impl Workspace {
             })
             .collect::<Vec<_>>();
         div()
+            .relative()
             .flex_none()
             .flex()
             .items_center()
@@ -2159,6 +2164,7 @@ impl Workspace {
             .bg(t.colors.sidebar)
             .text_size(px(12.))
             .text_color(t.colors.text_muted)
+            .children(t.glass_bar_overlay())
             .child(
                 div()
                     .relative()

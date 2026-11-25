@@ -40,6 +40,8 @@
     "titlebar_inactive_end": "#b5b5b5",
     "titlebar_text": "#ffffff",
     "titlebar_inactive_text": "#dfdfdf",
+    "glass_highlight": "#ffffff40",
+    "glass_glow": "#1084d066",
     "status": {
       "backlog": "#808080",
       "todo": "#404040",

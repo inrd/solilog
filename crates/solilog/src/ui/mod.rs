@@ -56,7 +56,7 @@ pub fn run(db: Db) -> Result<()> {
                     }),
                     app_id: Some(APP_ID.to_string()),
                     window_decorations: Some(window_frame::decorations(
-                        theme::current(cx).is_classic_titlebar(),
+                        theme::current(cx).uses_custom_titlebar(),
                     )),
                     ..Default::default()
                 },
