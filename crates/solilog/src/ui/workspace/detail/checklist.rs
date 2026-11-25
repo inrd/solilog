@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use gpui::{
     Action, ClickEvent, Context, CursorStyle, Entity, FocusHandle, Focusable, FontWeight,
-    IntoElement, SharedString, Subscription, Window, div, prelude::*, px, relative, rgb,
+    IntoElement, SharedString, Subscription, Window, div, prelude::*, px, relative,
 };
 use solilog_core::{ChecklistItem, ChecklistItemId, Placement};
 
@@ -60,16 +60,17 @@ struct DraggedItem {
 }
 
 impl Render for DraggedItem {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
         div()
             .max_w(px(480.))
             .px_2()
-            .rounded_sm()
-            .bg(rgb(theme::HIGHLIGHT))
+            .rounded(t.radius_sm())
+            .bg(t.colors.highlight)
             .border_1()
-            .border_color(rgb(theme::BORDER))
+            .border_color(t.colors.border)
             .line_height(px(24.))
-            .text_color(rgb(theme::TEXT))
+            .text_color(t.colors.highlight_text)
             .truncate()
             .child(self.text.clone())
     }
@@ -476,6 +477,7 @@ impl Workspace {
         detail: &IssueDetail,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let pane_focus = detail.focus.clone();
         let header = div()
             .flex()
@@ -493,27 +495,31 @@ impl Workspace {
                         div()
                             .flex_none()
                             .text_size(px(12.))
-                            .text_color(rgb(if complete {
-                                theme::ACCENT
+                            .text_color(if complete {
+                                t.colors.accent
                             } else {
-                                theme::TEXT_MUTED
-                            }))
+                                t.colors.text_muted
+                            })
                             .child(format!("{done}/{total}")),
                     )
                     .child(
                         div()
+                            .relative()
                             .flex_1()
                             .max_w(px(240.))
-                            .h(px(4.))
-                            .rounded_full()
-                            .bg(rgb(theme::HIGHLIGHT))
+                            .h(if t.is_bevel() { px(12.) } else { px(4.) })
+                            .when(!t.is_bevel(), |s| {
+                                s.rounded_full().bg(t.colors.highlight)
+                            })
+                            .when(t.is_bevel(), |s| s.p(px(2.)).bg(t.colors.input))
                             .child(
                                 div()
                                     .h_full()
-                                    .rounded_full()
-                                    .bg(rgb(theme::ACCENT))
+                                    .when(!t.is_bevel(), |s| s.rounded_full())
+                                    .bg(t.colors.accent)
                                     .w(relative(done as f32 / total as f32)),
-                            ),
+                            )
+                            .children(t.sunken_bevel_thin()),
                     )
             }));
 
@@ -529,14 +535,14 @@ impl Workspace {
                     text: row.input.read(cx).text().to_owned().into(),
                     index,
                 };
-                let handle = drag_handle()
+                let handle = drag_handle(&t)
                     .id(("checklist-handle", id.0 as u64))
                     .invisible()
                     .group_hover("checklist-item", |s| s.visible())
                     .cursor(CursorStyle::OpenHand)
                     .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| dragged.clone()));
                 let done = row.item.done;
-                let checkbox = checkbox(done)
+                let checkbox = checkbox(done, &t)
                     .id(("checklist-check", id.0 as u64))
                     .cursor_pointer()
                     .on_click({
@@ -550,12 +556,12 @@ impl Workspace {
                     .id(("checklist-delete", id.0 as u64))
                     .flex_none()
                     .px_1()
-                    .rounded_sm()
+                    .rounded(t.radius_sm())
                     .cursor_pointer()
                     .invisible()
                     .group_hover("checklist-item", |s| s.visible())
-                    .text_color(rgb(theme::TEXT_MUTED))
-                    .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                    .text_color(t.colors.text_muted)
+                    .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
                     .child("×")
                     .on_click({
                         let focus = pane_focus.clone();
@@ -564,6 +570,7 @@ impl Workspace {
                             window.dispatch_action(DeleteItem { id: Some(id) }.boxed_clone(), cx);
                         }
                     });
+                let drop_accent = t.colors.accent;
                 div()
                     .id(("checklist-item", id.0 as u64))
                     .key_context(ITEM_CONTEXT)
@@ -574,8 +581,8 @@ impl Workspace {
                     .pr_1()
                     .py(px(2.))
                     .line_height(px(22.))
-                    .rounded_sm()
-                    .hover(|s| s.bg(rgb(theme::HOVER)))
+                    .rounded(t.radius_sm())
+                    .hover(|s| s.bg(t.colors.hover))
                     .can_drop(move |value, _, _| {
                         value
                             .downcast_ref::<DraggedItem>()
@@ -587,7 +594,7 @@ impl Workspace {
                         }
                         // A line where the item will land; the padding it
                         // replaces keeps the row height.
-                        let style = style.rounded_none().border_color(rgb(theme::ACCENT));
+                        let style = style.rounded_none().border_color(drop_accent);
                         if dragged.index < index {
                             style.border_b_2().pb(px(0.))
                         } else {
@@ -623,7 +630,7 @@ impl Workspace {
                             .min_w_0()
                             .overflow_hidden()
                             .when(done, |s| {
-                                s.text_color(rgb(theme::TEXT_MUTED)).line_through()
+                                s.text_color(t.colors.text_muted).line_through()
                             })
                             .child(row.input.clone()),
                     )
@@ -632,7 +639,7 @@ impl Workspace {
                             div()
                                 .flex_none()
                                 .text_size(px(11.))
-                                .text_color(rgb(theme::TEXT_MUTED))
+                                .text_color(t.colors.text_muted)
                                 .child(format!("by {}", row.item.author)),
                         )
                     })
@@ -647,11 +654,11 @@ impl Workspace {
             .py(px(2.))
             .line_height(px(22.))
             // Where the handles are on items.
-            .child(drag_handle().invisible())
+            .child(drag_handle(&t).invisible())
             .child(
-                checkbox(false)
+                checkbox(false, &t)
                     .border_dashed()
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child("+"),
             )
             .child(
@@ -682,11 +689,12 @@ impl Workspace {
 }
 
 /// Two columns of three dots, to drag an item by.
-fn drag_handle() -> gpui::Div {
+fn drag_handle(t: &theme::Theme) -> gpui::Div {
+    let dot_color = t.colors.text_muted;
     let column =
         || {
             div().flex().flex_col().gap(px(2.)).children(
-                (0..3).map(|_| div().size(px(2.)).rounded_full().bg(rgb(theme::TEXT_MUTED))),
+                (0..3).map(|_| div().size(px(2.)).rounded_full().bg(dot_color)),
             )
         };
     div()
@@ -697,31 +705,38 @@ fn drag_handle() -> gpui::Div {
         .items_center()
         .justify_center()
         .gap(px(2.))
-        .rounded_sm()
-        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+        .rounded(t.radius_sm())
+        .hover(|s| s.bg(t.colors.hover))
         .child(column())
         .child(column())
 }
 
-fn checkbox(done: bool) -> gpui::Div {
+fn checkbox(done: bool, t: &theme::Theme) -> gpui::Div {
     let checkbox = div()
+        .relative()
         .size(px(16.))
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded(px(4.))
-        .border_1()
+        .rounded(t.radius_sm())
+        .when(!t.is_bevel(), |s| s.border_1())
         .text_size(px(11.))
         .line_height(px(16.))
         .font_weight(FontWeight::BOLD);
-    if done {
+    if t.is_bevel() {
         checkbox
-            .bg(rgb(theme::ACCENT))
-            .border_color(rgb(theme::ACCENT))
-            .text_color(rgb(theme::BACKGROUND))
+            .bg(t.colors.input)
+            .text_color(t.colors.text)
+            .when(done, |s| s.child("✓"))
+            .children(t.sunken_bevel())
+    } else if done {
+        checkbox
+            .bg(t.colors.accent)
+            .border_color(t.colors.accent)
+            .text_color(t.colors.status.glyph)
             .child("✓")
     } else {
-        checkbox.border_color(rgb(theme::TEXT_MUTED))
+        checkbox.border_color(t.colors.text_muted)
     }
 }

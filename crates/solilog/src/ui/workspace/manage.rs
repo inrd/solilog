@@ -7,7 +7,7 @@
 //! the same thing (with any unsaved filter edits).
 
 use gpui::{
-    Action, AppContext as _, Context, IntoElement, Pixels, Point, Styled as _, Window, div, px, rgb,
+    Action, AppContext as _, Context, IntoElement, Pixels, Point, Styled as _, Window, div, px,
 };
 use solilog_core::{
     IssueFilter, LabelColor, NewProject, ProjectStatus, ProjectUpdate, label_matches, renamed_label,
@@ -22,8 +22,8 @@ use crate::ui::status_icon::project_status_icon;
 use crate::ui::theme;
 
 /// A small round swatch, for the color picker.
-fn color_dot(color: u32) -> impl IntoElement {
-    div().size(px(10.)).rounded_full().bg(rgb(color))
+fn color_dot(color: gpui::Hsla) -> impl IntoElement {
+    div().size(px(10.)).rounded_full().bg(color)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -497,8 +497,10 @@ impl Workspace {
                         name: Some(name.clone()),
                         status: Some(status),
                     };
+                    let t = theme::current(cx);
                     (
-                        PickerItem::new(status.label()).icon(move || project_status_icon(status)),
+                        PickerItem::new(status.label())
+                            .icon(move || project_status_icon(status, &t)),
                         Box::new(action) as Box<dyn Action>,
                     )
                 })
@@ -682,18 +684,20 @@ impl Workspace {
                     reset,
                 })
             };
+            let t = theme::current(cx);
             let mut entries: Vec<(PickerItem, Box<dyn Action>)> = LabelColor::ALL
                 .into_iter()
                 .map(|color| {
-                    let rgb = theme::label_color(Some(color));
+                    let swatch = t.label_color(Some(color));
                     (
-                        PickerItem::new(color.label()).icon(move || color_dot(rgb)),
+                        PickerItem::new(color.label()).icon(move || color_dot(swatch)),
                         set(Some(color), false),
                     )
                 })
                 .collect();
+            let default_swatch = t.label_color(None);
             entries.push((
-                PickerItem::new("Default").icon(|| color_dot(theme::label_color(None))),
+                PickerItem::new("Default").icon(move || color_dot(default_swatch)),
                 set(None, true),
             ));
             let highlighted = current

@@ -8,15 +8,17 @@
 //! the window.
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, CursorStyle, Decorations, Entity, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ResizeEdge, Tiling, Window,
-    WindowDecorations, div, prelude::*, px, rgb, svg,
+    AnyElement, App, ClickEvent, Context, CursorStyle, Decorations, Entity, FontWeight,
+    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ResizeEdge, Tiling,
+    Window, WindowDecorations, div, linear_color_stop, linear_gradient, prelude::*, px, svg,
 };
 
 use super::workspace::Workspace;
 use super::{APP_NAME, assets, theme};
 
 const TITLE_BAR_HEIGHT: f32 = 34.;
+const MACOS_TITLE_BAR_HEIGHT: f32 = 28.;
+const CLASSIC_TITLE_BAR_HEIGHT: f32 = 24.;
 /// Width of the zone along each window edge that resizes the window.
 const RESIZE_EDGE: f32 = 5.;
 /// Size of the corner zones, which resize in both directions.
@@ -29,11 +31,12 @@ const RESIZE_CORNER: f32 = 12.;
 /// decorations as granted unless the compositor answers otherwise, and
 /// compositors without the decoration protocol (GNOME's) never answer, so
 /// the window would have no title bar at all. Ask the compositor first.
-pub fn decorations() -> WindowDecorations {
+pub fn decorations(classic_titlebar: bool) -> WindowDecorations {
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    if wayland::lacks_server_decorations() {
+    if classic_titlebar || wayland::lacks_server_decorations() {
         return WindowDecorations::Client;
     }
+    let _ = classic_titlebar;
     WindowDecorations::Server
 }
 
@@ -90,6 +93,9 @@ pub struct WindowFrame {
     /// The title bar was pressed and not released yet: moving the mouse now
     /// moves the window. (Moving on press would swallow double clicks.)
     drag_pending: bool,
+    /// Last `titlebar == Classic` value requested from the Linux WM, so theme
+    /// changes toggle client/server decorations live without redundant requests.
+    last_classic_titlebar: Option<bool>,
 }
 
 impl WindowFrame {
@@ -97,12 +103,155 @@ impl WindowFrame {
         Self {
             workspace,
             drag_pending: false,
+            last_classic_titlebar: None,
         }
     }
 
+    fn render_classic_title_bar(
+        &self,
+        window: &Window,
+        t: &theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = window.is_window_active();
+        let maximized = window.is_maximized();
+        let (start, end, text_color) = if active {
+            (
+                t.colors.titlebar_active_start,
+                t.colors.titlebar_active_end,
+                t.colors.titlebar_text,
+            )
+        } else {
+            (
+                t.colors.titlebar_inactive_start,
+                t.colors.titlebar_inactive_end,
+                t.colors.titlebar_inactive_text,
+            )
+        };
+        let pixel = t.is_pixel_icons();
+        div()
+            .id("classic-title-bar")
+            .flex_none()
+            .h(px(CLASSIC_TITLE_BAR_HEIGHT))
+            .px(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .bg(linear_gradient(
+                90.,
+                linear_color_stop(start, 0.),
+                linear_color_stop(end, 1.),
+            ))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, _| this.drag_pending = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseUpEvent, _, _| this.drag_pending = false),
+            )
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, window, _| {
+                if this.drag_pending {
+                    this.drag_pending = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .pl(px(2.))
+                    .text_color(text_color)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::BOLD)
+                    .child(APP_NAME),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(classic_window_button(
+                        "minimize",
+                        assets::icon_for(assets::WINDOW_MINIMIZE, pixel),
+                        t,
+                        |window, _| window.minimize_window(),
+                    ))
+                    .child(classic_window_button(
+                        "maximize",
+                        assets::icon_for(
+                            if maximized {
+                                assets::WINDOW_RESTORE
+                            } else {
+                                assets::WINDOW_MAXIMIZE
+                            },
+                            pixel,
+                        ),
+                        t,
+                        |window, _| window.zoom_window(),
+                    ))
+                    .child(
+                        div().ml(px(2.)).child(classic_window_button(
+                            "close",
+                            assets::icon_for(assets::WINDOW_CLOSE, pixel),
+                            t,
+                            |window, _| window.remove_window(),
+                        )),
+                    ),
+            )
+    }
+
+    fn render_macos_native_bar(
+        &self,
+        t: &theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id("macos-title-bar")
+            .flex_none()
+            .h(px(MACOS_TITLE_BAR_HEIGHT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(t.colors.sidebar)
+            .border_b_1()
+            .border_color(t.colors.divider)
+            .text_color(t.colors.text_muted)
+            .text_size(px(12.))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, _| this.drag_pending = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseUpEvent, _, _| this.drag_pending = false),
+            )
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, window, _| {
+                if this.drag_pending {
+                    this.drag_pending = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+            .child(APP_NAME)
+    }
+
     fn render_title_bar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
         let controls = window.window_controls();
         let maximized = window.is_maximized();
+        let pixel = t.is_pixel_icons();
         div()
             .id("title-bar")
             .flex_none()
@@ -110,9 +259,9 @@ impl WindowFrame {
             .flex()
             .items_center()
             .relative()
-            .bg(rgb(theme::SIDEBAR))
+            .bg(t.colors.sidebar)
             .border_b_1()
-            .border_color(rgb(theme::DIVIDER))
+            .border_color(t.colors.divider)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, _, _| this.drag_pending = true),
@@ -145,7 +294,7 @@ impl WindowFrame {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .text_size(px(13.))
                     .child(APP_NAME),
             )
@@ -158,7 +307,8 @@ impl WindowFrame {
                     .when(controls.minimize, |row| {
                         row.child(window_button(
                             "minimize",
-                            assets::WINDOW_MINIMIZE,
+                            assets::icon_for(assets::WINDOW_MINIMIZE, pixel),
+                            &t,
                             |window, _| window.minimize_window(),
                         ))
                     })
@@ -168,66 +318,153 @@ impl WindowFrame {
                         } else {
                             assets::WINDOW_MAXIMIZE
                         };
-                        row.child(window_button("maximize", icon, |window, _| {
-                            window.zoom_window()
-                        }))
+                        row.child(window_button(
+                            "maximize",
+                            assets::icon_for(icon, pixel),
+                            &t,
+                            |window, _| window.zoom_window(),
+                        ))
                     })
-                    .child(window_button("close", assets::WINDOW_CLOSE, |window, _| {
-                        window.remove_window()
-                    })),
+                    .child(window_button(
+                        "close",
+                        assets::icon_for(assets::WINDOW_CLOSE, pixel),
+                        &t,
+                        |window, _| window.remove_window(),
+                    )),
             )
     }
 }
 
 impl Render for WindowFrame {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
+        let classic = t.is_classic_titlebar();
+        if cfg!(any(target_os = "linux", target_os = "freebsd"))
+            && self.last_classic_titlebar != Some(classic)
+        {
+            self.last_classic_titlebar = Some(classic);
+            window.request_decorations(decorations(classic));
+        }
         let workspace = div()
             .flex_1()
             .min_h_0()
             .relative()
             .child(self.workspace.clone());
-        let Decorations::Client { tiling } = window.window_decorations() else {
-            return div().size_full().flex().flex_col().child(workspace);
-        };
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .relative()
-            .bg(rgb(theme::BACKGROUND))
-            .border_color(rgb(theme::BORDER))
-            .when(!tiling.top, |d| d.border_t_1())
-            .when(!tiling.bottom, |d| d.border_b_1())
-            .when(!tiling.left, |d| d.border_l_1())
-            .when(!tiling.right, |d| d.border_r_1())
-            .child(self.render_title_bar(window, cx))
-            .child(workspace)
-            .children(resize_edges(tiling))
+
+        if let Decorations::Client { tiling } = window.window_decorations() {
+            if classic {
+                return div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .relative()
+                    .p(px(3.))
+                    .gap(px(2.))
+                    .bg(t.colors.surface)
+                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .child(self.render_classic_title_bar(window, &t, cx))
+                    .child(workspace)
+                    .children(t.raised_bevel())
+                    .children(resize_edges(tiling));
+            }
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .relative()
+                .bg(t.colors.background)
+                .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                .border_color(t.colors.border)
+                .when(!tiling.top, |d| d.border_t_1())
+                .when(!tiling.bottom, |d| d.border_b_1())
+                .when(!tiling.left, |d| d.border_l_1())
+                .when(!tiling.right, |d| d.border_r_1())
+                .child(self.render_title_bar(window, cx))
+                .child(workspace)
+                .children(resize_edges(tiling));
+        }
+
+        if cfg!(target_os = "macos") {
+            if t.is_classic_titlebar() {
+                return div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .relative()
+                    .p(px(3.))
+                    .gap(px(2.))
+                    .bg(t.colors.surface)
+                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .child(self.render_classic_title_bar(window, &t, cx))
+                    .child(workspace)
+                    .children(t.raised_bevel());
+            }
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(t.colors.background)
+                .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                .child(self.render_macos_native_bar(&t, cx))
+                .child(workspace);
+        }
+
+        div().size_full().flex().flex_col().child(workspace)
     }
 }
 
-/// A title bar button: an icon in a circle, like GNOME's.
-fn window_button(
+/// Classic 18×16 raised titlebar button (`_`, `□`, `×`).
+fn classic_window_button(
     id: &'static str,
     icon: &'static str,
+    t: &theme::Theme,
     on_click: impl Fn(&mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
+        .relative()
+        .w(px(18.))
+        .h(px(16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(t.colors.surface)
+        .hover(|s| s.bg(t.colors.hover))
+        .active(|s| s.pt(px(1.)).pl(px(1.)))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            on_click(window, cx);
+        })
+        .child(svg().path(icon).size(px(10.)).text_color(t.colors.text))
+        .children(t.raised_bevel())
+}
+
+/// A title bar button: an icon in a circle (or raised square in bevel themes).
+fn window_button(
+    id: &'static str,
+    icon: &'static str,
+    t: &theme::Theme,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .relative()
         .size(px(24.))
         .flex()
         .items_center()
         .justify_center()
-        .rounded_full()
-        .bg(rgb(theme::SURFACE))
-        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+        .when(!t.is_bevel(), |d| d.rounded_full())
+        .bg(t.colors.surface)
+        .hover(|s| s.bg(t.colors.hover))
         // Not a press on the title bar: don't start moving the window.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, window, cx| {
             cx.stop_propagation();
             on_click(window, cx);
         })
-        .child(svg().path(icon).size(px(14.)).text_color(rgb(theme::TEXT)))
+        .child(svg().path(icon).size(px(14.)).text_color(t.colors.text))
+        .children(t.raised_bevel())
 }
 
 /// Invisible zones along the edges that are not against the screen's (or

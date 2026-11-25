@@ -7,7 +7,7 @@
 
 use gpui::{
     Action, AnyElement, ClickEvent, Context, FocusHandle, FontWeight, IntoElement, ObjectFit,
-    StyledImage, Window, deferred, div, img, prelude::*, px, rgb, rgba,
+    StyledImage, Window, deferred, div, img, prelude::*, px,
 };
 use solilog_core::{Attachment, AttachmentId, AttachmentKind, format_size};
 
@@ -165,16 +165,17 @@ impl Workspace {
         let path = image.path.clone()?;
         let focus = preview.focus.clone();
         // Buttons dispatch from the preview, so its handlers get the action.
+        let t = theme::current(cx);
         let button = |id: &'static str, label: &'static str, action: Box<dyn Action>| {
             let focus = focus.clone();
             div()
                 .id(id)
                 .flex_none()
                 .px_2()
-                .rounded_sm()
+                .rounded(t.radius_sm())
                 .cursor_pointer()
-                .text_color(rgb(theme::TEXT_MUTED))
-                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                .text_color(t.colors.text_muted)
+                .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
                 .child(label)
                 .on_click(move |_: &ClickEvent, window, cx| {
                     window.focus(&focus);
@@ -200,7 +201,7 @@ impl Workspace {
                 div()
                     .flex_none()
                     .text_size(px(12.))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child(format_size(image.size)),
             )
             .when(several, |s| {
@@ -208,7 +209,7 @@ impl Workspace {
                     div()
                         .flex_none()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child(format!("{} / {}", preview.index + 1, images.len())),
                 )
             })
@@ -231,11 +232,12 @@ impl Workspace {
                     s.child(button(id, label, action).text_size(px(28.)).py_2())
                 })
         };
+        let muted = t.colors.text_muted;
         let picture = img(path)
             .size_full()
             .object_fit(ObjectFit::ScaleDown)
-            .with_fallback(|| fallback("Can't show this image"))
-            .with_loading(|| fallback(""));
+            .with_fallback(move || fallback("Can't show this image", muted))
+            .with_loading(move || fallback("", muted));
 
         let overlay = div()
             .id("image-preview")
@@ -250,7 +252,7 @@ impl Workspace {
             .occlude()
             .flex()
             .flex_col()
-            .bg(rgba(0x0e0e10f2))
+            .bg(t.colors.overlay)
             .child(header)
             .child(
                 div()
@@ -266,13 +268,13 @@ impl Workspace {
     }
 }
 
-fn fallback(text: &'static str) -> AnyElement {
+fn fallback(text: &'static str, muted: gpui::Hsla) -> AnyElement {
     div()
         .size_full()
         .flex()
         .items_center()
         .justify_center()
-        .text_color(rgb(theme::TEXT_MUTED))
+        .text_color(muted)
         .child(text)
         .into_any_element()
 }

@@ -12,7 +12,7 @@
 
 use gpui::{
     Action, ClickEvent, Context, Entity, Focusable, FontWeight, IntoElement, Task, Window, div,
-    prelude::*, px, relative, rgb,
+    prelude::*, px, relative,
 };
 use solilog_core::{Project, ProjectUpdate};
 
@@ -185,25 +185,33 @@ impl Workspace {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let status = project.status;
         let status_chip = div()
             .id("project-status")
+            .relative()
             .ml_3()
             .flex()
             .flex_none()
             .items_center()
             .gap_1p5()
             .px_2()
-            .rounded_full()
-            .border_1()
-            .border_color(rgb(theme::BORDER))
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .when(!t.is_bevel(), |s| {
+                s.rounded_full().border_1().border_color(t.colors.border)
+            })
             .text_size(px(12.))
             .line_height(px(20.))
-            .text_color(rgb(theme::TEXT_MUTED))
+            .text_color(if t.is_bevel() {
+                t.colors.text
+            } else {
+                t.colors.text_muted
+            })
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(theme::HOVER)).text_color(rgb(theme::TEXT)))
-            .child(project_status_icon(status))
+            .hover(|s| s.bg(t.colors.hover).text_color(t.colors.text))
+            .child(project_status_icon(status, &t))
             .child(status.label())
+            .children(t.raised_bevel_thin())
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 window.dispatch_action(project::SetStatus::default().boxed_clone(), cx);
             }));
@@ -216,8 +224,9 @@ impl Workspace {
             .px_4()
             .pt_3()
             .pb_2()
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
             .border_b_1()
-            .border_color(rgb(theme::DIVIDER))
+            .border_color(t.colors.divider)
             .child(
                 // Margins, not a gap: the row's gap doesn't show next to the
                 // name.
@@ -234,7 +243,7 @@ impl Workspace {
                             .child(truncated_text("project-header-name", project.name.clone())),
                     )
                     .child(status_chip)
-                    .child(progress(project)),
+                    .child(progress(project, &t)),
             )
             .child(self.default_labels(project, cx))
             .child(self.render_project_description(window, cx))
@@ -246,6 +255,7 @@ impl Workspace {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let input = &self.project_description.input;
         let editing = input.focus_handle(cx).is_focused(window);
         let text = input.read(cx).text();
@@ -255,18 +265,21 @@ impl Workspace {
         div()
             .flex()
             .flex_col()
-            .text_color(rgb(theme::TEXT_MUTED))
+            .text_color(t.colors.text_muted)
             .line_height(px(LINE_HEIGHT))
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_col()
-                    .when(editing, |s| s.text_color(rgb(theme::TEXT)))
+                    .when(t.is_bevel(), |s| s.px_2().py_1().bg(t.colors.input))
+                    .when(editing, |s| s.text_color(t.colors.text))
                     .when(collapsed, |s| {
                         s.max_h(px(LINE_HEIGHT * COLLAPSED_LINES as f32))
                             .overflow_hidden()
                     })
-                    .child(input.clone()),
+                    .child(input.clone())
+                    .children(t.sunken_bevel()),
             )
             .when(collapsed, |s| {
                 s.child(
@@ -275,7 +288,7 @@ impl Workspace {
                         .flex_none()
                         .text_size(px(12.))
                         .cursor_pointer()
-                        .hover(|s| s.text_color(rgb(theme::TEXT)))
+                        .hover(|s| s.text_color(t.colors.text))
                         .child("Show more")
                         .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                             window.dispatch_action(project::EditDescription.boxed_clone(), cx);
@@ -290,55 +303,64 @@ impl Workspace {
         project: &Project,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let chips = project.labels.iter().enumerate().map(|(ix, label)| {
             let remove = project::RemoveLabel {
                 name: None,
                 label: Some(label.clone()),
             };
             div()
+                .relative()
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap_1()
                 .pl_2()
                 .pr_1()
-                .rounded_full()
-                .border_1()
-                .border_color(rgb(theme::BORDER))
+                .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+                .when(!t.is_bevel(), |s| {
+                    s.rounded_full().border_1().border_color(t.colors.border)
+                })
                 .line_height(px(18.))
-                .text_color(rgb(self.label_chip_color(label)))
+                .text_color(self.label_chip_color(label, &t))
                 .child(label.clone())
                 .child(
                     div()
                         .id(("project-label-remove", ix))
                         .px_1()
-                        .rounded_full()
+                        .when(!t.is_bevel(), |s| s.rounded_full())
                         .cursor_pointer()
-                        .text_color(rgb(theme::TEXT_MUTED))
-                        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                        .text_color(t.colors.text_muted)
+                        .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                             window.dispatch_action(remove.boxed_clone(), cx);
                         }))
                         .child("×"),
                 )
+                .children(t.raised_bevel_thin())
         });
         let add = div()
             .id("project-label-add")
+            .relative()
             .flex_none()
             .px_2()
-            .rounded_full()
-            .border_1()
-            .border_dashed()
-            .border_color(rgb(theme::BORDER))
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .when(!t.is_bevel(), |s| {
+                s.rounded_full()
+                    .border_1()
+                    .border_dashed()
+                    .border_color(t.colors.border)
+            })
             .line_height(px(18.))
-            .text_color(rgb(theme::TEXT_MUTED))
+            .text_color(t.colors.text_muted)
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(theme::HOVER)).text_color(rgb(theme::TEXT)))
+            .hover(|s| s.bg(t.colors.hover).text_color(t.colors.text))
             .child(if project.labels.is_empty() {
                 "+ Default label"
             } else {
                 "+"
             })
+            .children(t.raised_bevel_thin())
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 window.dispatch_action(project::AddLabel::default().boxed_clone(), cx);
             }));
@@ -354,7 +376,7 @@ impl Workspace {
 }
 
 /// Closed issues out of all of the project's, with a thin bar.
-fn progress(project: &Project) -> impl IntoElement + use<> {
+fn progress(project: &Project, t: &theme::Theme) -> impl IntoElement + use<> {
     let (closed, total) = (project.closed_issue_count, project.issue_count);
     let row = div()
         .ml_auto()
@@ -364,28 +386,32 @@ fn progress(project: &Project) -> impl IntoElement + use<> {
         .items_center()
         .gap_2()
         .text_size(px(12.))
-        .text_color(rgb(theme::TEXT_MUTED));
+        .text_color(t.colors.text_muted);
     if total == 0 {
         return row.child("No issues yet");
     }
     let complete = closed == total;
     row.child(
         div()
-            .when(complete, |s| s.text_color(rgb(theme::ACCENT)))
+            .when(complete, |s| s.text_color(t.colors.accent))
             .child(format!("{closed}/{total} closed")),
     )
     .child(
         div()
+            .relative()
             .w(px(120.))
-            .h(px(4.))
-            .rounded_full()
-            .bg(rgb(theme::HIGHLIGHT))
+            .h(if t.is_bevel() { px(12.) } else { px(4.) })
+            .when(!t.is_bevel(), |s| {
+                s.rounded_full().bg(t.colors.highlight)
+            })
+            .when(t.is_bevel(), |s| s.p(px(2.)).bg(t.colors.input))
             .child(
                 div()
                     .h_full()
-                    .rounded_full()
-                    .bg(rgb(theme::ACCENT))
+                    .when(!t.is_bevel(), |s| s.rounded_full())
+                    .bg(t.colors.accent)
                     .w(relative(closed as f32 / total as f32)),
-            ),
+            )
+            .children(t.sunken_bevel_thin()),
     )
 }

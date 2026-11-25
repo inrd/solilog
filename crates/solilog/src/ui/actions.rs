@@ -35,6 +35,18 @@ pub mod workspace {
         pub url: String,
     }
 
+    /// Switch the UI theme: the given `name` (id or display name), else one
+    /// picked from the list of built-in and user themes.
+    ///
+    /// Keymap example: `"g t": ["workspace::SetTheme", { "name": "mmx" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = workspace)]
+    #[serde(deny_unknown_fields)]
+    pub struct SetTheme {
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+
     actions!(
         workspace,
         [
@@ -44,6 +56,8 @@ pub mod workspace {
             OpenKeymap,
             /// Reload the default and user keymaps.
             ReloadKeymap,
+            /// Open the user themes folder in the file manager (it is created if missing).
+            OpenThemesDirectory,
             /// Show or hide the sidebar.
             ToggleSidebar,
             /// Move focus to the sidebar (showing it if hidden).

@@ -17,7 +17,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 dirs = "7.0.0"
 gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSPasteboard", "NSPasteboardItem", "NSResponder"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSButton", "NSControl", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSString", "NSURL"] }
 rusqlite = { version = "0.42.0", features = ["backup", "bundled"] }
 schemars = "1"

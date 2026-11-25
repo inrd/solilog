@@ -7,7 +7,7 @@
 
 use gpui::{
     Action, AnyElement, ClickEvent, Context, FontWeight, IntoElement, SharedString, Window, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 use solilog_core::{IssueFilter, Status};
 
@@ -239,12 +239,14 @@ impl Workspace {
                 cx,
             ),
             None => {
+                let t = theme::current(cx);
                 let entries = Status::ALL
                     .into_iter()
                     .map(|status| {
                         let on = self.scope.filter.statuses.contains(&status);
+                        let t = t.clone();
                         let item = PickerItem::new(status.label())
-                            .icon(move || status_icon(status))
+                            .icon(move || status_icon(status, &t))
                             .hint(check(on));
                         let action = filter::ToggleStatus {
                             status: Some(status),
@@ -376,6 +378,7 @@ impl Workspace {
                 .all_issues
                 .iter()
                 .any(|i| i.unreviewed && self.scope.filter.matches(i));
+        let t = theme::current(cx);
         div()
             .flex()
             .flex_wrap()
@@ -383,15 +386,16 @@ impl Workspace {
             .gap_2()
             .px_4()
             .py_1()
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
             .border_b_1()
-            .border_color(rgb(theme::DIVIDER))
+            .border_color(t.colors.divider)
             .text_size(px(12.))
             // A project's name is in the project header already.
             .when(!matches!(self.scope.source, Source::Project(_)), |s| {
                 s.child(div().font_weight(FontWeight::SEMIBOLD).child(title))
             })
             .when(edited && self.scope.source != Source::All, |s| {
-                s.child(div().text_color(rgb(theme::TEXT_MUTED)).child("edited"))
+                s.child(div().text_color(t.colors.text_muted).child("edited"))
             })
             .children(chips)
             .child(status_bar(&self.scope.filter, cx))
@@ -399,12 +403,12 @@ impl Workspace {
                 s.child(
                     div()
                         .flex_none()
-                        .text_color(rgb(theme::ACCENT))
+                        .text_color(t.colors.accent)
                         .child(format!("{} selected", self.selection.len())),
                 )
             })
             .child(
-                div().flex_none().text_color(rgb(theme::TEXT_MUTED)).child(
+                div().flex_none().text_color(t.colors.text_muted).child(
                     self.sections
                         .iter()
                         .map(|(_, n)| n)
@@ -419,7 +423,7 @@ impl Workspace {
                         .w(px(1.))
                         .h(px(16.))
                         .mx_1()
-                        .bg(rgb(theme::DIVIDER)),
+                        .bg(t.colors.divider),
                 )
                 .child(mark_all_reviewed_button(cx))
             })
@@ -427,32 +431,36 @@ impl Workspace {
 }
 
 fn filter_chip(ix: usize, criterion: Criterion, cx: &mut Context<Workspace>) -> AnyElement {
+    let t = theme::current(cx);
     let Criterion { text, remove } = criterion;
     div()
+        .relative()
         .flex()
         .flex_none()
         .items_center()
         .gap_1()
         .pl_2()
         .pr_1()
-        .rounded_full()
-        .border_1()
-        .border_color(rgb(theme::BORDER))
+        .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+        .when(!t.is_bevel(), |s| {
+            s.rounded_full().border_1().border_color(t.colors.border)
+        })
         .line_height(px(18.))
         .child(SharedString::from(text))
         .child(
             div()
                 .id(("filter-chip", ix))
                 .px_1()
-                .rounded_full()
+                .when(!t.is_bevel(), |s| s.rounded_full())
                 .cursor_pointer()
-                .text_color(rgb(theme::TEXT_MUTED))
-                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                .text_color(t.colors.text_muted)
+                .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     window.dispatch_action(remove.boxed_clone(), cx);
                 }))
                 .child("×"),
         )
+        .children(t.raised_bevel_thin())
         .into_any_element()
 }
 
@@ -461,6 +469,7 @@ fn filter_chip(ix: usize, criterion: Criterion, cx: &mut Context<Workspace>) -> 
 /// A status whose issues are filtered out is dimmed; one the filter asks for
 /// is highlighted.
 fn status_bar(filter: &IssueFilter, cx: &mut Context<Workspace>) -> impl IntoElement + use<> {
+    let t = theme::current(cx);
     let every_status = !filter.open_only && filter.statuses.is_empty();
     let all = toggle_pill(
         "filter-all-statuses",
@@ -485,23 +494,26 @@ fn status_bar(filter: &IssueFilter, cx: &mut Context<Workspace>) -> impl IntoEle
                 "filter-status-{}",
                 status.key()
             )))
+            .relative()
             .size(px(20.))
             .flex()
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded_sm()
+            .rounded(t.radius_sm())
             .cursor_pointer()
-            .when(chosen, |s| s.bg(rgb(theme::HIGHLIGHT)))
+            .when(chosen && !t.is_bevel(), |s| s.bg(t.colors.highlight))
+            .when(chosen && t.is_bevel(), |s| s.bg(t.colors.hover))
             .when(!shown, |s| s.opacity(0.35))
-            .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).opacity(1.))
+            .hover(|s| s.bg(t.colors.hover).opacity(1.))
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                 let action = filter::ToggleStatus {
                     status: Some(status),
                 };
                 window.dispatch_action(action.boxed_clone(), cx);
             }))
-            .child(status_icon(status))
+            .child(status_icon(status, &t))
+            .when(chosen, |s| s.children(t.sunken_bevel_thin()))
     });
     div()
         .ml_auto()
@@ -522,23 +534,35 @@ fn toggle_pill(
     action: Box<dyn Action>,
     cx: &mut Context<Workspace>,
 ) -> impl IntoElement + use<> {
+    let t = theme::current(cx);
     div()
         .id(id)
+        .relative()
         .flex_none()
         .px_2()
-        .rounded_full()
-        .border_1()
-        .border_color(rgb(theme::BORDER))
+        .when(!t.is_bevel(), |s| {
+            s.rounded_full().border_1().border_color(t.colors.border)
+        })
         .line_height(px(18.))
         .cursor_pointer()
         .map(|s| {
-            if on {
-                s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT))
+            if t.is_bevel() {
+                if on {
+                    s.bg(t.colors.hover)
+                        .text_color(t.colors.text)
+                        .children(t.sunken_bevel_thin())
+                } else {
+                    s.bg(t.colors.surface)
+                        .text_color(t.colors.text)
+                        .children(t.raised_bevel_thin())
+                }
+            } else if on {
+                s.bg(t.colors.highlight).text_color(t.colors.highlight_text)
             } else {
-                s.text_color(rgb(theme::TEXT_MUTED))
+                s.text_color(t.colors.text_muted)
             }
         })
-        .hover(|s| s.text_color(rgb(theme::TEXT)))
+        .hover(|s| s.text_color(t.colors.text))
         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
             window.dispatch_action(action.boxed_clone(), cx);
         }))
@@ -546,29 +570,40 @@ fn toggle_pill(
 }
 
 fn mark_all_reviewed_button(cx: &mut Context<Workspace>) -> impl IntoElement + use<> {
+    let t = theme::current(cx);
     div()
         .id("mark-all-reviewed")
+        .relative()
         .flex_none()
         .flex()
         .items_center()
         .gap_1()
         .px(px(10.))
         .py(px(2.))
-        .rounded(px(5.))
-        .bg(rgb(theme::SURFACE))
-        .border_1()
-        .border_color(rgb(theme::BORDER))
+        .bg(t.colors.surface)
+        .when(!t.is_bevel(), |s| {
+            s.rounded(t.radius_sm())
+                .border_1()
+                .border_color(t.colors.border)
+        })
         .font_weight(FontWeight::MEDIUM)
-        .text_color(rgb(theme::TEXT))
+        .text_color(t.colors.text)
         .cursor_pointer()
         .hover(|s| {
-            s.bg(rgb(theme::HIGHLIGHT))
-                .border_color(rgb(theme::ACCENT))
+            if t.is_bevel() {
+                s.bg(t.colors.hover)
+            } else {
+                s.bg(t.colors.highlight).border_color(t.colors.accent)
+            }
+        })
+        .when(t.is_bevel(), |s| {
+            s.active(|s| s.pt(px(3.)).pl(px(11.)))
         })
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
             window.focus(&this.list_focus);
             window.dispatch_action(issue::MarkAllReviewed::default().boxed_clone(), cx);
         }))
-        .child(div().text_color(rgb(theme::ACCENT)).child("✓"))
+        .child(div().text_color(t.colors.accent).child("✓"))
         .child("Mark all reviewed")
+        .children(t.raised_bevel())
 }

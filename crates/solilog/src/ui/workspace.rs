@@ -25,7 +25,7 @@ use std::time::Duration;
 use gpui::{
     Action, App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding,
     MouseButton, MouseDownEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task,
-    Window, anchored, deferred, div, prelude::*, px, rgb, svg,
+    Window, anchored, deferred, div, prelude::*, px, svg,
 };
 use solilog_core::{
     Actor, Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement,
@@ -36,7 +36,9 @@ use super::actions::{
     self, command_palette, humanize_action_name,
     issue::{self, AddLabel, AddToProject, Edit, RemoveFromProject, RemoveLabel, SetStatus},
     issue_list, status, view,
-    workspace::{OpenDatabaseDirectory, OpenKeymap, OpenUrl, ReloadKeymap},
+    workspace::{
+        OpenDatabaseDirectory, OpenKeymap, OpenThemesDirectory, OpenUrl, ReloadKeymap, SetTheme,
+    },
 };
 use super::keymap;
 use super::picker::{Picker, PickerEvent, PickerItem};
@@ -264,6 +266,9 @@ impl Workspace {
                 cx.background_executor().timer(POLL_INTERVAL).await;
                 let alive = this.update(cx, |this, cx| {
                     keymap::reload_if_changed(cx);
+                    if theme::reload_if_changed(cx) {
+                        cx.notify();
+                    }
                     if this.db.data_version().ok() != Some(this.data_version) {
                         this.reload(cx);
                     }
@@ -638,9 +643,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let t = theme::current(cx);
         let items = Status::ALL
             .into_iter()
-            .map(|s| PickerItem::new(s.label()).icon(move || status_icon(s)))
+            .map(|s| {
+                let t = t.clone();
+                PickerItem::new(s.label()).icon(move || status_icon(s, &t))
+            })
             .collect();
         // The issues' status, if they share one.
         let current = Status::ALL
@@ -1132,6 +1141,62 @@ impl Workspace {
         keymap::load(cx);
     }
 
+    fn on_open_themes_directory(
+        &mut self,
+        _: &OpenThemesDirectory,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(dir) = self.report(theme::ensure_user_themes_dir(), cx) {
+            cx.reveal_path(&dir);
+        }
+    }
+
+    fn on_set_theme(&mut self, action: &SetTheme, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(name) = &action.name {
+            if let Some(chosen) = self.report(theme::select(name, cx), cx) {
+                let _ = self.report(self.db.set_theme(Some(&chosen.id)), cx);
+                cx.notify();
+            }
+            return;
+        }
+        let current = theme::current(cx);
+        let entries_list = theme::entries(cx);
+        let highlighted = entries_list
+            .iter()
+            .position(|e| e.theme.id == current.id)
+            .unwrap_or(0);
+        let entries: Vec<(PickerItem, Box<dyn Action>)> = entries_list
+            .into_iter()
+            .map(|entry| {
+                let hint = if entry.theme.id == current.id {
+                    Some("current")
+                } else if entry.is_user {
+                    Some("user")
+                } else {
+                    None
+                };
+                let swatch_bg = entry.theme.colors.background;
+                let swatch_border = entry.theme.colors.accent;
+                let item = PickerItem::new(entry.theme.name.clone())
+                    .hint(hint)
+                    .icon(move || {
+                        div()
+                            .size(px(12.))
+                            .rounded_full()
+                            .bg(swatch_bg)
+                            .border_2()
+                            .border_color(swatch_border)
+                    });
+                let action: Box<dyn Action> = Box::new(SetTheme {
+                    name: Some(entry.theme.id.clone()),
+                });
+                (item, action)
+            })
+            .collect();
+        self.open_action_picker("Choose theme…", entries, highlighted, window, cx);
+    }
+
     // ---- list navigation --------------------------------------------------
 
     fn on_focus_list(
@@ -1267,8 +1332,9 @@ impl Workspace {
                 } else {
                     "Collapse"
                 };
-                let item =
-                    PickerItem::new(format!("{verb} {}", s.label())).icon(move || status_icon(s));
+                let t = theme::current(cx);
+                let item = PickerItem::new(format!("{verb} {}", s.label()))
+                    .icon(move || status_icon(s, &t));
                 let action: Box<dyn Action> = Box::new(status::ToggleCollapsed { status: Some(s) });
                 (item, action)
             })
@@ -1377,6 +1443,7 @@ impl Workspace {
             }) if *id == issue_id
         );
 
+        let t = theme::current(cx);
         let status = div()
             .id(("status", issue_id.0 as u64))
             .size(px(20.))
@@ -1384,10 +1451,10 @@ impl Workspace {
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded_sm()
+            .rounded(t.radius_sm())
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
-            .child(status_icon(issue.status))
+            .hover(|s| s.bg(t.colors.hover))
+            .child(status_icon(issue.status, &t))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.point_at(ix, window, cx);
                 window.dispatch_action(SetStatus::default().boxed_clone(), cx);
@@ -1400,8 +1467,25 @@ impl Workspace {
             index: ix,
         };
         let accepts = move |d: &DraggedIssue| d.status == dragged.status && d.id != issue_id;
+        let drop_accent = t.colors.accent;
+        let highlighted = selected && (list_focused || menu_open);
+        let row_colors = match (in_selection, highlighted) {
+            (true, true) => Some((t.colors.selection_highlight, t.colors.selection_text)),
+            (true, false) => Some((t.colors.selection, t.colors.selection_text)),
+            (false, true) => Some((t.colors.highlight, t.colors.highlight_text)),
+            (false, false) => selected.then_some((t.colors.hover, t.colors.text)),
+        };
+        let row_muted = match row_colors {
+            Some((_, fg)) if in_selection || highlighted => fg,
+            _ => t.colors.text_muted,
+        };
+        let row_accent = match row_colors {
+            Some((_, fg)) if (in_selection || highlighted) && t.is_bevel() => fg,
+            _ => t.colors.accent,
+        };
         div()
             .id(("issue", issue_id.0 as u64))
+            .relative()
             .flex()
             .items_center()
             .gap_3()
@@ -1417,7 +1501,7 @@ impl Workspace {
                 }
                 // A line where the issue will land; the padding it replaces
                 // keeps the row height.
-                let style = style.border_color(rgb(theme::ACCENT));
+                let style = style.border_color(drop_accent);
                 if d.index < ix {
                     style.border_b_2().pb(px(2.))
                 } else {
@@ -1445,18 +1529,14 @@ impl Workspace {
                     list_focus.dispatch_action(&action, window, cx);
                 }
             })
-            .map(|s| {
-                let highlighted = selected && (list_focused || menu_open);
-                let bg = match (in_selection, highlighted) {
-                    (true, true) => Some(theme::SELECTION_HIGHLIGHT),
-                    (true, false) => Some(theme::SELECTION),
-                    (false, true) => Some(theme::HIGHLIGHT),
-                    (false, false) => selected.then_some(theme::HOVER),
+            .when_some(row_colors, |s, (bg, fg)| s.bg(bg).text_color(fg))
+            .when(highlighted, |s| {
+                let focus_color = if in_selection {
+                    t.colors.selection_text
+                } else {
+                    t.colors.highlight_text
                 };
-                match bg {
-                    Some(bg) => s.bg(rgb(bg)),
-                    None => s,
-                }
+                s.children(t.dotted_focus(focus_color))
             })
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 let modifiers = event.modifiers();
@@ -1487,7 +1567,7 @@ impl Workspace {
                     .w(self.id_width)
                     .flex_none()
                     .whitespace_nowrap()
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(row_muted)
                     .child(issue_id.to_string()),
             )
             .child(
@@ -1495,58 +1575,62 @@ impl Workspace {
                     .flex_1()
                     .min_w(px(MIN_TITLE_WIDTH))
                     .truncate()
-                    .when(issue.status.is_closed(), |s| {
-                        s.text_color(rgb(theme::TEXT_MUTED))
-                    })
+                    .when(issue.status.is_closed(), |s| s.text_color(row_muted))
                     .child(truncated_text(
                         ("issue-title", issue_id.0 as u64),
                         issue.title.clone(),
                     )),
             )
             .when(!issue.description.is_empty(), |row| {
-                row.child(description_icon())
+                row.child(description_icon(row_muted))
             })
             .when(!issue.attachments.is_empty(), |row| {
-                row.child(attachments_icon())
+                row.child(attachments_icon(row_muted, t.is_pixel_icons()))
             })
             .children(
                 issue
                     .checklist_progress()
-                    .map(|(done, total)| checklist_badge(done, total)),
+                    .map(|(done, total)| checklist_badge(done, total, row_accent, row_muted)),
             )
             .when(issue.is_waiting(), |row| {
-                row.child(waiting_badge(issue.waiting_on.len()))
+                row.child(waiting_badge(
+                    issue.waiting_on.len(),
+                    row_muted,
+                    t.is_pixel_icons(),
+                ))
             })
             .when(issue.unreviewed, |row| {
-                row.child(unreviewed_badge(&issue.unreviewed_actors))
+                row.child(unreviewed_badge(&issue.unreviewed_actors, row_accent))
             })
-            .child(self.issue_chips(issue))
+            .child(self.issue_chips(issue, &t))
     }
 
     /// An issue's project and label chips, in a row that gives way to the
     /// title: chips that don't fit are counted in a last "+N" chip.
-    pub(super) fn issue_chips(&self, issue: &Issue) -> impl IntoElement + use<> {
+    pub(super) fn issue_chips(&self, issue: &Issue, t: &theme::Theme) -> impl IntoElement + use<> {
         let projects = issue
             .projects
             .iter()
-            .map(|project| project_chip(project.clone()).into_any_element());
+            .map(|project| project_chip(project.clone(), t).into_any_element());
         let labels = issue
             .labels
             .iter()
-            .map(|label| chip(label.clone(), self.label_chip_color(label)).into_any_element());
-        chip_row(projects.chain(labels).collect(), |hidden| {
-            chip(format!("+{hidden}"), theme::TEXT_MUTED).into_any_element()
+            .map(|label| chip(label.clone(), self.label_chip_color(label, t), t).into_any_element());
+        let overflow_color = t.colors.text_muted;
+        let t_overflow = t.clone();
+        chip_row(projects.chain(labels).collect(), move |hidden| {
+            chip(format!("+{hidden}"), overflow_color, &t_overflow).into_any_element()
         })
     }
 
     /// Chip color of an issue's label.
-    pub(super) fn label_chip_color(&self, name: &str) -> u32 {
+    pub(super) fn label_chip_color(&self, name: &str, t: &theme::Theme) -> gpui::Hsla {
         let color = self
             .labels
             .iter()
             .find(|l| l.name.eq_ignore_ascii_case(name))
             .and_then(|l| l.display_color);
-        theme::label_color(color)
+        t.label_color(color)
     }
 
     /// Header of an issue list section: the status and how many issues it
@@ -1558,6 +1642,7 @@ impl Workspace {
         collapsed: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         div()
             .id(("status-section", status.list_rank()))
             .flex()
@@ -1567,19 +1652,22 @@ impl Workspace {
             .pt_3()
             .pb_1()
             .text_size(px(12.))
-            .text_color(rgb(theme::TEXT_MUTED))
-            .child(status_icon(status))
-            .child(div().text_color(rgb(theme::TEXT)).child(status.label()))
+            .text_color(t.colors.text_muted)
+            .child(status_icon(status, &t))
+            .child(div().text_color(t.colors.text).child(status.label()))
             .child(count.to_string())
             .child(
                 svg()
-                    .path(if collapsed {
-                        assets::CHEVRON_RIGHT
-                    } else {
-                        assets::CHEVRON_DOWN
-                    })
+                    .path(assets::icon_for(
+                        if collapsed {
+                            assets::CHEVRON_RIGHT
+                        } else {
+                            assets::CHEVRON_DOWN
+                        },
+                        t.is_pixel_icons(),
+                    ))
                     .size(px(14.))
-                    .text_color(rgb(theme::TEXT_MUTED)),
+                    .text_color(t.colors.text_muted),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 window.focus(&this.list_focus);
@@ -1656,13 +1744,13 @@ fn of_issues(issues: &[Issue]) -> String {
 }
 
 /// Shown in the list for issues with a description: a few lines of text.
-fn description_icon() -> impl IntoElement {
+fn description_icon(color: gpui::Hsla) -> impl IntoElement {
     let line = |width: f32| {
         div()
             .w(px(width))
             .h(px(1.5))
             .rounded_full()
-            .bg(rgb(theme::TEXT_MUTED))
+            .bg(color)
     };
     div()
         .flex_none()
@@ -1677,35 +1765,35 @@ fn description_icon() -> impl IntoElement {
 }
 
 /// Shown in the list for issues with attachments: a paperclip.
-fn attachments_icon() -> impl IntoElement {
+fn attachments_icon(color: gpui::Hsla, pixel: bool) -> impl IntoElement {
     svg()
-        .path(super::assets::PAPERCLIP)
+        .path(super::assets::icon_for(super::assets::PAPERCLIP, pixel))
         .flex_none()
         .size(px(13.))
-        .text_color(rgb(theme::TEXT_MUTED))
+        .text_color(color)
 }
 
 /// Shown in the list for waiting issues: how many of the issues they
 /// depend on are still open.
-fn waiting_badge(open: usize) -> impl IntoElement {
+fn waiting_badge(open: usize, color: gpui::Hsla, pixel: bool) -> impl IntoElement {
     div()
         .flex()
         .flex_none()
         .items_center()
         .gap_1()
         .text_size(px(12.))
-        .text_color(rgb(theme::TEXT_MUTED))
+        .text_color(color)
         .child(
             svg()
-                .path(super::assets::CLOCK)
+                .path(super::assets::icon_for(super::assets::CLOCK, pixel))
                 .size(px(12.))
-                .text_color(rgb(theme::TEXT_MUTED)),
+                .text_color(color),
         )
         .child(open.to_string())
 }
 
 /// Shown in the list for issues with unreviewed non-user changes.
-fn unreviewed_badge(actors: &[Actor]) -> impl IntoElement {
+fn unreviewed_badge(actors: &[Actor], accent: gpui::Hsla) -> impl IntoElement {
     let label = match actors {
         [] => "unreviewed".to_owned(),
         [only] => only.to_string(),
@@ -1717,21 +1805,17 @@ fn unreviewed_badge(actors: &[Actor]) -> impl IntoElement {
         .items_center()
         .gap_1()
         .text_size(px(12.))
-        .text_color(rgb(theme::ACCENT))
-        .child(div().size(px(6.)).rounded_full().bg(rgb(theme::ACCENT)))
+        .text_color(accent)
+        .child(div().size(px(6.)).rounded_full().bg(accent))
         .child(label)
 }
 
 /// Checklist progress of an issue in the list: done/total items.
-fn checklist_badge(done: usize, total: usize) -> impl IntoElement {
+fn checklist_badge(done: usize, total: usize, accent: gpui::Hsla, muted: gpui::Hsla) -> impl IntoElement {
     div()
         .flex_none()
         .text_size(px(12.))
-        .text_color(rgb(if done == total {
-            theme::ACCENT
-        } else {
-            theme::TEXT_MUTED
-        }))
+        .text_color(if done == total { accent } else { muted })
         .child(format!("✓ {done}/{total}"))
 }
 
@@ -1742,17 +1826,20 @@ pub(super) const MIN_TITLE_WIDTH: f32 = 160.;
 const BODY_TEXT_SIZE: f32 = 14.;
 
 /// A small rounded tag, used for labels (outlined, text in `color`).
-fn chip(text: String, color: u32) -> gpui::Div {
+fn chip(text: String, color: gpui::Hsla, t: &theme::Theme) -> gpui::Div {
     div()
+        .relative()
         .flex_none()
         .px_2()
-        .rounded_full()
-        .border_1()
-        .border_color(rgb(theme::BORDER))
+        .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+        .when(!t.is_bevel(), |s| {
+            s.rounded_full().border_1().border_color(t.colors.border)
+        })
         .text_size(px(12.))
         .line_height(px(18.))
-        .text_color(rgb(color))
+        .text_color(color)
         .child(text)
+        .children(t.raised_bevel_thin())
 }
 
 /// Width of an issue id column whose widest id is `widest`, at
@@ -1773,10 +1860,10 @@ fn id_column_width(widest: Option<IssueId>, font_size: Pixels, window: &Window) 
 }
 
 /// A project's chip: filled, to tell it apart from label chips.
-fn project_chip(name: String) -> gpui::Div {
-    chip(name, theme::BACKGROUND)
-        .border_color(rgb(theme::ACCENT))
-        .bg(rgb(theme::ACCENT))
+fn project_chip(name: String, t: &theme::Theme) -> gpui::Div {
+    chip(name, t.colors.status.glyph, t)
+        .border_color(t.colors.accent)
+        .bg(t.colors.accent)
 }
 
 /// An issue being dragged to reorder it; also renders what follows the mouse.
@@ -1791,7 +1878,8 @@ struct DraggedIssue {
 }
 
 impl Render for DraggedIssue {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
         div()
             .max_w(px(480.))
             .flex()
@@ -1799,12 +1887,12 @@ impl Render for DraggedIssue {
             .gap_2()
             .px_2()
             .py_1()
-            .rounded_sm()
-            .bg(rgb(theme::HIGHLIGHT))
+            .rounded(t.radius_sm())
+            .bg(t.colors.highlight)
             .border_1()
-            .border_color(rgb(theme::BORDER))
-            .text_color(rgb(theme::TEXT))
-            .child(status_icon(self.status))
+            .border_color(t.colors.border)
+            .text_color(t.colors.highlight_text)
+            .child(status_icon(self.status, &t))
             .child(div().truncate().child(self.title.clone()))
     }
 }
@@ -1815,23 +1903,26 @@ fn footer_hint(
     action: Box<dyn Action>,
     label: &'static str,
     binding: &KeyBinding,
+    t: &theme::Theme,
 ) -> impl IntoElement + use<> {
     div()
         .id(action.name())
+        .relative()
         .flex_none()
         .flex()
         .gap_1p5()
         .px_1()
-        .rounded_sm()
+        .rounded(t.radius_sm())
         .cursor_pointer()
-        .hover(|s| s.bg(rgb(theme::HOVER)))
+        .hover(|s| s.bg(t.colors.hover))
         .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
         .child(
             div()
-                .text_color(rgb(theme::TEXT))
+                .text_color(t.colors.text)
                 .child(keystrokes_text(binding)),
         )
         .child(label)
+        .children(t.sunken_bevel_thin())
 }
 
 /// "g g" -> "G G", "cmd-k" -> "⌘K" (platform display form).
@@ -1970,6 +2061,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_use_default_backup_directory))
             .on_action(cx.listener(Self::on_open_backup_directory))
             .on_action(cx.listener(Self::on_reload_keymap))
+            .on_action(cx.listener(Self::on_set_theme))
+            .on_action(cx.listener(Self::on_open_themes_directory))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_focus_sidebar))
             .on_action(cx.listener(Self::on_open_archive))
@@ -1979,29 +2072,45 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(theme::BACKGROUND))
-            .text_color(rgb(theme::TEXT))
+            .bg(if theme::current(cx).is_bevel() {
+                theme::current(cx).colors.surface
+            } else {
+                theme::current(cx).colors.background
+            })
+            .text_color(theme::current(cx).colors.text)
+            .when_some(theme::current(cx).font_family.clone(), |d, f| {
+                d.font_family(f)
+            })
             .text_size(px(BODY_TEXT_SIZE))
             .line_height(px(20.))
-            .child(
+            .child({
+                let t = theme::current(cx);
+                let content = if let Some(detail) = &self.detail {
+                    self.render_detail(detail, cx).into_any_element()
+                } else if self.showing_archive {
+                    self.render_archive(list_focused, cx).into_any_element()
+                } else {
+                    self.render_main(list_focused, window, cx)
+                        .into_any_element()
+                };
+                let main_pane = div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .bg(t.colors.background)
+                    .when(t.is_bevel(), |s| s.p(px(2.)))
+                    .child(content)
+                    .children(t.sunken_bevel());
                 div()
                     .flex_1()
                     .min_h_0()
                     .flex()
+                    .when(t.is_bevel(), |s| s.gap(px(2.)).p(px(2.)))
                     .children(self.render_sidebar(window, cx))
-                    .map(|s| {
-                        if let Some(detail) = &self.detail {
-                            s.child(self.render_detail(detail, cx).into_any_element())
-                        } else if self.showing_archive {
-                            s.child(self.render_archive(list_focused, cx).into_any_element())
-                        } else {
-                            s.child(
-                                self.render_main(list_focused, window, cx)
-                                    .into_any_element(),
-                            )
-                        }
-                    }),
-            )
+                    .child(main_pane)
+            })
             .child(self.render_footer(window, cx))
             .children(self.render_image_preview(cx))
             .children(self.render_modal(cx))
@@ -2012,14 +2121,15 @@ impl Workspace {
     /// Status bar at the bottom: the last error, else context about the
     /// list (selected issues); the command palette shortcut on the right.
     fn render_footer(&self, window: &Window, cx: &App) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let (text, color) = match (&self.error, &self.notice) {
-            (Some(err), _) => (Some(err.clone()), theme::ERROR),
-            (None, Some(notice)) => (Some(notice.clone()), theme::TEXT_MUTED),
+            (Some(err), _) => (Some(err.clone()), t.colors.error),
+            (None, Some(notice)) => (Some(notice.clone()), t.colors.text_muted),
             (None, None) => {
                 let n = self.selection.len();
                 let text = (n > 0 && self.detail.is_none() && !self.showing_archive)
                     .then(|| format!("{n} selected"));
-                (text, theme::TEXT_MUTED)
+                (text, t.colors.text_muted)
             }
         };
         // Hints for what can be done from the focused element: those of
@@ -2034,7 +2144,7 @@ impl Workspace {
             )])
             .filter_map(|(action, label)| {
                 let binding = simplest_binding(action.as_ref(), focus.as_ref(), window)?;
-                Some(footer_hint(action, label, &binding))
+                Some(footer_hint(action, label, &binding, &t))
             })
             .collect::<Vec<_>>();
         div()
@@ -2045,19 +2155,22 @@ impl Workspace {
             .h(px(24.))
             .px_3()
             .border_t_1()
-            .border_color(rgb(theme::DIVIDER))
-            .bg(rgb(theme::SIDEBAR))
+            .border_color(t.colors.divider)
+            .bg(t.colors.sidebar)
             .text_size(px(12.))
-            .text_color(rgb(theme::TEXT_MUTED))
+            .text_color(t.colors.text_muted)
             .child(
                 div()
+                    .relative()
                     .flex_1()
                     .min_w_0()
+                    .when(t.is_bevel(), |s| s.px_1())
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()
-                    .text_color(rgb(color))
-                    .children(text),
+                    .text_color(color)
+                    .children(text)
+                    .children(t.sunken_bevel_thin()),
             )
             .children(hints)
     }
@@ -2139,21 +2252,40 @@ impl Workspace {
         let project_header = self
             .shown_project()
             .map(|project| self.render_project_header(project, window, cx));
+        let t = theme::current(cx);
+        let new_issue_bar = if t.is_bevel() {
+            div()
+                .key_context("NewIssue")
+                .px_3()
+                .py_2()
+                .bg(t.colors.surface)
+                .border_b_1()
+                .border_color(t.colors.divider)
+                .child(
+                    div()
+                        .relative()
+                        .px_2()
+                        .py_1()
+                        .bg(t.colors.input)
+                        .child(self.input.clone())
+                        .children(t.sunken_bevel()),
+                )
+        } else {
+            div()
+                .key_context("NewIssue")
+                .px_4()
+                .py_3()
+                .border_b_1()
+                .border_color(t.colors.divider)
+                .child(self.input.clone())
+        };
         div()
             .flex_1()
             .min_w_0()
             .flex()
             .flex_col()
             .children(project_header)
-            .child(
-                div()
-                    .key_context("NewIssue")
-                    .px_4()
-                    .py_3()
-                    .border_b_1()
-                    .border_color(rgb(theme::DIVIDER))
-                    .child(self.input.clone()),
-            )
+            .child(new_issue_bar)
             .child(self.render_filter_header(cx))
             .child(
                 div()
@@ -2193,7 +2325,7 @@ impl Workspace {
                             div()
                                 .px_4()
                                 .py_2()
-                                .text_color(rgb(theme::TEXT_MUTED))
+                                .text_color(t.colors.text_muted)
                                 .child(if self.scope.filter == IssueFilter::default() {
                                     "No issues yet. Type a title above and press Enter."
                                 } else if self.scope.filter == scope::Source::All.filter() {

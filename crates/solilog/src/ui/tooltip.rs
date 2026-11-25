@@ -11,7 +11,7 @@ use std::time::Duration;
 use gpui::{
     AnyTooltip, App, Bounds, Context, DispatchPhase, Element, ElementId, GlobalElementId, Hitbox,
     HitboxBehavior, InspectorElementId, IntoElement, LayoutId, MouseDownEvent, MouseMoveEvent,
-    Pixels, ScrollWheelEvent, SharedString, StyledText, Task, Window, div, prelude::*, px, rgb,
+    Pixels, ScrollWheelEvent, SharedString, StyledText, Task, Window, div, prelude::*, px,
 };
 
 use crate::ui::theme;
@@ -161,20 +161,28 @@ struct Tooltip {
 }
 
 impl Render for Tooltip {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .max_w(px(480.))
-            .px_2()
-            .py_1()
-            .rounded_sm()
-            .bg(rgb(theme::SURFACE))
-            .border_1()
-            .border_color(rgb(theme::BORDER))
-            .shadow_md()
-            .text_size(px(12.))
-            .line_height(px(17.))
-            .text_color(rgb(theme::TEXT))
-            .child(self.text.clone())
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
+        let border_color = if t.is_bevel() {
+            t.colors.bevel_dark
+        } else {
+            t.colors.border
+        };
+        t.apply_tooltip_shadow(
+            div()
+                .max_w(px(480.))
+                .px_2()
+                .py_1()
+                .rounded(t.radius_sm())
+                .bg(t.colors.tooltip)
+                .border_1()
+                .border_color(border_color)
+                .text_size(px(12.))
+                .line_height(px(17.))
+                .text_color(t.colors.text)
+                .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                .child(self.text.clone()),
+        )
     }
 }
 

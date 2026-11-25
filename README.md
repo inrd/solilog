@@ -162,6 +162,10 @@ A project's issues come under a header with its status, progress, default labels
 
 Every command can be bound. Run "Workspace: Open Keymap" from the palette to edit `~/.config/solilog/keymap.json` (changes apply when you save). `solilog keymap defaults` prints the default bindings and `solilog keymap actions` lists every command.
 
+### Themes
+
+Run "Workspace: Set Theme" from the palette to switch between built-in themes (`Dark`, `MMX`) or your own JSON themes in `~/.config/solilog/themes/` (changes apply when you save). See [docs/THEMES.md](docs/THEMES.md) for the format and token reference.
+
 ## Development
 
 ```sh

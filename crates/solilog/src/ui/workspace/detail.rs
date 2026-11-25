@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use gpui::{
     Action, ClickEvent, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
-    IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px, rgb,
+    IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px,
 };
 use solilog_core::{
     Activity, Issue, IssueEdit, IssueId, format_age, issue_mentions, normalize_description,
@@ -392,16 +392,25 @@ impl Workspace {
         detail: &IssueDetail,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let issue = &detail.issue;
         let focus = detail.focus.clone();
         let back = div()
             .id("detail-back")
+            .relative()
             .px_2()
-            .rounded_sm()
+            .rounded(t.radius_sm())
             .cursor_pointer()
-            .text_color(rgb(theme::TEXT_MUTED))
-            .hover(|s| s.bg(rgb(theme::HOVER)).text_color(rgb(theme::TEXT)))
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .text_color(if t.is_bevel() {
+                t.colors.text
+            } else {
+                t.colors.text_muted
+            })
+            .hover(|s| s.bg(t.colors.hover).text_color(t.colors.text))
+            .when(t.is_bevel(), |s| s.active(|s| s.pt(px(1.)).pl(px(9.))))
             .child("‹ Issues")
+            .children(t.raised_bevel_thin())
             .on_click({
                 let focus = focus.clone();
                 move |_: &ClickEvent, window, cx| {
@@ -415,13 +424,14 @@ impl Workspace {
             .items_center()
             .px_2()
             .py_3()
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
             .border_b_1()
-            .border_color(rgb(theme::DIVIDER))
+            .border_color(t.colors.divider)
             .child(back)
             .child(
                 div()
                     .ml_3()
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child(issue.id.to_string()),
             )
             .when(issue.title_by.is_agent(), |s| {
@@ -429,12 +439,12 @@ impl Workspace {
                     div()
                         .ml_3()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child(format!("by {}", issue.title_by)),
                 )
             })
             .when(issue.archived, |s| {
-                s.child(chip("archived".into(), theme::TEXT_MUTED).ml_3())
+                s.child(chip("archived".into(), t.colors.text_muted, &t).ml_3())
             })
             .child(
                 div()
@@ -443,21 +453,24 @@ impl Workspace {
                     .pr_2()
                     .flex_none()
                     .text_size(px(12.))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child("Saved as you type"),
             );
 
         let status = div()
             .id("detail-status")
+            .relative()
             .size(px(28.))
             .flex()
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded_sm()
+            .rounded(t.radius_sm())
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
-            .child(status_icon(issue.status))
+            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .hover(|s| s.bg(t.colors.hover))
+            .child(status_icon(issue.status, &t))
+            .children(t.raised_bevel_thin())
             .on_click({
                 let focus = focus.clone();
                 move |_: &ClickEvent, window, cx| {
@@ -469,9 +482,9 @@ impl Workspace {
             issue
                 .projects
                 .iter()
-                .map(|project| project_chip(project.clone()).into_any_element())
+                .map(|project| project_chip(project.clone(), &t).into_any_element())
                 .chain(issue.labels.iter().map(|label| {
-                    chip(label.clone(), self.label_chip_color(label)).into_any_element()
+                    chip(label.clone(), self.label_chip_color(label, &t), &t).into_any_element()
                 }))
                 .collect();
         let has_chips = !chips.is_empty();
@@ -482,15 +495,16 @@ impl Workspace {
             let shown = detail.unreviewed_activities.iter().take(MAX_SHOWN);
             let extra = detail.unreviewed_activities.len().saturating_sub(MAX_SHOWN);
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .gap_1()
                 .px_3()
                 .py_2()
-                .rounded_sm()
-                .bg(rgb(theme::SURFACE))
+                .rounded(t.radius_sm())
+                .bg(t.colors.surface)
                 .border_l_2()
-                .border_color(rgb(theme::ACCENT))
+                .border_color(t.colors.accent)
                 .child(
                     div()
                         .flex()
@@ -500,23 +514,34 @@ impl Workspace {
                             div()
                                 .text_size(px(12.))
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(theme::ACCENT))
+                                .text_color(t.colors.accent)
                                 .child("Unreviewed changes"),
                         )
                         .child(
                             div()
                                 .id("detail-mark-reviewed")
+                                .relative()
                                 .ml_auto()
                                 .px_2()
                                 .py(px(1.))
-                                .rounded_sm()
-                                .border_1()
-                                .border_color(rgb(theme::BORDER))
+                                .when(!t.is_bevel(), |s| {
+                                    s.rounded(t.radius_sm())
+                                        .border_1()
+                                        .border_color(t.colors.border)
+                                })
+                                .when(t.is_bevel(), |s| s.bg(t.colors.surface))
                                 .text_size(px(12.))
-                                .text_color(rgb(theme::TEXT))
+                                .text_color(t.colors.text)
                                 .cursor_pointer()
-                                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+                                .hover(|s| {
+                                    if t.is_bevel() {
+                                        s.bg(t.colors.hover)
+                                    } else {
+                                        s.bg(t.colors.highlight)
+                                    }
+                                })
                                 .child("Mark reviewed")
+                                .children(t.raised_bevel())
                                 .on_click(move |_: &ClickEvent, window, cx| {
                                     window.focus(&focus);
                                     window.dispatch_action(issue::MarkReviewed.boxed_clone(), cx);
@@ -529,11 +554,11 @@ impl Workspace {
                         .items_center()
                         .gap_2()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child(
                             div()
                                 .flex_none()
-                                .text_color(rgb(theme::TEXT))
+                                .text_color(t.colors.text)
                                 .child(a.actor.to_string()),
                         )
                         .child(div().flex_1().min_w_0().truncate().child(a.summary()))
@@ -543,13 +568,14 @@ impl Workspace {
                     s.child(
                         div()
                             .text_size(px(12.))
-                            .text_color(rgb(theme::TEXT_MUTED))
+                            .text_color(t.colors.text_muted)
                             .child(format!("+{extra} more")),
                     )
                 })
+                .children(t.raised_bevel_thin())
         });
 
-        let review_panel = self.render_review_panel(detail, &focus);
+        let review_panel = self.render_review_panel(detail, &focus, &t);
 
         let agent_description = !issue.description.is_empty() && issue.description_by.is_agent();
 
@@ -584,6 +610,7 @@ impl Workspace {
             .children(unreviewed_banner)
             .child(
                 div()
+                    .relative()
                     .mt_2()
                     .flex()
                     .flex_col()
@@ -594,30 +621,33 @@ impl Workspace {
                     .flex_shrink_0()
                     .min_h(px(120.))
                     .line_height(px(22.))
+                    .when(t.is_bevel(), |s| s.px_2().py_1().bg(t.colors.input))
                     .when(agent_description, |s| {
                         s.pl_3()
                             .border_l_2()
-                            .border_color(rgb(if issue.unreviewed {
-                                theme::ACCENT
+                            .border_color(if issue.unreviewed {
+                                t.colors.accent
                             } else {
-                                theme::BORDER
-                            }))
+                                t.colors.border
+                            })
                             .child(
                                 div()
                                     .mb_1()
                                     .text_size(px(11.))
                                     .line_height(px(16.))
-                                    .text_color(rgb(theme::TEXT_MUTED))
+                                    .text_color(t.colors.text_muted)
                                     .child(format!("by {}", issue.description_by)),
                             )
                     })
-                    .child(detail.description.clone()),
+                    .child(detail.description.clone())
+                    .children(t.sunken_bevel()),
             )
-            .child(self.render_attachments(detail))
-            .child(self.render_dependencies(detail))
+            .child(self.render_attachments(detail, &t))
+            .child(self.render_dependencies(detail, &t))
             .child(self.render_checklist(detail, cx))
             .child(self.render_notes(detail, cx));
 
+        let drag_bg = t.colors.selection;
         div()
             .flex_1()
             .min_w_0()
@@ -647,7 +677,7 @@ impl Workspace {
                     .on_action(cx.listener(Self::on_preview_attachment))
                     .on_action(cx.listener(Self::on_delete_note))
                     // Files dropped anywhere on the issue are attached to it.
-                    .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(rgb(theme::SELECTION)))
+                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drag_bg))
                     .on_drop({
                         let focus = focus.clone();
                         move |paths: &ExternalPaths, window, cx| {

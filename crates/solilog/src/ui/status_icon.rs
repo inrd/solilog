@@ -1,58 +1,61 @@
-use gpui::{Hsla, IntoElement, ParentElement, Styled, div, px, rgb};
+use gpui::{IntoElement, ParentElement, Styled, div, prelude::*, px};
 use solilog_core::{ProjectStatus, Status};
 
-use super::theme;
+use super::theme::Theme;
 
 /// Small glyph for a status, in the spirit of Linear's status icons.
-pub fn status_icon(status: Status) -> impl IntoElement {
-    let (color, glyph): (Hsla, Option<&str>) = match status {
-        Status::Backlog => (rgb(0x6e6e78).into(), None),
-        Status::Todo => (rgb(0xb4b4bc).into(), None),
-        Status::InProgress => (rgb(0xf2c94c).into(), None),
-        Status::InReview => (rgb(theme::REVIEW).into(), None),
-        Status::Blocked => (rgb(theme::ERROR).into(), Some("!")),
-        Status::Done => (rgb(theme::ACCENT).into(), Some("✓")),
-        Status::Cancelled => (rgb(0x6e6e78).into(), Some("×")),
+pub fn status_icon(status: Status, theme: &Theme) -> impl IntoElement + use<> {
+    let color = theme.status_color(status);
+    let glyph = match status {
+        Status::Blocked => Some("!"),
+        Status::Done => Some("✓"),
+        Status::Cancelled => Some("×"),
+        _ => None,
     };
 
-    let circle = div()
+    let pixel = theme.is_pixel_icons();
+    let base = div()
         .size(px(14.))
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded_full()
+        .when(!pixel, |s| s.rounded_full())
         .text_size(px(10.))
         .line_height(px(14.))
         .font_weight(gpui::FontWeight::BOLD);
 
     match status {
-        Status::Backlog => circle.border_1().border_dashed().border_color(color),
-        Status::Todo => circle.border_1().border_color(color),
-        Status::InProgress => circle
-            .border_1()
-            .border_color(color)
-            .child(div().size(px(6.)).rounded_full().bg(color)),
+        Status::Backlog => base.border_1().border_dashed().border_color(color),
+        Status::Todo => base.border_1().border_color(color),
+        Status::InProgress => base.border_1().border_color(color).child(
+            div()
+                .size(px(6.))
+                .when(!pixel, |s| s.rounded_full())
+                .bg(color),
+        ),
         // Almost full: one step from done.
-        Status::InReview => circle
-            .border_1()
-            .border_color(color)
-            .child(div().size(px(9.)).rounded_full().bg(color)),
-        _ => circle
+        Status::InReview => base.border_1().border_color(color).child(
+            div()
+                .size(px(9.))
+                .when(!pixel, |s| s.rounded_full())
+                .bg(color),
+        ),
+        _ => base
             .bg(color)
-            .text_color(rgb(theme::BACKGROUND))
+            .text_color(theme.colors.status.glyph)
             .children(glyph),
     }
 }
 
 /// Small glyph for a project status: a rounded square, so projects don't read
 /// as issues.
-pub fn project_status_icon(status: ProjectStatus) -> impl IntoElement {
-    let color: Hsla = match status {
-        ProjectStatus::Planned => rgb(0xb4b4bc).into(),
-        ProjectStatus::Active => rgb(0xf2c94c).into(),
-        ProjectStatus::Done => rgb(theme::ACCENT).into(),
-        ProjectStatus::Archived => rgb(0x6e6e78).into(),
+pub fn project_status_icon(status: ProjectStatus, theme: &Theme) -> impl IntoElement + use<> {
+    let color = theme.project_status_color(status);
+    let inner_radius = if theme.radius <= 0. {
+        px(0.)
+    } else {
+        px(1.5)
     };
 
     let square = div()
@@ -61,7 +64,7 @@ pub fn project_status_icon(status: ProjectStatus) -> impl IntoElement {
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded(px(4.))
+        .rounded(theme.radius_sm())
         .text_size(px(10.))
         .line_height(px(14.))
         .font_weight(gpui::FontWeight::BOLD);
@@ -71,13 +74,13 @@ pub fn project_status_icon(status: ProjectStatus) -> impl IntoElement {
         ProjectStatus::Active => square
             .border_1()
             .border_color(color)
-            .child(div().size(px(6.)).rounded(px(1.5)).bg(color)),
+            .child(div().size(px(6.)).rounded(inner_radius).bg(color)),
         ProjectStatus::Done => square
             .bg(color)
-            .text_color(rgb(theme::BACKGROUND))
+            .text_color(theme.colors.status.glyph)
             .child("✓"),
         ProjectStatus::Archived => square
             .bg(color)
-            .child(div().w(px(6.)).h(px(1.5)).bg(rgb(theme::BACKGROUND))),
+            .child(div().w(px(6.)).h(px(1.5)).bg(theme.colors.status.glyph)),
     }
 }

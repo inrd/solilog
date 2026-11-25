@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use gpui::{
     Action, ClickEvent, Context, FontWeight, IntoElement, PathPromptOptions, Window, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 use solilog_core::{Attachment, AttachmentId, AttachmentKind, IssueId, format_size};
 
@@ -207,16 +207,20 @@ impl Workspace {
 
     // ---- rendering ------------------------------------------------------------
 
-    pub(super) fn render_attachments(&self, detail: &IssueDetail) -> impl IntoElement + use<> {
+    pub(super) fn render_attachments(
+        &self,
+        detail: &IssueDetail,
+        t: &theme::Theme,
+    ) -> impl IntoElement + use<> {
         let pane_focus = detail.focus.clone();
         let add = div()
             .id("attachments-add")
             .px_1()
-            .rounded_sm()
+            .rounded(t.radius_sm())
             .cursor_pointer()
             .text_size(px(12.))
-            .text_color(rgb(theme::TEXT_MUTED))
-            .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+            .text_color(t.colors.text_muted)
+            .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
             .child("Add files…")
             .on_click({
                 let focus = pane_focus.clone();
@@ -239,12 +243,12 @@ impl Workspace {
                 .id(("attachment-delete", id.0 as u64))
                 .flex_none()
                 .px_1()
-                .rounded_sm()
+                .rounded(t.radius_sm())
                 .cursor_pointer()
                 .invisible()
                 .group_hover("attachment", |s| s.visible())
-                .text_color(rgb(theme::TEXT_MUTED))
-                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                .text_color(t.colors.text_muted)
+                .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
                 .child("×")
                 .on_click({
                     let focus = pane_focus.clone();
@@ -266,9 +270,9 @@ impl Workspace {
                 .gap_2()
                 .px_1()
                 .py(px(2.))
-                .rounded_sm()
+                .rounded(t.radius_sm())
                 .cursor_pointer()
-                .hover(|s| s.bg(rgb(theme::HOVER)))
+                .hover(|s| s.bg(t.colors.hover))
                 .on_click({
                     let focus = pane_focus.clone();
                     let image = attachment.kind == AttachmentKind::Image;
@@ -282,13 +286,13 @@ impl Workspace {
                         window.dispatch_action(action, cx);
                     }
                 })
-                .child(kind_icon(attachment.kind))
+                .child(kind_icon(attachment.kind, t))
                 .child(div().min_w_0().truncate().child(attachment.name.clone()))
                 .child(
                     div()
                         .flex_none()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child(format_size(attachment.size)),
                 )
                 .child(div().flex_1())
@@ -308,7 +312,7 @@ impl Workspace {
                     div()
                         .px_1()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child("Drop files here, or paste them"),
                 )
             })
@@ -316,13 +320,13 @@ impl Workspace {
 }
 
 /// A page with lines for a file; a frame with a sun and a hill for an image.
-fn kind_icon(kind: AttachmentKind) -> impl IntoElement {
+fn kind_icon(kind: AttachmentKind, t: &theme::Theme) -> impl IntoElement {
     let outline = || {
         div()
             .flex_none()
-            .rounded(px(2.))
+            .rounded(if t.radius <= 0. { px(0.) } else { px(2.) })
             .border_1()
-            .border_color(rgb(theme::TEXT_MUTED))
+            .border_color(t.colors.text_muted)
     };
     let icon = match kind {
         AttachmentKind::File => outline()
@@ -333,7 +337,7 @@ fn kind_icon(kind: AttachmentKind) -> impl IntoElement {
             .gap(px(2.))
             .pt(px(4.))
             .px(px(2.))
-            .children((0..3).map(|_| div().h(px(1.)).bg(rgb(theme::TEXT_MUTED)))),
+            .children((0..3).map(|_| div().h(px(1.)).bg(t.colors.text_muted))),
         AttachmentKind::Image => outline()
             .w(px(16.))
             .h(px(13.))
@@ -345,7 +349,7 @@ fn kind_icon(kind: AttachmentKind) -> impl IntoElement {
                     .right(px(2.))
                     .size(px(3.))
                     .rounded_full()
-                    .bg(rgb(theme::ACCENT)),
+                    .bg(t.colors.accent),
             )
             .child(
                 div()
@@ -354,8 +358,8 @@ fn kind_icon(kind: AttachmentKind) -> impl IntoElement {
                     .left(px(2.))
                     .right(px(2.))
                     .h(px(3.))
-                    .rounded(px(1.))
-                    .bg(rgb(theme::ACCENT)),
+                    .rounded(if t.radius <= 0. { px(0.) } else { px(1.) })
+                    .bg(t.colors.accent),
             ),
     };
     div()

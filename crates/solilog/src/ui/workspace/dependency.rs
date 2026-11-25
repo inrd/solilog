@@ -1,6 +1,8 @@
 //! Adding and removing issue dependencies (`issue::AddDependency`,
 //! `issue::RemoveDependency`), with an issue picker when no issue is given.
 
+use std::rc::Rc;
+
 use gpui::{AppContext as _, Context, Window};
 use solilog_core::{Issue, IssueChange, IssueId, Status};
 
@@ -8,10 +10,11 @@ use super::{Modal, Workspace, of_issues};
 use crate::ui::actions::issue::{AddDependency, RemoveDependency};
 use crate::ui::picker::{Picker, PickerItem};
 use crate::ui::status_icon::status_icon;
+use crate::ui::theme::{self, Theme};
 
 /// "SOL-7  Title", as listed in pickers.
-fn issue_item(id: IssueId, title: &str, status: Status) -> PickerItem {
-    PickerItem::new(format!("{id}  {title}")).icon(move || status_icon(status))
+fn issue_item(id: IssueId, title: &str, status: Status, t: Rc<Theme>) -> PickerItem {
+    PickerItem::new(format!("{id}  {title}")).icon(move || status_icon(status, &t))
 }
 
 impl Workspace {
@@ -56,9 +59,10 @@ impl Workspace {
                     .filter(|i| !issues.iter().all(|t| t.depends_on.contains(&i.id)))
                     .collect();
                 candidates.sort_by_key(|i| i.status.is_closed());
+                let t = theme::current(cx);
                 let items = candidates
                     .iter()
-                    .map(|i| issue_item(i.id, &i.title, i.status))
+                    .map(|i| issue_item(i.id, &i.title, i.status, t.clone()))
                     .collect();
                 let on = candidates.iter().map(|i| i.id).collect();
                 self.open_dependency_picker(true, &issues, items, on, window, cx);
@@ -94,13 +98,14 @@ impl Workspace {
                     cx.notify();
                     return;
                 }
+                let t = theme::current(cx);
                 let items = on
                     .iter()
                     .map(|&id| {
                         let (title, status) = self
                             .issue_summary(id)
                             .unwrap_or_else(|| (String::new(), Status::Todo));
-                        issue_item(id, &title, status)
+                        issue_item(id, &title, status, t.clone())
                     })
                     .collect();
                 self.open_dependency_picker(false, &issues, items, on, window, cx);

@@ -11,7 +11,7 @@
 
 use gpui::{
     Action, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent,
-    SharedString, Window, div, prelude::*, px, rgb,
+    SharedString, Window, div, prelude::*, px,
 };
 use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement, ProjectStatus};
 
@@ -102,19 +102,26 @@ impl DraggedRow {
 }
 
 impl Render for DraggedRow {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
         div()
             .w(px(WIDTH - 8.))
             .px_2()
             .py(px(2.))
-            .rounded_sm()
-            .bg(rgb(theme::HIGHLIGHT))
+            .rounded(t.radius_sm())
+            .bg(t.colors.highlight)
             .text_size(px(14.))
             .line_height(px(20.))
-            .text_color(rgb(theme::TEXT))
+            .text_color(t.colors.highlight_text)
             .truncate()
             .child(self.title.clone())
     }
+}
+
+/// Dot color before a sidebar row, resolved against the active theme when rendering.
+enum RowDot {
+    Accent,
+    Label(solilog_core::LabelColor),
 }
 
 /// A rendered row: a section heading or an item.
@@ -132,7 +139,7 @@ enum Row {
         /// Shown as an indicator before the label.
         status: Option<ProjectStatus>,
         /// A label's color, shown as a dot before it.
-        color: Option<u32>,
+        color: Option<RowDot>,
         /// For labels: whether its sublabels are hidden, `None` without any.
         collapsed: Option<bool>,
     },
@@ -166,7 +173,7 @@ impl Workspace {
             count: unreviewed_count,
             trailing: None,
             status: None,
-            color: (unreviewed_count > 0).then_some(theme::ACCENT),
+            color: (unreviewed_count > 0).then_some(RowDot::Accent),
             collapsed: None,
         });
         if !self.views.is_empty() {
@@ -259,7 +266,7 @@ impl Workspace {
                             count: self.open_count(&Source::Label(l.name.clone()).filter()),
                             trailing: None,
                             status: None,
-                            color: l.display_color.map(|c| theme::label_color(Some(c))),
+                            color: l.display_color.map(RowDot::Label),
                             collapsed: has_children.then_some(l.collapsed),
                         }
                     }),
@@ -538,13 +545,14 @@ impl Workspace {
         })
         .drag_over::<DraggedRow>({
             let (accepts, index) = (accepts.clone(), target.index);
+            let accent = theme::current(cx).colors.accent;
             move |style, dragged, _, _| {
                 if !accepts(dragged) {
                     return style;
                 }
                 // A line where the row will land; the padding it
                 // replaces keeps the row height.
-                let style = style.rounded_none().border_color(rgb(theme::ACCENT));
+                let style = style.rounded_none().border_color(accent);
                 if dragged.index < index {
                     style.border_b_2().pb(px(0.))
                 } else {
@@ -574,6 +582,7 @@ impl Workspace {
         ix: usize,
         name: String,
         collapsed: Option<bool>,
+        icon_color: gpui::Hsla,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let toggle = div()
@@ -585,27 +594,33 @@ impl Workspace {
             .size(px(14.));
         match collapsed {
             None => toggle,
-            Some(collapsed) => toggle
-                .child(
-                    gpui::svg()
-                        .path(if collapsed {
-                            assets::CHEVRON_RIGHT
-                        } else {
-                            assets::CHEVRON_DOWN
-                        })
-                        .size(px(14.))
-                        .text_color(rgb(theme::TEXT_MUTED)),
-                )
-                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                    // Toggling doesn't open the label.
-                    cx.stop_propagation();
-                    window.dispatch_action(
-                        Box::new(label::ToggleCollapsed {
-                            name: Some(name.clone()),
-                        }),
-                        cx,
-                    );
-                })),
+            Some(collapsed) => {
+                let pixel = theme::current(cx).is_pixel_icons();
+                toggle
+                    .child(
+                        gpui::svg()
+                            .path(assets::icon_for(
+                                if collapsed {
+                                    assets::CHEVRON_RIGHT
+                                } else {
+                                    assets::CHEVRON_DOWN
+                                },
+                                pixel,
+                            ))
+                            .size(px(14.))
+                            .text_color(icon_color),
+                    )
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        // Toggling doesn't open the label.
+                        cx.stop_propagation();
+                        window.dispatch_action(
+                            Box::new(label::ToggleCollapsed {
+                                name: Some(name.clone()),
+                            }),
+                            cx,
+                        );
+                    }))
+            }
         }
     }
 
@@ -617,6 +632,7 @@ impl Workspace {
         if !self.sidebar_visible {
             return None;
         }
+        let t = theme::current(cx);
         let focused = self.sidebar_focus.is_focused(window);
         // Nothing in the sidebar is being shown while the archive is.
         let active = (!self.showing_archive).then(|| self.active_sidebar_item());
@@ -645,7 +661,7 @@ impl Workspace {
                     .pb_1()
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child(div().flex_1().child(text.to_uppercase()))
                     .when_some(action, |s, action| s.child(heading_button(ix, action, cx)))
                     .into_any_element(),
@@ -659,15 +675,21 @@ impl Workspace {
                     color,
                     collapsed,
                 } => {
-                    let highlight = if (focused && item == self.sidebar_cursor)
-                        || menu_item.as_ref() == Some(&item)
-                    {
-                        Some(theme::HIGHLIGHT)
-                    } else if active.as_ref() == Some(&item) {
-                        Some(theme::HOVER)
+                    let is_primary = (focused && item == self.sidebar_cursor)
+                        || menu_item.as_ref() == Some(&item);
+                    let is_active = active.as_ref() == Some(&item);
+                    let highlight = if is_primary {
+                        Some((t.colors.highlight, t.colors.highlight_text))
+                    } else if is_active {
+                        if t.is_bevel() {
+                            Some((t.colors.highlight, t.colors.highlight_text))
+                        } else {
+                            Some((t.colors.hover, t.colors.text))
+                        }
                     } else {
                         None
                     };
+                    let row_muted = highlight.map_or(t.colors.text_muted, |(_, fg)| fg);
                     let action = item.action();
                     let muted = item == SidebarItem::ClosedProjects;
                     let reorderable = self.reorderable(&item);
@@ -677,6 +699,7 @@ impl Workspace {
                     };
                     div()
                         .id(("sidebar", ix))
+                        .relative()
                         .flex()
                         .items_center()
                         .gap_2()
@@ -684,10 +707,13 @@ impl Workspace {
                         .pr_2()
                         .pl(px(8. + 12. * depth as f32))
                         .py(px(2.))
-                        .rounded_sm()
+                        .rounded(t.radius_sm())
                         .cursor_pointer()
-                        .when_some(highlight, |s, color| s.bg(rgb(color)))
-                        .hover(|s| s.bg(rgb(theme::HOVER)))
+                        .when_some(highlight, |s, (bg, fg)| s.bg(bg).text_color(fg))
+                        .when(focused && item == self.sidebar_cursor, |s| {
+                            s.children(t.dotted_focus(t.colors.highlight_text))
+                        })
+                        .when(highlight.is_none(), |s| s.hover(|s| s.bg(t.colors.hover)))
                         .on_mouse_down(MouseButton::Right, {
                             let item = item.clone();
                             cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -710,18 +736,28 @@ impl Workspace {
                         .when_some(reorderable, |row, target| {
                             self.drag_and_drop(row, target, cx)
                         })
-                        .when_some(status, |s, status| s.child(project_status_icon(status)))
+                        .when_some(status, |s, status| s.child(project_status_icon(status, &t)))
                         .when_some(label_name, |s, name| {
-                            s.child(self.collapse_toggle(ix, name, collapsed, cx))
+                            s.child(self.collapse_toggle(ix, name, collapsed, row_muted, cx))
                         })
-                        .when_some(color, |s, color| {
-                            s.child(div().flex_none().size(px(8.)).rounded_full().bg(rgb(color)))
+                        .when_some(color, |s, dot| {
+                            let dot_color = match dot {
+                                RowDot::Accent => {
+                                    if highlight.is_some() && t.is_bevel() {
+                                        t.colors.highlight_text
+                                    } else {
+                                        t.colors.accent
+                                    }
+                                }
+                                RowDot::Label(c) => t.label_color(Some(c)),
+                            };
+                            s.child(div().flex_none().size(px(8.)).rounded_full().bg(dot_color))
                         })
                         .child(
                             div()
                                 .flex_1()
                                 .truncate()
-                                .when(muted, |s| s.text_color(rgb(theme::TEXT_MUTED)))
+                                .when(muted, |s| s.text_color(row_muted))
                                 .child(truncated_text(("sidebar-label", ix), label)),
                         )
                         .when_some(
@@ -733,7 +769,7 @@ impl Workspace {
                                     div()
                                         .flex_none()
                                         .text_size(px(12.))
-                                        .text_color(rgb(theme::TEXT_MUTED))
+                                        .text_color(row_muted)
                                         .child(text),
                                 )
                             },
@@ -746,6 +782,7 @@ impl Workspace {
         Some(
             div()
                 .id("sidebar")
+                .relative()
                 .key_context(CONTEXT)
                 .track_focus(&self.sidebar_focus)
                 .on_action(cx.listener(Self::on_sidebar_next))
@@ -761,10 +798,12 @@ impl Workspace {
                 .flex_col()
                 .py_2()
                 .overflow_y_scroll()
-                .bg(rgb(theme::SIDEBAR))
-                .border_r_1()
-                .border_color(rgb(theme::DIVIDER))
-                .children(rows),
+                .bg(t.colors.sidebar)
+                .when(!t.is_bevel(), |s| {
+                    s.border_r_1().border_color(t.colors.divider)
+                })
+                .children(rows)
+                .children(t.sunken_bevel()),
         )
     }
 }
@@ -775,22 +814,26 @@ fn heading_button(
     action: Box<dyn Action>,
     cx: &mut Context<Workspace>,
 ) -> impl IntoElement + use<> {
+    let t = theme::current(cx);
     div()
         .id(("sidebar-heading-button", ix))
+        .relative()
         .flex_none()
         .size(px(16.))
         .flex()
         .items_center()
         .justify_center()
-        .rounded_sm()
+        .rounded(t.radius_sm())
         .cursor_pointer()
-        .hover(|s| s.bg(rgb(theme::HOVER)))
+        .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+        .hover(|s| s.bg(t.colors.hover))
         .child(
             gpui::svg()
-                .path(assets::PLUS)
+                .path(assets::icon_for(assets::PLUS, t.is_pixel_icons()))
                 .size(px(12.))
-                .text_color(rgb(theme::TEXT_MUTED)),
+                .text_color(t.colors.text_muted),
         )
+        .children(t.raised_bevel_thin())
         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
             window.dispatch_action(action.boxed_clone(), cx);
         }))

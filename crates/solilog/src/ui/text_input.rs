@@ -24,7 +24,7 @@ use gpui::{
     ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
     Pixels, Point, ScrollHandle, SharedString, StrikethroughStyle, Style, TextAlign, TextRun,
     UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px,
-    relative, rgb, rgba, size,
+    relative, size,
 };
 use unicode_segmentation::*;
 
@@ -1190,7 +1190,7 @@ fn display(input: &TextInput, window: &Window, cx: &App) -> Display {
         .unwrap_or_default();
     let editing = input.focus_handle.is_focused(window);
     let selection = &input.selected_range;
-    let accent = rgb(theme::ACCENT).into();
+    let accent = theme::current(cx).colors.accent;
     let link_run = TextRun {
         color: accent,
         underline: Some(UnderlineStyle {
@@ -1397,8 +1397,9 @@ impl Element for TextElement {
         layout.map = display.map;
         layout.links = display.links;
         let line_height = layout.line_height;
-        let cursor_color = rgb(theme::ACCENT);
-        let selection_color = rgba(0x7c8cff40);
+        let t = theme::current(cx);
+        let cursor_color = t.colors.accent;
+        let selection_color = t.colors.text_selection;
         let cursor_pos = layout.position_for_index(cursor);
 
         // A single row scrolls sideways to keep the cursor in view, and

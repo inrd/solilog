@@ -9,7 +9,7 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent, Pixels,
-    Point, Window, div, prelude::*, px, rgb,
+    Point, Window, div, prelude::*, px,
 };
 use solilog_core::{Issue, IssueChange, IssueId, Project, ProjectStatus};
 
@@ -310,9 +310,10 @@ impl Workspace {
         &self,
         ix: usize,
         item: ArchiveItem,
-        highlight: Option<u32>,
+        highlight: Option<(gpui::Hsla, gpui::Hsla)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let t = theme::current(cx);
         let row = div()
             .id(("archive", ix))
             .flex()
@@ -320,7 +321,7 @@ impl Workspace {
             .gap_3()
             .px_4()
             .py_1()
-            .when_some(highlight, |s, color| s.bg(rgb(color)))
+            .when_some(highlight, |s, (bg, fg)| s.bg(bg).text_color(fg))
             .on_click(cx.listener({
                 let item = item.clone();
                 move |this, _: &ClickEvent, window, cx| {
@@ -335,6 +336,7 @@ impl Workspace {
                     this.show_archive_menu(Some(event.position), window, cx);
                 })
             });
+        let muted = highlight.map_or(t.colors.text_muted, |(_, fg)| fg);
         match item {
             ArchiveItem::Project(name) => {
                 let count = self
@@ -348,7 +350,7 @@ impl Workspace {
                         .flex()
                         .flex_none()
                         .justify_center()
-                        .child(project_status_icon(ProjectStatus::Archived)),
+                        .child(project_status_icon(ProjectStatus::Archived, &t)),
                 )
                 .child(
                     div()
@@ -360,7 +362,7 @@ impl Workspace {
                     div()
                         .flex_none()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(muted)
                         .child(match count {
                             1 => "1 issue".to_string(),
                             n => format!("{n} issues"),
@@ -378,14 +380,14 @@ impl Workspace {
                         .flex()
                         .flex_none()
                         .justify_center()
-                        .child(status_icon(issue.status)),
+                        .child(status_icon(issue.status, &t)),
                 )
                 .child(
                     div()
                         .w(self.id_width)
                         .flex_none()
                         .whitespace_nowrap()
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(muted)
                         .child(id.to_string()),
                 )
                 .child(
@@ -398,7 +400,7 @@ impl Workspace {
                             issue.title.clone(),
                         )),
                 )
-                .child(self.issue_chips(issue))
+                .child(self.issue_chips(issue, &t))
                 .into_any_element()
             }
         }
@@ -410,6 +412,7 @@ impl Workspace {
         list_focused: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let menu_item = match &self.modal {
             Some(OpenModal {
                 modal:
@@ -434,16 +437,16 @@ impl Workspace {
                     .pb_1()
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child(text.to_uppercase())
                     .into_any_element(),
                 Row::Item(item) => {
                     let highlight = if menu_item.as_ref() == Some(&item)
                         || (list_focused && self.archive_cursor.as_ref() == Some(&item))
                     {
-                        Some(theme::HIGHLIGHT)
+                        Some((t.colors.highlight, t.colors.highlight_text))
                     } else if self.archive_cursor.as_ref() == Some(&item) {
-                        Some(theme::HOVER)
+                        Some((t.colors.hover, t.colors.text))
                     } else {
                         None
                     };
@@ -463,8 +466,9 @@ impl Workspace {
                     .items_baseline()
                     .px_4()
                     .py_3()
+                    .when(t.is_bevel(), |s| s.bg(t.colors.surface))
                     .border_b_1()
-                    .border_color(rgb(theme::DIVIDER))
+                    .border_color(t.colors.divider)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Archive"))
                     .child(
                         div()
@@ -472,7 +476,7 @@ impl Workspace {
                             .min_w_0()
                             .truncate()
                             .text_size(px(12.))
-                            .text_color(rgb(theme::TEXT_MUTED))
+                            .text_color(t.colors.text_muted)
                             .child("Right-click an item to delete it or bring it back."),
                     )
                     .child(
@@ -481,7 +485,7 @@ impl Workspace {
                             .pl_3()
                             .flex_none()
                             .text_size(px(12.))
-                            .text_color(rgb(theme::TEXT_MUTED))
+                            .text_color(t.colors.text_muted)
                             .child(count.to_string()),
                     ),
             )
@@ -508,7 +512,7 @@ impl Workspace {
                             div()
                                 .px_4()
                                 .py_2()
-                                .text_color(rgb(theme::TEXT_MUTED))
+                                .text_color(t.colors.text_muted)
                                 .child("Nothing archived."),
                         )
                     }),

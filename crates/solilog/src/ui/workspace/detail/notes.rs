@@ -8,7 +8,7 @@
 
 use gpui::{
     Action, ClickEvent, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
-    ScrollHandle, Window, div, prelude::*, px, rgb,
+    ScrollHandle, Window, div, prelude::*, px,
 };
 use solilog_core::{Note, NoteId, NoteKind, Verdict, format_age};
 
@@ -186,6 +186,7 @@ impl Workspace {
         detail: &IssueDetail,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let t = theme::current(cx);
         let pane_focus = detail.focus.clone();
         let notes = &detail.notes.notes;
         let header = div()
@@ -197,7 +198,7 @@ impl Workspace {
                 s.child(
                     div()
                         .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child(notes.len().to_string()),
                 )
             });
@@ -208,12 +209,12 @@ impl Workspace {
                 .id(("note-delete", id.0 as u64))
                 .flex_none()
                 .px_1()
-                .rounded_sm()
+                .rounded(t.radius_sm())
                 .cursor_pointer()
                 .invisible()
                 .group_hover("note", |s| s.visible())
-                .text_color(rgb(theme::TEXT_MUTED))
-                .hover(|s| s.bg(rgb(theme::HIGHLIGHT)).text_color(rgb(theme::TEXT)))
+                .text_color(t.colors.text_muted)
+                .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
                 .child("×")
                 .on_click({
                     let focus = pane_focus.clone();
@@ -233,17 +234,17 @@ impl Workspace {
             };
             // Receipts and reviews say so, in the review panel's colors.
             let (tag, tag_color) = match &note.kind {
-                NoteKind::Note => (None, theme::TEXT_MUTED),
-                NoteKind::Receipt(_) => (Some("handed off for review"), theme::REVIEW),
+                NoteKind::Note => (None, t.colors.text_muted),
+                NoteKind::Receipt(_) => (Some("handed off for review"), t.colors.review),
                 NoteKind::Review {
                     verdict: Verdict::Approved,
-                } => (Some("approved"), theme::REVIEW),
+                } => (Some("approved"), t.colors.review),
                 NoteKind::Review {
                     verdict: Verdict::ChangesRequested,
-                } => (Some("sent back"), theme::ERROR),
+                } => (Some("sent back"), t.colors.error),
             };
             let details = match &note.kind {
-                NoteKind::Receipt(receipt) => Some(receipt_details(receipt)),
+                NoteKind::Receipt(receipt) => Some(receipt_details(receipt, &t)),
                 _ => None,
             };
             div()
@@ -255,13 +256,13 @@ impl Workspace {
                 .pr_1()
                 .py_1()
                 .border_l_2()
-                .border_color(rgb(if tag.is_some() {
+                .border_color(if tag.is_some() {
                     tag_color
                 } else if note.author.is_agent() {
-                    theme::ACCENT
+                    t.colors.accent
                 } else {
-                    theme::BORDER
-                }))
+                    t.colors.border
+                })
                 .child(
                     div()
                         .flex()
@@ -269,14 +270,14 @@ impl Workspace {
                         .gap_2()
                         .text_size(px(12.))
                         .line_height(px(20.))
-                        .text_color(rgb(theme::TEXT_MUTED))
+                        .text_color(t.colors.text_muted)
                         .child(
                             div()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(theme::TEXT))
+                                .text_color(t.colors.text)
                                 .child(author),
                         )
-                        .children(tag.map(|t| div().text_color(rgb(tag_color)).child(t)))
+                        .children(tag.map(|label| div().text_color(tag_color).child(label)))
                         .child(format_age(note.created_at))
                         .child(div().flex_1())
                         .child(delete),
@@ -290,17 +291,22 @@ impl Workspace {
         let draft = div()
             .key_context(DRAFT_CONTEXT)
             .on_action(cx.listener(Self::on_add_draft_note))
+            .relative()
             .flex()
             .flex_col()
             .flex_shrink_0()
             .min_h(px(52.))
             .px_2()
             .py_1()
-            .rounded_sm()
-            .border_1()
-            .border_color(rgb(theme::BORDER))
+            .bg(t.colors.input)
+            .when(!t.is_bevel(), |s| {
+                s.rounded(t.radius_sm())
+                    .border_1()
+                    .border_color(t.colors.border)
+            })
             .line_height(px(22.))
-            .child(detail.notes.draft.clone());
+            .child(detail.notes.draft.clone())
+            .children(t.sunken_bevel());
 
         div()
             .mt_4()

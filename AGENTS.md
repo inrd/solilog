@@ -15,11 +15,14 @@ crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast t
   tests/upgrades.rs    every release's database (tests/fixtures/v*.db) opens and keeps its data
 crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
   assets/keymap.json   default key bindings
+  assets/themes/       built-in JSON themes (`dark.json`, `mmx.json`)
+  assets/icons/        default SVG icons, plus `pixel/` variants for pixel-icon themes
+  assets/fonts/        bundled fonts (`W95F.otf` + `OFL.txt`)
   src/ui/actions.rs    every GUI action, grouped by namespace
   src/ui/keymap.rs     keymap loading (defaults + user file, hot reload)
+  src/ui/theme.rs      theme loading (built-ins + `~/.config/solilog/themes/`, hot reload, bevel helpers)
   src/ui/picker.rs     reusable filter-list popup (command palette, status picker…)
-  src/ui/window_frame.rs  window root: title bar and resize edges when the app
-                       must draw them (Wayland without server-side decorations)
+  src/ui/window_frame.rs  window root: title bar (native macOS, classic theme, or Wayland/Linux client decorations) and resize edges
   src/ui/workspace.rs  main view; action handlers
   src/ui/workspace/    parts of the main view (sidebar, …)
 packaging/icon.svg     app icon, for both systems
@@ -28,6 +31,7 @@ packaging/linux/       .desktop file (named after the app id, `APP_ID` in ui/mod
 Makefile               common tasks, install (macOS bundle; Linux desktop entry)
 CHANGELOG.md           user-visible changes per release; see "Versions and releases"
 scripts/               demo database, README screenshot, release.sh, upgrade-fixture.sh
+docs/THEMES.md         user guide and schema reference for JSON themes
 docs/screenshot.png    README image, generated: see "Screenshot"
 ```
 
@@ -75,7 +79,16 @@ writing SQL or validation in `crates/solilog`, move it to core.
    Solilog; command details belong in `--help`.
 7. Mouse interactions must go through the same actions (e.g. click → select →
    `window.dispatch_action(...)`), never through separate logic.
-8. **Changelog**: add a line for user-visible changes under `## [Unreleased]`
+8. **Themes**: new UI must read colors, radii, shadows, and bevel/focus helpers
+   from `theme::current(cx)` rather than hardcoding hex colors or fixed rounded
+   corners (use `highlight_text`/`selection_text` on highlighted/selected rows
+   so light and classic themes stay legible). If a feature adds a new theme
+   token or chrome option, add it to `Theme` in `src/ui/theme.rs`, set it in
+   every built-in theme (`assets/themes/dark.json`, `assets/themes/mmx.json`),
+   and document it in `docs/THEMES.md`. If a new SVG icon is added to
+   `assets/icons/`, add a 16×16 pixel variant in `assets/icons/pixel/` and wire
+   it into `assets::icon_for`.
+9. **Changelog**: add a line for user-visible changes under `## [Unreleased]`
    in `CHANGELOG.md` (Added / Changed / Fixed / Removed), written for users.
 
 ## Data model

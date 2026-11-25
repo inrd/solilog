@@ -380,6 +380,18 @@ impl Db {
             .pragma_query_value(None, "user_version", |row| row.get(0))?)
     }
 
+    /// The GUI's chosen theme id, if one has been saved (`None` means default).
+    pub fn theme(&self) -> Result<Option<String>> {
+        self.setting("theme")
+    }
+
+    /// Saves the GUI's chosen theme id (`None` resets to the default).
+    pub fn set_theme(&self, name: Option<&str>) -> Result<Option<String>> {
+        let name = name.map(str::trim).filter(|s| !s.is_empty());
+        self.set_setting("theme", name)?;
+        self.theme()
+    }
+
     /// The database file, or `None` for an in-memory database.
     pub fn path(&self) -> Option<PathBuf> {
         self.conn
@@ -1278,5 +1290,15 @@ mod tests {
             assert!(msg.contains("cannot access"), "{msg}");
             assert!(msg.contains("sandbox"), "{msg}");
         }
+    }
+
+    #[test]
+    fn theme_setting_round_trips() {
+        let db = Db::open_in_memory().unwrap();
+        assert_eq!(db.theme().unwrap(), None);
+        assert_eq!(db.set_theme(Some("mmx")).unwrap().as_deref(), Some("mmx"));
+        assert_eq!(db.theme().unwrap().as_deref(), Some("mmx"));
+        assert_eq!(db.set_theme(None).unwrap(), None);
+        assert_eq!(db.theme().unwrap(), None);
     }
 }

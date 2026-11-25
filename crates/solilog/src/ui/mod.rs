@@ -14,7 +14,7 @@ mod workspace;
 
 use anyhow::Result;
 use gpui::{
-    App, Application, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions,
+    App, Application, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions, point,
     prelude::*, px, size,
 };
 use solilog_core::Db;
@@ -38,7 +38,9 @@ pub fn run(db: Db) -> Result<()> {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
-            use_dark_appearance();
+            assets::load_fonts(cx);
+            let saved_theme = db.theme().ok().flatten();
+            theme::init(saved_theme.as_deref(), cx);
             keymap::load(cx);
             cx.on_action(|_: &Quit, cx| cx.quit());
 
@@ -48,10 +50,14 @@ pub fn run(db: Db) -> Result<()> {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
                         title: Some(SharedString::from(APP_NAME)),
-                        ..Default::default()
+                        appears_transparent: cfg!(target_os = "macos"),
+                        traffic_light_position: cfg!(target_os = "macos")
+                            .then(|| point(px(10.), px(9.))),
                     }),
                     app_id: Some(APP_ID.to_string()),
-                    window_decorations: Some(window_frame::decorations()),
+                    window_decorations: Some(window_frame::decorations(
+                        theme::current(cx).is_classic_titlebar(),
+                    )),
                     ..Default::default()
                 },
                 |window, cx| {
@@ -62,6 +68,8 @@ pub fn run(db: Db) -> Result<()> {
                 },
             )
             .expect("failed to open window");
+            // Apply macOS traffic-light visibility once the window exists.
+            theme::apply_window_chrome(&theme::current(cx));
 
             // Quit the app when the last window is closed.
             cx.on_window_closed(|cx| {
@@ -75,19 +83,3 @@ pub fn run(db: Db) -> Result<()> {
         });
     Ok(())
 }
-
-/// The app is dark whatever the system setting, so its title bar (and other
-/// native parts) must be too.
-#[cfg(target_os = "macos")]
-fn use_dark_appearance() {
-    use objc2_app_kit::{NSAppearance, NSAppearanceNameDarkAqua, NSApplication};
-
-    let Some(mtm) = objc2::MainThreadMarker::new() else {
-        return;
-    };
-    let dark = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua });
-    NSApplication::sharedApplication(mtm).setAppearance(dark.as_deref());
-}
-
-#[cfg(not(target_os = "macos"))]
-fn use_dark_appearance() {}

@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle,
-    SharedString, Window, div, prelude::*, px, rgb,
+    SharedString, Window, div, prelude::*, px,
 };
 
 use super::actions::picker::{Confirm, Dismiss, SelectNext, SelectPrevious};
@@ -185,16 +185,23 @@ impl Picker {
     }
 
     fn render_row(&self, row: usize, item: &PickerItem, cx: &mut Context<Self>) -> AnyElement {
+        let t = theme::current(cx);
+        let is_highlighted = row == self.highlighted;
         div()
             .id(row)
+            .relative()
             .flex()
             .items_center()
             .gap_2()
             .px_2()
             .py_1()
-            .rounded_sm()
+            .rounded(t.radius_sm())
             .cursor_pointer()
-            .when(row == self.highlighted, |s| s.bg(rgb(theme::HIGHLIGHT)))
+            .when(is_highlighted, |s| {
+                s.bg(t.colors.highlight)
+                    .text_color(t.colors.highlight_text)
+                    .children(t.dotted_focus(t.colors.highlight_text))
+            })
             .on_mouse_move(cx.listener(move |this, _, _, cx| {
                 if this.highlighted != row {
                     this.highlighted = row;
@@ -216,7 +223,11 @@ impl Picker {
                 div()
                     .flex_none()
                     .text_size(px(12.))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(if is_highlighted {
+                        t.colors.highlight_text
+                    } else {
+                        t.colors.text_muted
+                    })
                     .child(hint)
             }))
             .into_any_element()
@@ -231,6 +242,7 @@ impl Focusable for Picker {
 
 impl Render for Picker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::current(cx);
         let mut rows: Vec<_> = self
             .matches
             .iter()
@@ -240,48 +252,70 @@ impl Render for Picker {
         rows.extend(self.render_create_row(cx));
         let empty = rows.is_empty();
 
-        div()
-            .key_context(CONTEXT)
-            .on_action(cx.listener(Self::select_next))
-            .on_action(cx.listener(Self::select_previous))
-            .on_action(cx.listener(Self::on_confirm))
-            .on_action(cx.listener(Self::on_dismiss))
-            .w(self.width)
-            .flex()
-            .flex_col()
-            .bg(rgb(theme::SURFACE))
-            .border_1()
-            .border_color(rgb(theme::BORDER))
-            .rounded_md()
-            .shadow_lg()
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(rgb(theme::BORDER))
-                    .child(self.input.clone()),
-            )
-            .child(
-                div()
-                    .id("picker-items")
-                    .max_h(px(320.))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .p_1()
-                    .flex()
-                    .flex_col()
-                    .children(rows)
-                    .when(empty, |s| {
-                        s.child(
-                            div()
-                                .px_2()
-                                .py_1()
-                                .text_color(rgb(theme::TEXT_MUTED))
-                                .child("No matches"),
-                        )
-                    }),
-            )
+        let input_box = if t.is_bevel() {
+            div()
+                .p_2()
+                .child(
+                    div()
+                        .relative()
+                        .px_2()
+                        .py_1()
+                        .bg(t.colors.input)
+                        .text_color(t.colors.text)
+                        .child(self.input.clone())
+                        .children(t.sunken_bevel()),
+                )
+        } else {
+            div()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(t.colors.border)
+                .child(self.input.clone())
+        };
+
+        t.apply_popup_shadow(
+            div()
+                .key_context(CONTEXT)
+                .on_action(cx.listener(Self::select_next))
+                .on_action(cx.listener(Self::select_previous))
+                .on_action(cx.listener(Self::on_confirm))
+                .on_action(cx.listener(Self::on_dismiss))
+                .relative()
+                .w(self.width)
+                .flex()
+                .flex_col()
+                .bg(t.colors.surface)
+                .text_color(t.colors.text)
+                .when(!t.is_bevel(), |d| {
+                    d.border_1()
+                        .border_color(t.colors.border)
+                        .rounded(t.radius_md())
+                })
+                .when(t.is_bevel(), |d| d.p(px(2.)))
+                .child(input_box)
+                .child(
+                    div()
+                        .id("picker-items")
+                        .max_h(px(320.))
+                        .overflow_y_scroll()
+                        .track_scroll(&self.scroll)
+                        .p_1()
+                        .flex()
+                        .flex_col()
+                        .children(rows)
+                        .when(empty, |s| {
+                            s.child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_color(t.colors.text_muted)
+                                    .child("No matches"),
+                            )
+                        }),
+                )
+                .children(t.raised_bevel()),
+        )
     }
 }
 

@@ -3,8 +3,8 @@
 //! issue in review shows above its description, with its latest receipt.
 
 use gpui::{
-    Action, AnyElement, ClickEvent, Context, FocusHandle, FontWeight, IntoElement, SharedString,
-    Window, div, prelude::*, px, rgb,
+    Action, AnyElement, ClickEvent, Context, FocusHandle, FontWeight, Hsla, IntoElement,
+    SharedString, Window, div, prelude::*, px,
 };
 use solilog_core::{IssueId, Receipt, Status, format_age, latest_receipt};
 
@@ -13,47 +13,38 @@ use super::IssueDetail;
 use crate::ui::actions::issue::{Approve, SendBack};
 use crate::ui::theme;
 
-/// Color of a passed check.
-const PASSED: u32 = 0x62c47a;
-
 /// The checks, commits and files of a receipt, one per line.
-pub(super) fn receipt_details(receipt: &Receipt) -> impl IntoElement + use<> {
-    let line = |mark: &'static str, color: u32, text: &str| {
+pub(super) fn receipt_details(receipt: &Receipt, t: &theme::Theme) -> impl IntoElement + use<> {
+    let line = |mark: &'static str, color: Hsla, text: &str| {
         div()
             .flex()
             .gap_2()
             .text_size(px(12.))
             .line_height(px(18.))
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(44.))
-                    .text_color(rgb(color))
-                    .child(mark),
-            )
+            .child(div().flex_none().w(px(44.)).text_color(color).child(mark))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_color(rgb(theme::TEXT))
+                    .text_color(t.colors.text)
                     .child(SharedString::from(text.to_owned())),
             )
     };
     let checks = receipt.checks.iter().map(|check| {
         if check.passed {
-            line("✓ pass", PASSED, &check.command)
+            line("✓ pass", t.colors.passed, &check.command)
         } else {
-            line("✗ fail", theme::ERROR, &check.command)
+            line("✗ fail", t.colors.error, &check.command)
         }
     });
     let commits = receipt
         .commits
         .iter()
-        .map(|c| line("commit", theme::TEXT_MUTED, c));
+        .map(|c| line("commit", t.colors.text_muted, c));
     let files = receipt
         .files
         .iter()
-        .map(|f| line("file", theme::TEXT_MUTED, f));
+        .map(|f| line("file", t.colors.text_muted, f));
     div()
         .flex()
         .flex_col()
@@ -67,25 +58,38 @@ fn button(
     label: &'static str,
     primary: bool,
     focus: &FocusHandle,
+    t: &theme::Theme,
     action: Box<dyn Action>,
 ) -> impl IntoElement {
     let focus = focus.clone();
     div()
         .id(id)
+        .relative()
         .px_2()
         .py(px(1.))
-        .rounded_sm()
-        .border_1()
-        .border_color(rgb(if primary {
-            theme::REVIEW
-        } else {
-            theme::BORDER
-        }))
+        .when(!t.is_bevel(), |s| {
+            s.rounded(t.radius_sm()).border_1().border_color(if primary {
+                t.colors.review
+            } else {
+                t.colors.border
+            })
+        })
+        .when(t.is_bevel(), |s| s.bg(t.colors.surface))
         .text_size(px(12.))
-        .text_color(rgb(theme::TEXT))
+        .text_color(t.colors.text)
         .cursor_pointer()
-        .hover(|s| s.bg(rgb(theme::HIGHLIGHT)))
+        .hover(|s| {
+            if t.is_bevel() {
+                s.bg(t.colors.hover)
+            } else {
+                s.bg(t.colors.highlight)
+            }
+        })
+        .when(t.is_bevel(), |s| {
+            s.active(|s| s.pt(px(2.)).pl(px(9.)))
+        })
         .child(label)
+        .children(t.raised_bevel())
         .on_click(move |_: &ClickEvent, window, cx| {
             window.focus(&focus);
             window.dispatch_action(action.boxed_clone(), cx);
@@ -178,6 +182,7 @@ impl Workspace {
         &self,
         detail: &IssueDetail,
         focus: &FocusHandle,
+        t: &theme::Theme,
     ) -> Option<AnyElement> {
         if detail.issue().status != Status::InReview {
             return None;
@@ -199,13 +204,13 @@ impl Workspace {
                 div()
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgb(theme::REVIEW))
+                    .text_color(t.colors.review)
                     .child("Ready for review"),
             )
             .children(byline.map(|b| {
                 div()
                     .text_size(px(12.))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(t.colors.text_muted)
                     .child(b)
             }))
             .child(div().flex_1())
@@ -214,6 +219,7 @@ impl Workspace {
                 "Send back…",
                 false,
                 focus,
+                t,
                 Box::new(SendBack::default()),
             ))
             .child(button(
@@ -221,6 +227,7 @@ impl Workspace {
                 "Approve",
                 true,
                 focus,
+                t,
                 Box::new(Approve),
             ));
         let body = match receipt {
@@ -233,25 +240,27 @@ impl Workspace {
                         .line_height(px(22.))
                         .child(SharedString::from(note.text.clone())),
                 )
-                .child(receipt_details(receipt)),
+                .child(receipt_details(receipt, t)),
             None => div()
                 .text_size(px(12.))
-                .text_color(rgb(theme::TEXT_MUTED))
+                .text_color(t.colors.text_muted)
                 .child("No receipt: set to In Review by hand."),
         };
         Some(
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .gap_1()
                 .px_3()
                 .py_2()
-                .rounded_sm()
-                .bg(rgb(theme::SURFACE))
+                .rounded(t.radius_sm())
+                .bg(t.colors.surface)
                 .border_l_2()
-                .border_color(rgb(theme::REVIEW))
+                .border_color(t.colors.review)
                 .child(header)
                 .child(body)
+                .children(t.raised_bevel_thin())
                 .into_any_element(),
         )
     }
