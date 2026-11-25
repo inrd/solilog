@@ -1,7 +1,7 @@
 # Themes
 
-Solilog ships with built-in themes (`dark`, `mmx`, `sse2`, and `sse2-dark`) and
-loads any custom JSON themes you place in your themes folder.
+Solilog ships with built-in themes (`dark`, `8086`, `mmx`, `sse2`, and
+`sse2-dark`) and loads any custom JSON themes you place in your themes folder.
 
 ## Switching themes
 
@@ -69,14 +69,14 @@ default, or `"mmx"`) and override only the fields it wants to change:
 | Field | Values | Description |
 |---|---|---|
 | `name` | string | Display name shown in the theme picker (defaults to the file id). |
-| `extends` | `"dark"` \| `"mmx"` \| `"sse2"` \| `"sse2-dark"` | Built-in base theme to inherit omitted fields from (default: `"dark"`). |
+| `extends` | `"dark"` \| `"8086"` \| `"mmx"` \| `"sse2"` \| `"sse2-dark"` | Built-in base theme to inherit omitted fields from (default: `"dark"`). |
 | `appearance` | `"dark"` \| `"light"` | Tells the OS (e.g. macOS window chrome & scrollbars) whether the theme is dark or light. |
-| `chrome` | `"flat"` \| `"bevel"` \| `"glass"` | `"flat"` uses hairline borders; `"bevel"` draws 3D raised/sunken classic desktop borders, sunken pane wells, pressed button states, and dotted focus outlines; `"glass"` draws glossy two-tone specular highlights, glowing selection rows, and gel progress bars/orbs. |
-| `titlebar` | `"native"` \| `"classic"` \| `"glass"` | `"native"` uses the system titlebar; `"classic"` draws a retro gradient titlebar with raised `[_][□][×]` buttons and a raised outer window frame; `"glass"` draws a glossy gradient titlebar with capsule window buttons. |
+| `chrome` | `"flat"` \| `"bevel"` \| `"glass"` \| `"crt"` | `"flat"` uses hairline borders; `"bevel"` draws 3D raised/sunken classic desktop borders, sunken pane wells, pressed button states, and dotted focus outlines; `"glass"` draws glossy two-tone specular highlights, glowing selection rows, and gel progress bars/orbs; `"crt"` adds subtle horizontal CRT scanlines and crisp terminal chrome. |
+| `titlebar` | `"native"` \| `"classic"` \| `"glass"` \| `"crt"` | `"native"` uses the system titlebar; `"classic"` draws a retro gradient titlebar with raised `[_][□][×]` buttons and a raised outer window frame; `"glass"` draws a glossy gradient titlebar with capsule window buttons; `"crt"` draws a reverse-video `[ SOLILOG ]` terminal bar with square bordered controls. |
 | `icons` | `"default"` \| `"pixel"` | `"default"` uses smooth vector icons; `"pixel"` switches UI and status icons to chunky 16×16 pixel-art variants. |
 | `radius` | number (`>= 0`) | Base corner radius in pixels (`0` for sharp corners, `4` for modern rounded corners). |
 | `shadow` | `"soft"` \| `"hard"` \| `"none"` | Popup and tooltip shadow style (`"hard"` draws a crisp unblurred offset drop shadow). |
-| `font_family` | string or `null` | Optional font family name applied across the workspace (`null` uses the system UI font; `"W95FA"` is bundled). |
+| `font_family` | string or `null` | Optional font family name applied across the workspace (`null` uses the system UI font; `"W95FA"` is bundled and `"monospace"` resolves to the platform monospace font). |
 | `colors` | object | Color tokens (see below). |
 
 ### Color format
@@ -137,6 +137,7 @@ The 9 label colors: `red`, `orange`, `yellow`, `green`, `teal`, `blue`,
 For complete examples, see the built-in presets in the repository:
 
 - `crates/solilog/assets/themes/dark.json`
+- `crates/solilog/assets/themes/8086.json`
 - `crates/solilog/assets/themes/mmx.json`
 - `crates/solilog/assets/themes/sse2.json`
 - `crates/solilog/assets/themes/sse2-dark.json`

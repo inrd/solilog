@@ -22,6 +22,7 @@ pub const DEFAULT_THEME_ID: &str = "dark";
 
 const BUILTIN_THEMES: &[(&str, &str)] = &[
     ("dark", include_str!("../../assets/themes/dark.json")),
+    ("8086", include_str!("../../assets/themes/8086.json")),
     ("mmx", include_str!("../../assets/themes/mmx.json")),
     ("sse2", include_str!("../../assets/themes/sse2.json")),
     ("sse2-dark", include_str!("../../assets/themes/sse2-dark.json")),
@@ -40,6 +41,7 @@ pub enum Chrome {
     Flat,
     Bevel,
     Glass,
+    Crt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -48,6 +50,7 @@ pub enum TitlebarStyle {
     Native,
     Classic,
     Glass,
+    Crt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -152,6 +155,10 @@ impl Theme {
         self.chrome == Chrome::Glass
     }
 
+    pub fn is_crt(&self) -> bool {
+        self.chrome == Chrome::Crt
+    }
+
     pub fn is_classic_titlebar(&self) -> bool {
         self.titlebar == TitlebarStyle::Classic
     }
@@ -160,12 +167,31 @@ impl Theme {
         self.titlebar == TitlebarStyle::Glass
     }
 
+    pub fn is_crt_titlebar(&self) -> bool {
+        self.titlebar == TitlebarStyle::Crt
+    }
+
     pub fn uses_custom_titlebar(&self) -> bool {
         self.titlebar != TitlebarStyle::Native
     }
 
     pub fn is_pixel_icons(&self) -> bool {
         self.icons == IconSet::Pixel
+    }
+
+    /// Resolves generic font aliases (like `"monospace"`) to a platform font
+    /// family GPUI can load on both macOS and Linux.
+    pub fn resolved_font_family(&self) -> Option<String> {
+        let family = self.font_family.as_deref()?;
+        if family.eq_ignore_ascii_case("monospace") {
+            Some(if cfg!(target_os = "macos") {
+                "Menlo".to_owned()
+            } else {
+                "monospace".to_owned()
+            })
+        } else {
+            Some(family.to_owned())
+        }
     }
 
     pub fn radius_sm(&self) -> Pixels {
@@ -285,6 +311,11 @@ impl Theme {
         Some(glass_gloss_canvas(sheen, Some(self.colors.glass_glow)))
     }
 
+    /// Ultra-subtle horizontal CRT scanlines (1px every 3px) for `"chrome": "crt"`.
+    pub fn crt_scanlines_overlay(&self) -> Option<AnyElement> {
+        self.is_crt().then(crt_scanlines_canvas)
+    }
+
     /// Applies the theme's popup shadow (pickers, menus).
     pub fn apply_popup_shadow(&self, el: Div) -> Div {
         match self.shadow {
@@ -388,6 +419,28 @@ fn glass_gloss_canvas(sheen: Hsla, glow_border: Option<Hsla>) -> AnyElement {
             window.paint_quad(fill(Bounds::new(point(x + one, y + one), size(w - one * 2., one)), rim));
             if let Some(glow) = glow_border {
                 paint_bevel_ring(bounds, px(0.), glow, glow, window);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
+}
+
+/// Paints ultra-subtle horizontal 1px scanlines every 3px across a CRT surface.
+fn crt_scanlines_canvas() -> AnyElement {
+    let line_color: Hsla = rgba(0x00000038).into();
+    canvas(
+        |_, _, _| {},
+        move |bounds: Bounds<Pixels>, _, window, _| {
+            let x = bounds.origin.x;
+            let w = bounds.size.width;
+            let y_start = f32::from(bounds.origin.y).floor();
+            let y_end = y_start + f32::from(bounds.size.height);
+            let mut y = y_start;
+            while y < y_end {
+                window.paint_quad(fill(Bounds::new(point(x, px(y)), size(w, px(1.))), line_color));
+                y += 3.;
             }
         },
     )
@@ -1040,26 +1093,32 @@ mod tests {
     #[test]
     fn builtin_themes_are_valid() {
         let builtins = load_builtins();
-        assert_eq!(builtins.len(), 4);
+        assert_eq!(builtins.len(), 5);
         assert_eq!(builtins[0].id, "dark");
         assert_eq!(builtins[0].appearance, Appearance::Dark);
         assert_eq!(builtins[0].chrome, Chrome::Flat);
 
-        assert_eq!(builtins[1].id, "mmx");
-        assert_eq!(builtins[1].appearance, Appearance::Light);
-        assert_eq!(builtins[1].chrome, Chrome::Bevel);
+        assert_eq!(builtins[1].id, "8086");
+        assert_eq!(builtins[1].appearance, Appearance::Dark);
+        assert_eq!(builtins[1].chrome, Chrome::Crt);
+        assert_eq!(builtins[1].titlebar, TitlebarStyle::Crt);
         assert_eq!(builtins[1].radius, 0.);
-        assert_eq!(builtins[1].shadow, ShadowStyle::Hard);
 
-        assert_eq!(builtins[2].id, "sse2");
+        assert_eq!(builtins[2].id, "mmx");
         assert_eq!(builtins[2].appearance, Appearance::Light);
-        assert_eq!(builtins[2].chrome, Chrome::Glass);
-        assert_eq!(builtins[2].titlebar, TitlebarStyle::Glass);
+        assert_eq!(builtins[2].chrome, Chrome::Bevel);
+        assert_eq!(builtins[2].radius, 0.);
+        assert_eq!(builtins[2].shadow, ShadowStyle::Hard);
 
-        assert_eq!(builtins[3].id, "sse2-dark");
-        assert_eq!(builtins[3].appearance, Appearance::Dark);
+        assert_eq!(builtins[3].id, "sse2");
+        assert_eq!(builtins[3].appearance, Appearance::Light);
         assert_eq!(builtins[3].chrome, Chrome::Glass);
         assert_eq!(builtins[3].titlebar, TitlebarStyle::Glass);
+
+        assert_eq!(builtins[4].id, "sse2-dark");
+        assert_eq!(builtins[4].appearance, Appearance::Dark);
+        assert_eq!(builtins[4].chrome, Chrome::Glass);
+        assert_eq!(builtins[4].titlebar, TitlebarStyle::Glass);
     }
 
     #[test]
@@ -1085,7 +1144,7 @@ mod tests {
         assert_eq!(custom.colors.surface, rgb(0xff0000).into());
         assert_eq!(custom.colors.highlight, rgb(0xffff00).into());
         // Inherited from mmx:
-        assert_eq!(custom.colors.background, builtins[1].colors.background);
+        assert_eq!(custom.colors.background, builtins[2].colors.background);
     }
 
     #[test]

@@ -180,7 +180,7 @@ impl Render for Tooltip {
                 .text_size(px(12.))
                 .line_height(px(17.))
                 .text_color(t.colors.text)
-                .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                 .child(self.text.clone()),
         )
     }

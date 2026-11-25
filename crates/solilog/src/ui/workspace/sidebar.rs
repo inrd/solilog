@@ -746,7 +746,7 @@ impl Workspace {
                         .when_some(color, |s, dot| {
                             let dot_color = match dot {
                                 RowDot::Accent => {
-                                    if highlight.is_some() && t.is_bevel() {
+                                    if highlight.is_some() && (t.is_bevel() || t.is_crt()) {
                                         t.colors.highlight_text
                                     } else {
                                         t.colors.accent

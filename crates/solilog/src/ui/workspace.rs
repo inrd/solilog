@@ -1480,7 +1480,7 @@ impl Workspace {
             _ => t.colors.text_muted,
         };
         let row_accent = match row_colors {
-            Some((_, fg)) if (in_selection || highlighted) && t.is_bevel() => fg,
+            Some((_, fg)) if (in_selection || highlighted) && (t.is_bevel() || t.is_crt()) => fg,
             _ => t.colors.accent,
         };
         div()
@@ -1836,7 +1836,9 @@ fn chip(text: String, color: gpui::Hsla, t: &theme::Theme) -> gpui::Div {
         .px_2()
         .when(t.is_bevel(), |s| s.bg(t.colors.surface))
         .when(!t.is_bevel(), |s| {
-            s.rounded_full().border_1().border_color(t.colors.border)
+            s.when(t.radius > 0., |s| s.rounded_full())
+                .border_1()
+                .border_color(t.colors.border)
         })
         .text_size(px(12.))
         .line_height(px(18.))
@@ -2074,6 +2076,7 @@ impl Render for Workspace {
                 d.on_action(cx.listener(Self::on_install_command_line_tool))
             })
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(if theme::current(cx).is_bevel() {
@@ -2082,7 +2085,7 @@ impl Render for Workspace {
                 theme::current(cx).colors.background
             })
             .text_color(theme::current(cx).colors.text)
-            .when_some(theme::current(cx).font_family.clone(), |d, f| {
+            .when_some(theme::current(cx).resolved_font_family(), |d, f| {
                 d.font_family(f)
             })
             .text_size(px(BODY_TEXT_SIZE))
@@ -2116,6 +2119,7 @@ impl Render for Workspace {
                     .child(main_pane)
             })
             .child(self.render_footer(window, cx))
+            .children(theme::current(cx).crt_scanlines_overlay())
             .children(self.render_image_preview(cx))
             .children(self.render_modal(cx))
     }

@@ -108,6 +108,100 @@ impl WindowFrame {
         }
     }
 
+    fn render_crt_title_bar(
+        &self,
+        window: &Window,
+        t: &theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = window.is_window_active();
+        let maximized = window.is_maximized();
+        let (bg, fg) = if active {
+            (t.colors.titlebar_active_start, t.colors.titlebar_text)
+        } else {
+            (
+                t.colors.titlebar_inactive_start,
+                t.colors.titlebar_inactive_text,
+            )
+        };
+        let pixel = t.is_pixel_icons();
+        div()
+            .id("crt-title-bar")
+            .flex_none()
+            .h(px(CLASSIC_TITLE_BAR_HEIGHT))
+            .px(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .bg(bg)
+            .border_b_1()
+            .border_color(t.colors.border)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, _| this.drag_pending = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseUpEvent, _, _| this.drag_pending = false),
+            )
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, window, _| {
+                if this.drag_pending {
+                    this.drag_pending = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(fg)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::BOLD)
+                    .child(format!("[ {} ]", APP_NAME.to_uppercase())),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(3.))
+                    .child(crt_window_button(
+                        "minimize",
+                        assets::icon_for(assets::WINDOW_MINIMIZE, pixel),
+                        fg,
+                        t,
+                        |window, _| window.minimize_window(),
+                    ))
+                    .child(crt_window_button(
+                        "maximize",
+                        assets::icon_for(
+                            if maximized {
+                                assets::WINDOW_RESTORE
+                            } else {
+                                assets::WINDOW_MAXIMIZE
+                            },
+                            pixel,
+                        ),
+                        fg,
+                        t,
+                        |window, _| window.zoom_window(),
+                    ))
+                    .child(crt_window_button(
+                        "close",
+                        assets::icon_for(assets::WINDOW_CLOSE, pixel),
+                        fg,
+                        t,
+                        |window, _| window.remove_window(),
+                    )),
+            )
+    }
+
     fn render_glass_title_bar(
         &self,
         window: &Window,
@@ -467,10 +561,27 @@ impl Render for WindowFrame {
                     .p(px(3.))
                     .gap(px(2.))
                     .bg(t.colors.surface)
-                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                     .child(self.render_classic_title_bar(window, &t, cx))
                     .child(workspace)
                     .children(t.raised_bevel())
+                    .children(resize_edges(tiling));
+            }
+            if t.is_crt_titlebar() {
+                return div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .relative()
+                    .bg(t.colors.background)
+                    .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
+                    .border_color(t.colors.border)
+                    .when(!tiling.top, |d| d.border_t_1())
+                    .when(!tiling.bottom, |d| d.border_b_1())
+                    .when(!tiling.left, |d| d.border_l_1())
+                    .when(!tiling.right, |d| d.border_r_1())
+                    .child(self.render_crt_title_bar(window, &t, cx))
+                    .child(workspace)
                     .children(resize_edges(tiling));
             }
             if t.is_glass_titlebar() {
@@ -480,7 +591,7 @@ impl Render for WindowFrame {
                     .flex_col()
                     .relative()
                     .bg(t.colors.background)
-                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                     .border_color(t.colors.border)
                     .when(!tiling.top, |d| d.border_t_1())
                     .when(!tiling.bottom, |d| d.border_b_1())
@@ -496,7 +607,7 @@ impl Render for WindowFrame {
                 .flex_col()
                 .relative()
                 .bg(t.colors.background)
-                .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                 .border_color(t.colors.border)
                 .when(!tiling.top, |d| d.border_t_1())
                 .when(!tiling.bottom, |d| d.border_b_1())
@@ -517,10 +628,22 @@ impl Render for WindowFrame {
                     .p(px(3.))
                     .gap(px(2.))
                     .bg(t.colors.surface)
-                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                     .child(self.render_classic_title_bar(window, &t, cx))
                     .child(workspace)
                     .children(t.raised_bevel());
+            }
+            if t.is_crt_titlebar() {
+                return div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .bg(t.colors.background)
+                    .border_1()
+                    .border_color(t.colors.border)
+                    .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
+                    .child(self.render_crt_title_bar(window, &t, cx))
+                    .child(workspace);
             }
             if t.is_glass_titlebar() {
                 return div()
@@ -528,7 +651,7 @@ impl Render for WindowFrame {
                     .flex()
                     .flex_col()
                     .bg(t.colors.background)
-                    .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                    .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                     .child(self.render_glass_title_bar(window, &t, cx))
                     .child(workspace);
             }
@@ -537,13 +660,39 @@ impl Render for WindowFrame {
                 .flex()
                 .flex_col()
                 .bg(t.colors.background)
-                .when_some(t.font_family.clone(), |d, f| d.font_family(f))
+                .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                 .child(self.render_macos_native_bar(&t, cx))
                 .child(workspace);
         }
 
         div().size_full().flex().flex_col().child(workspace)
     }
+}
+
+/// Crisp square bordered CRT window button (`_`, `□`, `×`).
+fn crt_window_button(
+    id: &'static str,
+    icon: &'static str,
+    fg: gpui::Hsla,
+    t: &theme::Theme,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .w(px(18.))
+        .h(px(16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .border_1()
+        .border_color(fg)
+        .hover(|s| s.bg(t.colors.background).text_color(t.colors.text))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            on_click(window, cx);
+        })
+        .child(svg().path(icon).size(px(10.)).text_color(fg))
 }
 
 /// Glossy Vista-style capsule window button (`–`, `□`, `×`).
