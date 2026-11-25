@@ -8,7 +8,8 @@
 //! - labels are `/`-separated paths (`acme/reverb`), matched case-insensitively.
 
 use std::io::{IsTerminal as _, Read as _, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Parser, Subcommand};
@@ -770,19 +771,61 @@ pub fn run(cli: Cli, command: Command) -> Result<()> {
     result
 }
 
+const SKILL_HINT_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const SKILL_HINT_FILE: &str = ".skill-hint-shown";
+
 /// For people at a terminal (agents and scripts don't see it): a nudge to
-/// update the agent skill after upgrading Solilog.
+/// update the agent skill after upgrading Solilog, at most once a day.
+/// Set `SOLILOG_NO_SKILL_HINT=1` to silence it.
 fn hint_outdated_skill() {
+    if skill_hint_silenced() {
+        return;
+    }
     let Ok(env) = SkillEnv::from_env() else {
         return;
     };
-    if let Some(path) = solilog_core::outdated_skills(&env).first() {
-        eprintln!(
-            "note: the Solilog skill for AI agents in {} is out of date; \
-             run `solilog skill install` to update it",
-            path.parent().unwrap_or(path).display()
-        );
+    let Some(path) = solilog_core::outdated_skills(&env).into_iter().next() else {
+        return;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let stamp = crate::ui::keymap::config_dir().map(|d| d.join(SKILL_HINT_FILE));
+    if let Some(stamp) = &stamp
+        && !skill_hint_due(stamp, now)
+    {
+        return;
     }
+    eprintln!(
+        "note: the Solilog skill for AI agents in {} is out of date; \
+         run `solilog skill install` to update it",
+        path.parent().unwrap_or(&path).display()
+    );
+    if let Some(stamp) = &stamp {
+        record_skill_hint(stamp, now);
+    }
+}
+
+fn skill_hint_silenced() -> bool {
+    std::env::var_os("SOLILOG_NO_SKILL_HINT").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+fn skill_hint_due(stamp_path: &Path, now: u64) -> bool {
+    let Ok(raw) = std::fs::read_to_string(stamp_path) else {
+        return true;
+    };
+    let Ok(last) = raw.trim().parse::<u64>() else {
+        return true;
+    };
+    now < last || now - last >= SKILL_HINT_INTERVAL.as_secs()
+}
+
+fn record_skill_hint(stamp_path: &Path, now: u64) {
+    if let Some(dir) = stamp_path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(stamp_path, format!("{now}\n"));
 }
 
 fn open_db(opened: &mut Option<Db>, actor: Actor) -> Result<&mut Db> {
@@ -1781,5 +1824,28 @@ mod tests {
             }
             _ => panic!("expected IssueCommand::List"),
         }
+    }
+
+    #[test]
+    fn skill_hint_throttles_once_a_day() {
+        let dir = std::env::temp_dir().join(format!("solilog-skill-hint-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let stamp = dir.join(SKILL_HINT_FILE);
+
+        let t0 = 1_700_000_000;
+        assert!(skill_hint_due(&stamp, t0));
+
+        record_skill_hint(&stamp, t0);
+        assert!(!skill_hint_due(&stamp, t0));
+        assert!(!skill_hint_due(&stamp, t0 + SKILL_HINT_INTERVAL.as_secs() - 1));
+        assert!(skill_hint_due(&stamp, t0 + SKILL_HINT_INTERVAL.as_secs()));
+
+        // A corrupt or future timestamp doesn't silence the hint forever.
+        std::fs::write(&stamp, "not-a-timestamp\n").unwrap();
+        assert!(skill_hint_due(&stamp, t0));
+        record_skill_hint(&stamp, t0 + 100);
+        assert!(skill_hint_due(&stamp, t0));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

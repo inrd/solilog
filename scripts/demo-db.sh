@@ -10,6 +10,7 @@ set -eu
 [ ! -e "$1" ] || { echo "$1 already exists" >&2; exit 1; }
 export SOLILOG_DB="$1"
 export SOLILOG_ACTOR=user
+export SOLILOG_NO_SKILL_HINT=1
 s="${SOLILOG:-target/release/solilog}"
 
 q() { "$s" "$@" > /dev/null; }

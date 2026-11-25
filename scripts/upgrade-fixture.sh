@@ -21,6 +21,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export SOLILOG_DB="$work/fixture.db"
 export SOLILOG_ACTOR=user
+export SOLILOG_NO_SKILL_HINT=1
 s() { "$bin" "$@" >/dev/null; }
 # `--actor`, not `SOLILOG_ACTOR=… s`: sh keeps a variable set before a
 # function call, so every later write would be the agent's.

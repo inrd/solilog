@@ -19,6 +19,9 @@ the scheme in AGENTS.md ("Versions and releases").
 - Issue ids from SOL-100 on no longer wrap onto two lines in the issue list,
   the archive and an issue's dependencies: the id column widens to fit the
   longest id.
+- The out-of-date agent skill note on the CLI now appears at most once a day
+  (and can be silenced with `SOLILOG_NO_SKILL_HINT=1`, used by the release and
+  demo scripts).
 
 ## [0.2.3] - 2026-11-23
 

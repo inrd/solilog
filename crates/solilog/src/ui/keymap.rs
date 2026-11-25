@@ -179,7 +179,7 @@ pub fn user_keymap_path() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("keymap.json"))
 }
 
-fn config_dir() -> Option<PathBuf> {
+pub(crate) fn config_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("SOLILOG_CONFIG_DIR") {
         return Some(dir.into());
     }
