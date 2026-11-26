@@ -48,6 +48,8 @@ pub fn run(db: Db) -> Result<()> {
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    // Below this the sidebar, list and footer no longer fit.
+                    window_min_size: Some(size(px(600.), px(400.))),
                     titlebar: Some(TitlebarOptions {
                         title: Some(SharedString::from(APP_NAME)),
                         appears_transparent: cfg!(target_os = "macos"),

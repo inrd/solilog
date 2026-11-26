@@ -10,6 +10,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 - The mouse wheel scrolls an open issue again, all the way to its end and no
   further.
+- The window can no longer be shrunk below 600×400, where its content stopped
+  fitting.
 
 ## [0.2.4] - 2026-11-25
 
