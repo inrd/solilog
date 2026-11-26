@@ -33,7 +33,7 @@ run: ## Run the desktop app (debug build)
 demo: release ## Run the app on a fresh demo database
 	@db="$$(mktemp -d)/solilog.db" && scripts/demo-db.sh "$$db" && SOLILOG_DB="$$db" target/release/solilog
 
-screenshot: release ## Update docs/screenshot.png (the README image) from the demo data (macOS)
+screenshot: release ## Update the README screenshots from the demo data (macOS)
 	scripts/screenshot.sh
 
 test: ## Run all tests

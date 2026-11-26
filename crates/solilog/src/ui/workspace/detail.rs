@@ -88,7 +88,7 @@ pub(super) fn description_changed(text: &str, saved: &str) -> bool {
 }
 
 impl Workspace {
-    fn open_issue(&mut self, id: IssueId, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_issue(&mut self, id: IssueId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(issue) = self.report(self.db.get_issue(id), cx) else {
             return;
         };

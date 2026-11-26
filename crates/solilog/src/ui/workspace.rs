@@ -327,7 +327,12 @@ impl Workspace {
             _skill_update: Self::update_skills(cx),
         };
         this.reload(cx);
-        if this.issues.is_empty() {
+        if let Some(id) = std::env::var("SOLILOG_OPEN_ISSUE")
+            .ok()
+            .and_then(|raw| raw.parse::<IssueId>().ok())
+        {
+            this.open_issue(id, window, cx);
+        } else if this.issues.is_empty() {
             window.focus(&this.input.focus_handle(cx));
         } else {
             window.focus(&this.list_focus);

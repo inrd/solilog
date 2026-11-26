@@ -1,7 +1,7 @@
 #!/bin/sh
-# Fills a new database with neutral demo data (a fictional notes app), through
-# the CLI. Used for the README screenshot (`make screenshot`) and to try the
-# app (`make demo`). Keep it fictional: no real people, companies or projects.
+# Fills a new database with neutral, cross-project demo data through the CLI.
+# Used for the README screenshots (`make screenshot`) and to try the app
+# (`make demo`). Keep it fictional: no real people, companies or projects.
 #
 #   scripts/demo-db.sh <database path>     (must not exist yet)
 #   SOLILOG=path/to/solilog                (default: target/release/solilog)
@@ -29,62 +29,79 @@ issue() {
 }
 
 # Labels, in sidebar order.
-for l in bug feature design docs platform/ios platform/web platform/desktop; do q label create "$l"; done
+for l in bug feature design docs repo/api repo/web repo/cli; do q label create "$l"; done
 q label color bug red
 q label color feature blue
 q label color design purple
 q label color docs gray
-q label color platform/ios teal
-q label color platform/web green
-q label color platform/desktop orange
+q label color repo/api orange
+q label color repo/web green
+q label color repo/cli teal
 
-q project create "Public beta" -d "Open the app to everyone on the waiting list."
-q project create "Offline mode" -d "Every note readable and editable without a connection." -l platform/desktop
-q project create "Design refresh" -s planned -l design
-q project create "Onboarding" -s done
+q project create "v2.0 launch" -d "Ship the new API and updated web client together."
+q project create "CLI rewrite" -d "Replace the legacy Python scripts with a single binary." -l repo/cli
+q project create "Search v2" -s planned -l repo/api
+q project create "Billing migration" -s done
 
 q view save "Open bugs" --open -l bug
 q view save "In flight" -s in_progress -s blocked
-q view save "Web" --open -l platform/web
+q view save "CLI" --open -l repo/cli
 
-issue cancelled 0 "Browser extension" -l feature -l platform/web
-issue done 3 "Pricing page" -l platform/web -p "Public beta" -i Copy -i Layout -i "Stripe checkout"
-issue done 0 "Welcome tour" -p Onboarding -l design
-issue done 0 "Set up crash reporting" -l platform/ios -l platform/desktop
+# 1..4: closed
+issue cancelled 0 "Browser extension" -l feature -l repo/web
+issue done 3 "Webhook signing keys" -l repo/api -p "v2.0 launch" -i "Key rotation" -i "Signature header" -i "Docs"
+issue done 0 "Invoice PDF export" -p "Billing migration" -l repo/api
+issue done 0 "Shell completions" -l repo/cli -p "CLI rewrite"
 
-issue backlog 0 "Localize into French and German" -l feature
-issue backlog 0 "Tablet layout" -l platform/ios -l design
-issue backlog 0 "Self-hosted sync server" -l feature
+# 5..7: backlog
+issue backlog 0 "Localize web dashboard" -l feature -l repo/web
+issue backlog 0 "Fuzzy match on archived records" -l feature -p "Search v2"
+issue backlog 0 "Self-hosted worker image" -l feature -l repo/api
 
-issue blocked 1 "Privacy labels for the App Store review" -l platform/ios -p "Public beta" \
-    -i "List collected data" -i "Answer the review team"
+# 8: blocked
+issue blocked 1 "OAuth app verification" -l repo/api -p "v2.0 launch" \
+    -i "Submit scopes justification" -i "Confirm callback URLs"
 
-issue todo 0 "Write the beta announcement" -l docs -p "Public beta"
-issue todo 0 "Crash when opening a file from the share sheet" -l bug -l platform/ios
-issue todo 0 "Dark mode for the marketing site" -l design -l platform/web
-issue todo 0 "Keyboard shortcuts cheat sheet" -l docs
-issue todo 0 "Export notes to Markdown" -l feature -p "Offline mode"
+# 9..12: todo
+issue todo 0 "Write v2.0 migration guide" -l docs -p "v2.0 launch"
+issue todo 0 "Stale cache after renaming a workspace" -l bug -l repo/web
+issue todo 0 "Keyboard navigation in filter bar" -l design -l repo/web
+issue todo 0 "Import config from legacy rc file" -l feature -p "CLI rewrite"
 
-issue in_progress 1 "Search results page" -l feature -l platform/web -p "Public beta" \
-    -i "Ranking" -i "Highlight matches" -i "Empty state"
-issue in_progress 0 "Redesign the settings screen" -p "Design refresh" -l platform/desktop
-issue in_progress 1 "Sync conflicts lose the newest edit" -l bug -p "Offline mode" \
-    -i "Reproduce with two devices" -i "Write a failing test" -i "Merge by paragraph" -i "Ship a fix" \
-    -d "Editing the same note on two devices while offline keeps the older version when they reconnect.
+# 13..14: in progress
+issue in_progress 1 "Streaming table output for watch mode" -l feature -p "CLI rewrite" \
+    -i "Buffered renderer" -i "Resize handling" -i "Color fallback"
+issue in_progress 1 "Retry backoff drops idempotency key" -l bug -l repo/api -p "v2.0 launch" \
+    -i "Reproduce with 503 stub" -i "Preserve header on retry" -i "Add regression test" \
+    -d "Retrying a failed POST after a 503 regenerates the idempotency key, causing duplicate writes.
 
-Needed before SOL-7." # "Self-hosted sync server", the 7th issue created
+Needed before SOL-7."
 
 # Issue numbers follow the creation order above.
-q issue add-dependency 7 16  # the sync server needs "Sync conflicts…"
-q issue add-dependency 9 14 8  # the announcement waits for search and the review
+q issue add-dependency 7 14  # worker image waits on retry backoff fix
+q issue add-dependency 9 14 8  # migration guide waits on retry fix and OAuth verification
 
-# One issue updated by an agent, so the Unreviewed view and badge show up.
-q --actor claude:sync-fix checklist check 10
+# One in-progress issue updated by an agent, so the Unreviewed view and badge show up.
+q --actor codex:retry-fix checklist check 10
 
-# One issue an agent handed off for review, with its receipt.
-issue in_progress 0 "Word count in the editor footer" -l feature -l platform/desktop
-q --actor claude:word-count issue request-review 17 \
-    -m "Counts words in the open note; updates as you type." \
-    --pass "npm test" --pass "npm run lint" --commit 4e1b9d2 --file src/editor/footer.ts
+# 15..16: two issues handed off for review by different agents across repos.
+issue in_progress 2 "Structured JSON output for export" -l feature -p "CLI rewrite" \
+    -i "NDJSON flag" -i "Schema tests"
+q --actor cursor:cli-export issue request-review 15 \
+    -m "Added --ndjson to export and covered empty and nested payloads." \
+    --pass "cargo test -p cli" --commit 9c4d10a --file src/cmd/export.rs
+
+# 16: showcase issue for the detail screenshot (description, checklist, dependency,
+# cross-agent note, and review receipt).
+issue in_progress 3 "Rate limiting on /v2/events" -l feature -l repo/api -p "v2.0 launch" \
+    -i "Token bucket store" -i "Retry-After header on 429" -i "Integration tests" \
+    -d "Enforce per-token limits on POST /v2/events with a Retry-After header on 429, keeping existing webhook delivery unaffected (see SOL-2)."
+q issue add-dependency 16 2
+q --actor codex:load-test note add 16 \
+    "Benchmarked the in-memory limiter at 12k req/s; sliding window had 3x higher lock contention than a token bucket."
+q --actor claude:rate-limit issue request-review 16 \
+    -m "Added per-token bucket limiter on /v2/events with Retry-After headers and burst tests." \
+    --pass "cargo test -p api" --pass "cargo clippy --all-targets" \
+    --commit 4e1b9d2 --file src/http/events.rs --file src/limits/bucket.rs
 
 q statuses collapse backlog

@@ -23,6 +23,8 @@ From any project, mentioning an issue ("work on SOL-16") or your backlog ("what 
 - **Authorship and review tracking:** agents identify themselves with `--actor` or `SOLILOG_ACTOR` (e.g. `claude:fix-auth`). Changes made outside the app are attributed, marked subtly in the UI, recorded in an activity log, and collected in the sidebar's **Unreviewed** view until you clear them (`r` / `shift-r`).
 - **Review handoff with receipts:** when finished, the agent doesn't close the issue — it hands it to you (`In Review`, at the top of the list) with a receipt of the checks it ran (pass or fail) and the commits and files it changed. You approve it in the app (`cmd-enter`, marking it done) or send it back to Todo with a note (`cmd-backspace`).
 
+![Issue detail with review receipt and unreviewed changes](docs/screenshot-detail.png)
+
 The skill goes in `~/.claude/skills/solilog/` (Claude Code), `~/.agents/skills/solilog/` (Codex, Cursor, OpenCode, pi), and `~/.gemini/config/skills/solilog/` (Antigravity); `--agent claude` (repeatable) picks agents. `make install` and **Workspace: Install Command Line Tool** install it too. Opening a newer version of the app updates any skill Solilog previously installed (or run `solilog skill install`; `solilog` reminds you in the terminal when it's out of date). It never overwrites a skill it didn't write. `solilog skill uninstall` removes it.
 
 ## Install
@@ -167,6 +169,10 @@ Every command can be bound. Run "Workspace: Open Keymap" from the palette to edi
 ### Themes
 
 Run "Workspace: Set Theme" from the palette to switch between built-in themes (`Dark`, `Light`, `8086`, `MMX`, `SSE2`, `SSE2 Dark`) or your own JSON themes in `~/.config/solilog/themes/` (changes apply when you save). See [docs/THEMES.md](docs/THEMES.md) for the format and token reference.
+
+| 8086 | MMX |
+|---|---|
+| ![8086 theme](docs/screenshot-8086.png) | ![MMX theme](docs/screenshot-mmx.png) |
 
 ## Development
 
