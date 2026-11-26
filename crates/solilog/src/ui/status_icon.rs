@@ -65,11 +65,7 @@ pub fn status_icon(status: Status, theme: &Theme) -> impl IntoElement + use<> {
 /// as issues.
 pub fn project_status_icon(status: ProjectStatus, theme: &Theme) -> impl IntoElement + use<> {
     let color = theme.project_status_color(status);
-    let inner_radius = if theme.radius <= 0. {
-        px(0.)
-    } else {
-        px(1.5)
-    };
+    let inner_radius = if theme.radius <= 0. { px(0.) } else { px(1.5) };
 
     let square = div()
         .size(px(14.))

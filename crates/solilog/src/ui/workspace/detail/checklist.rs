@@ -641,9 +641,7 @@ impl Workspace {
                             .flex_1()
                             .min_w_0()
                             .overflow_hidden()
-                            .when(done, |s| {
-                                s.text_color(t.colors.text_muted).line_through()
-                            })
+                            .when(done, |s| s.text_color(t.colors.text_muted).line_through())
                             .child(row.input.clone()),
                     )
                     .when(row.item.author.is_agent(), |s| {
@@ -703,12 +701,13 @@ impl Workspace {
 /// Two columns of three dots, to drag an item by.
 fn drag_handle(t: &theme::Theme) -> gpui::Div {
     let dot_color = t.colors.text_muted;
-    let column =
-        || {
-            div().flex().flex_col().gap(px(2.)).children(
-                (0..3).map(|_| div().size(px(2.)).rounded_full().bg(dot_color)),
-            )
-        };
+    let column = || {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .children((0..3).map(|_| div().size(px(2.)).rounded_full().bg(dot_color)))
+    };
     div()
         .w(px(14.))
         .h(px(18.))

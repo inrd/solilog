@@ -254,18 +254,16 @@ impl Render for Picker {
         let empty = rows.is_empty();
 
         let input_box = if t.is_bevel() {
-            div()
-                .p_2()
-                .child(
-                    div()
-                        .relative()
-                        .px_2()
-                        .py_1()
-                        .bg(t.colors.input)
-                        .text_color(t.colors.text)
-                        .child(self.input.clone())
-                        .children(t.sunken_bevel()),
-                )
+            div().p_2().child(
+                div()
+                    .relative()
+                    .px_2()
+                    .py_1()
+                    .bg(t.colors.input)
+                    .text_color(t.colors.text)
+                    .child(self.input.clone())
+                    .children(t.sunken_bevel()),
+            )
         } else {
             div()
                 .px_3()

@@ -68,11 +68,13 @@ fn button(
         .px_2()
         .py(px(1.))
         .when(!t.is_bevel(), |s| {
-            s.rounded(t.radius_sm()).border_1().border_color(if primary {
-                t.colors.review
-            } else {
-                t.colors.border
-            })
+            s.rounded(t.radius_sm())
+                .border_1()
+                .border_color(if primary {
+                    t.colors.review
+                } else {
+                    t.colors.border
+                })
         })
         .when(t.is_bevel(), |s| s.bg(t.colors.surface))
         .text_size(px(12.))
@@ -85,9 +87,7 @@ fn button(
                 s.bg(t.colors.highlight)
             }
         })
-        .when(t.is_bevel(), |s| {
-            s.active(|s| s.pt(px(2.)).pl(px(9.)))
-        })
+        .when(t.is_bevel(), |s| s.active(|s| s.pt(px(2.)).pl(px(9.))))
         .child(label)
         .children(t.raised_bevel())
         .children(t.gloss_overlay())

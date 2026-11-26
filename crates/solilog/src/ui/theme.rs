@@ -26,7 +26,10 @@ const BUILTIN_THEMES: &[(&str, &str)] = &[
     ("8086", include_str!("../../assets/themes/8086.json")),
     ("mmx", include_str!("../../assets/themes/mmx.json")),
     ("sse2", include_str!("../../assets/themes/sse2.json")),
-    ("sse2-dark", include_str!("../../assets/themes/sse2-dark.json")),
+    (
+        "sse2-dark",
+        include_str!("../../assets/themes/sse2-dark.json"),
+    ),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -347,11 +350,7 @@ impl Theme {
 }
 
 /// Paints a 1px or 2px 3D bevel along the inside edges of its parent container.
-fn bevel_canvas(
-    outer_tl: Hsla,
-    outer_br: Hsla,
-    inner: Option<(Hsla, Hsla)>,
-) -> AnyElement {
+fn bevel_canvas(outer_tl: Hsla, outer_br: Hsla, inner: Option<(Hsla, Hsla)>) -> AnyElement {
     canvas(
         |_, _, _| {},
         move |bounds: Bounds<Pixels>, _, window, _| {
@@ -386,15 +385,9 @@ fn paint_bevel_ring(
     // Left edge
     window.paint_quad(fill(Bounds::new(point(x, y), size(one, h)), tl));
     // Bottom edge
-    window.paint_quad(fill(
-        Bounds::new(point(x, y + h - one), size(w, one)),
-        br,
-    ));
+    window.paint_quad(fill(Bounds::new(point(x, y + h - one), size(w, one)), br));
     // Right edge
-    window.paint_quad(fill(
-        Bounds::new(point(x + w - one, y), size(one, h)),
-        br,
-    ));
+    window.paint_quad(fill(Bounds::new(point(x + w - one, y), size(one, h)), br));
 }
 
 /// Paints a glossy top-half specular reflection and 1px inner rim (plus an
@@ -413,11 +406,17 @@ fn glass_gloss_canvas(sheen: Hsla, glow_border: Option<Hsla>) -> AnyElement {
             let one = px(1.);
             // Top-half specular gloss band (signature Vista / Aqua / PSP look).
             let half_h = (h * 0.48).max(one);
-            window.paint_quad(fill(Bounds::new(point(x + one, y + one), size(w - one * 2., half_h)), sheen));
+            window.paint_quad(fill(
+                Bounds::new(point(x + one, y + one), size(w - one * 2., half_h)),
+                sheen,
+            ));
             // Crisp 1px top specular catch-light.
             let mut rim = sheen;
             rim.a = (rim.a * 1.4).min(0.85);
-            window.paint_quad(fill(Bounds::new(point(x + one, y + one), size(w - one * 2., one)), rim));
+            window.paint_quad(fill(
+                Bounds::new(point(x + one, y + one), size(w - one * 2., one)),
+                rim,
+            ));
             if let Some(glow) = glow_border {
                 paint_bevel_ring(bounds, px(0.), glow, glow, window);
             }
@@ -440,7 +439,10 @@ fn crt_scanlines_canvas() -> AnyElement {
             let y_end = y_start + f32::from(bounds.size.height);
             let mut y = y_start;
             while y < y_end {
-                window.paint_quad(fill(Bounds::new(point(x, px(y)), size(w, px(1.))), line_color));
+                window.paint_quad(fill(
+                    Bounds::new(point(x, px(y)), size(w, px(1.))),
+                    line_color,
+                ));
                 y += 3.;
             }
         },
@@ -828,10 +830,18 @@ fn merge_raw(theme: &mut Theme, raw: &RawTheme) -> Result<()> {
         rs.in_progress.as_deref(),
         "status.in_progress",
     )?;
-    apply_color(&mut s.in_review, rs.in_review.as_deref(), "status.in_review")?;
+    apply_color(
+        &mut s.in_review,
+        rs.in_review.as_deref(),
+        "status.in_review",
+    )?;
     apply_color(&mut s.blocked, rs.blocked.as_deref(), "status.blocked")?;
     apply_color(&mut s.done, rs.done.as_deref(), "status.done")?;
-    apply_color(&mut s.cancelled, rs.cancelled.as_deref(), "status.cancelled")?;
+    apply_color(
+        &mut s.cancelled,
+        rs.cancelled.as_deref(),
+        "status.cancelled",
+    )?;
     apply_color(&mut s.glyph, rs.glyph.as_deref(), "status.glyph")?;
 
     let l = &mut c.labels;

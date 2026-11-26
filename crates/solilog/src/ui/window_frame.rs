@@ -397,14 +397,12 @@ impl WindowFrame {
                         t,
                         |window, _| window.zoom_window(),
                     ))
-                    .child(
-                        div().ml(px(2.)).child(classic_window_button(
-                            "close",
-                            assets::icon_for(assets::WINDOW_CLOSE, pixel),
-                            t,
-                            |window, _| window.remove_window(),
-                        )),
-                    ),
+                    .child(div().ml(px(2.)).child(classic_window_button(
+                        "close",
+                        assets::icon_for(assets::WINDOW_CLOSE, pixel),
+                        t,
+                        |window, _| window.remove_window(),
+                    ))),
             )
     }
 

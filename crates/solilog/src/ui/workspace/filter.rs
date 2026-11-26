@@ -600,9 +600,7 @@ fn mark_all_reviewed_button(cx: &mut Context<Workspace>) -> impl IntoElement + u
                 s.bg(t.colors.highlight).border_color(t.colors.accent)
             }
         })
-        .when(t.is_bevel(), |s| {
-            s.active(|s| s.pt(px(3.)).pl(px(11.)))
-        })
+        .when(t.is_bevel(), |s| s.active(|s| s.pt(px(3.)).pl(px(11.))))
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
             window.focus(&this.list_focus);
             window.dispatch_action(issue::MarkAllReviewed::default().boxed_clone(), cx);
