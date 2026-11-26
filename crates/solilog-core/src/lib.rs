@@ -16,6 +16,7 @@ mod issue;
 mod label;
 mod note;
 mod order;
+mod path_map;
 mod project;
 mod review;
 mod revision;
@@ -51,6 +52,7 @@ pub use label::{
 };
 pub use note::{Note, NoteId, NoteKind, normalize_note_text};
 pub use order::Placement;
+pub use path_map::{MappedPath, PathMapping, PathOwnerKind, normalize_mapped_path};
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
 pub use review::{Check, Handoff, Receipt, Verdict, latest_receipt};
 pub use revision::{Revision, RevisionField, RevisionId, RevisionReason, format_age};

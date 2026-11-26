@@ -59,6 +59,10 @@ s --actor claude:footer issue request-review SOL-4 -m "Footer updated." \
     --pass "make test" --fail "make lint" --commit abc1234 --file footer.html
 s issue send-back SOL-4 -m "Fix the lint first."
 s --actor claude:footer issue request-review SOL-4 -m "Lint fixed." --pass "make lint"
+# Mapped paths (after 0.2.4): one under the home directory, kept as `~/…`, and
+# one absolute; neither exists.
+s label add-path web "~/code/website"
+s project add-path "Website v2" /srv/solilog-fixture/website-v2
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

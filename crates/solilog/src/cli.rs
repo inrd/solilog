@@ -18,10 +18,10 @@ use serde_json::json;
 use solilog_core::{
     Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, Check,
     ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueChange, IssueContext, IssueEdit,
-    IssueFilter, IssueId, IssueSummary, Label, LabelColor, NewIssue, NewProject, Note, NoteId,
-    NoteKind, Placement, Project, ProjectStatus, ProjectSummary, ProjectUpdate, Receipt, Revision,
-    RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv, SkillState, SkillStatus, Status,
-    Verdict, View, format_age, format_size, format_utc,
+    IssueFilter, IssueId, IssueSummary, Label, LabelColor, MappedPath, NewIssue, NewProject, Note,
+    NoteId, NoteKind, PathMapping, Placement, Project, ProjectStatus, ProjectSummary,
+    ProjectUpdate, Receipt, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv,
+    SkillState, SkillStatus, Status, Verdict, View, format_age, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -110,6 +110,22 @@ pub enum Command {
     Statuses(StatusesArgs),
     /// Show keymap information.
     Keymap(KeymapArgs),
+    /// Print the label or project the current directory belongs to: the one
+    /// whose mapped directory (see `label add-path`, `project add-path`) is
+    /// the deepest containing it. Fails when there is none, listing mapped
+    /// directories missing on this machine.
+    ///
+    /// JSON: `kind` (`label` or `project`), `name`, `path` (as stored,
+    /// `~/…` under the home directory), `absolute`, `exists`. Use it to
+    /// find the issues of the codebase you are in (`issue list --here`).
+    Where {
+        /// Look up this directory instead of the current one.
+        dir: Option<PathBuf>,
+        /// List every mapped directory instead (JSON: an array of the same
+        /// rows).
+        #[arg(long, conflicts_with = "dir")]
+        all: bool,
+    },
     /// Print the database path.
     DbPath,
     /// Back up the database and its attachments, or restore a backup.
@@ -233,6 +249,11 @@ pub enum IssueCommand {
         /// checklists, attachments and authorship details.
         #[arg(long)]
         compact: bool,
+        /// Only the issues of the label or project mapped to the current
+        /// directory (see `solilog where`), on top of the other filters.
+        /// Fails when no label or project is mapped to it.
+        #[arg(long)]
+        here: bool,
         #[command(flatten)]
         filter: FilterArgs,
     },
@@ -264,6 +285,10 @@ pub enum IssueCommand {
         /// Make it depend on this issue (repeatable; see `issue add-dependency`).
         #[arg(long, value_name = "ID")]
         depends_on: Vec<IssueId>,
+        /// Give it the label, or put it in the project, mapped to the current
+        /// directory (see `solilog where`). Fails when none is mapped to it.
+        #[arg(long)]
+        here: bool,
     },
     /// Change an issue (give at least one change) and print it. All the
     /// changes are made together, or none if one fails.
@@ -604,6 +629,24 @@ pub enum ProjectCommand {
         #[arg(required = true)]
         labels: Vec<String>,
     },
+    /// Map a directory where the project's codebase lives (default: the
+    /// current one) to the project, and print it. See `solilog where`.
+    ///
+    /// A project can have several directories (a checkout and its
+    /// worktrees); a directory belongs to one label or project only.
+    AddPath {
+        name: String,
+        /// Directory; relative paths are from the current directory.
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// Remove a directory from the project's paths (as listed, or any path
+    /// to it), and print the project.
+    RemovePath {
+        name: String,
+        #[arg(default_value = ".")]
+        path: String,
+    },
 }
 
 /// Issue filter flags, shared by `issue list` and `view save`.
@@ -734,6 +777,27 @@ pub enum LabelCommand {
     /// Prints the deleted labels.
     #[command(visible_alias = "rm")]
     Delete { name: String },
+    /// Map a directory where the label's codebase lives (default: the
+    /// current one) to the label, and print it. See `solilog where`.
+    ///
+    /// A label can have several directories (a checkout and its
+    /// worktrees); a directory belongs to one label or project only.
+    /// Directories inside it belong to it too, unless mapped themselves:
+    /// map `acme` to `~/code/acme` and `acme/reverb` to
+    /// `~/code/acme/reverb`.
+    AddPath {
+        name: String,
+        /// Directory; relative paths are from the current directory.
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// Remove a directory from the label's paths (as listed, or any path
+    /// to it), and print the label.
+    RemovePath {
+        name: String,
+        #[arg(default_value = ".")]
+        path: String,
+    },
 }
 
 #[derive(Args)]
@@ -872,12 +936,17 @@ fn run_command(
                     view,
                     archived,
                     compact,
+                    here,
                     filter,
                 } => {
-                    let filter = match view {
+                    let mut filter = match view {
                         Some(name) => db.get_view(&name)?.filter,
                         None => filter.into(),
                     };
+                    if here {
+                        db.require_path_owner(&current_dir()?)?
+                            .scope_filter(&mut filter);
+                    }
                     let issues = if archived {
                         db.list_archived_issues(&filter)?
                     } else {
@@ -899,15 +968,20 @@ fn run_command(
                     project,
                     item,
                     depends_on,
+                    here,
                 } => {
                     check_one_stdin([&title, &description])?;
-                    let new = NewIssue::new(read_arg(title, "title")?)
+                    let mut new = NewIssue::new(read_arg(title, "title")?)
                         .description(read_arg(description, "description")?)
                         .status(status)
                         .labels(label)
                         .projects(project)
                         .checklist(item)
                         .depends_on(depends_on);
+                    if here {
+                        db.require_path_owner(&current_dir()?)?
+                            .scope_new_issue(&mut new);
+                    }
                     out.issue(&db.create_issue(&new)?)
                 }
                 IssueCommand::Edit {
@@ -1141,6 +1215,12 @@ fn run_command(
                 ProjectCommand::AddLabel { name, labels } => {
                     out.project(&db.add_project_labels(&name, &labels)?)
                 }
+                ProjectCommand::AddPath { name, path } => {
+                    out.project(&db.add_project_path(&name, &path_arg(&path)?)?)
+                }
+                ProjectCommand::RemovePath { name, path } => {
+                    out.project(&db.remove_project_path(&name, &path_arg(&path)?)?)
+                }
                 ProjectCommand::RemoveLabel { name, labels } => {
                     out.project(&db.remove_project_labels(&name, &labels)?)
                 }
@@ -1169,6 +1249,12 @@ fn run_command(
                 LabelCommand::Collapse { name } => out.label(&db.set_label_collapsed(&name, true)?),
                 LabelCommand::Expand { name } => out.label(&db.set_label_collapsed(&name, false)?),
                 LabelCommand::Delete { name } => out.labels(&db.delete_label(&name)?),
+                LabelCommand::AddPath { name, path } => {
+                    out.label(&db.add_label_path(&name, &path_arg(&path)?)?)
+                }
+                LabelCommand::RemovePath { name, path } => {
+                    out.label(&db.remove_label_path(&name, &path_arg(&path)?)?)
+                }
             }
         }
         Command::Statuses(args) => {
@@ -1243,6 +1329,26 @@ fn run_command(
                 })
             }
         },
+        Command::Where { dir, all } => {
+            let db = &*open_db(opened, actor)?;
+            if all {
+                let paths = db.list_paths()?;
+                out.print(&paths, || {
+                    paths
+                        .iter()
+                        .map(mapping_line)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+            } else {
+                let dir = match dir {
+                    Some(dir) => current_dir()?.join(dir),
+                    None => current_dir()?,
+                };
+                let found = db.require_path_owner(&dir)?;
+                out.print(&found, || mapping_line(&found))
+            }
+        }
         Command::DbPath => {
             let path = solilog_core::default_path()?.display().to_string();
             out.print(&json!({ "path": path }), || path.clone())
@@ -1320,6 +1426,24 @@ fn run_command(
 }
 
 /// `-` means "read from stdin".
+fn current_dir() -> Result<PathBuf> {
+    std::env::current_dir().context("cannot read the current directory")
+}
+
+/// A directory argument made absolute (relative to the current directory);
+/// `~/…` is left for the core to expand.
+fn path_arg(path: &str) -> Result<String> {
+    let trimmed = path.trim();
+    if trimmed == "~" || trimmed.starts_with("~/") || Path::new(trimmed).is_absolute() {
+        return Ok(trimmed.to_owned());
+    }
+    current_dir()?
+        .join(trimmed)
+        .to_str()
+        .map(str::to_owned)
+        .context("the path is not valid UTF-8")
+}
+
 fn read_arg(value: String, what: &str) -> Result<String> {
     if value != "-" {
         return Ok(value);
@@ -1790,15 +1914,46 @@ fn project_line(project: &Project) -> String {
     if !project.labels.is_empty() {
         line.push_str(&format!("  [{}]", project.labels.join(", ")));
     }
+    line.push_str(&paths_suffix(&project.paths));
     line
+}
+
+/// `  ~/code/reverb, /srv/x (missing)`, or nothing without paths.
+fn paths_suffix(paths: &[MappedPath]) -> String {
+    if paths.is_empty() {
+        return String::new();
+    }
+    let paths: Vec<String> = paths
+        .iter()
+        .map(|p| {
+            if p.exists {
+                p.path.clone()
+            } else {
+                format!("{} (missing)", p.path)
+            }
+        })
+        .collect();
+    format!("  {}", paths.join(", "))
+}
+
+/// `label acme  ~/code/acme`.
+fn mapping_line(mapping: &PathMapping) -> String {
+    let missing = if mapping.exists { "" } else { " (missing)" };
+    format!(
+        "{} {}  {}{missing}",
+        mapping.kind.key(),
+        mapping.name,
+        mapping.path
+    )
 }
 
 /// Full path and issue count.
 fn label_line(label: &Label) -> String {
-    match label.color {
+    let line = match label.color {
         Some(color) => format!("{} ({}) {color}", label.name, label.issue_count),
         None => format!("{} ({})", label.name, label.issue_count),
-    }
+    };
+    line + &paths_suffix(&label.paths)
 }
 
 /// Indented tree: each label shows its last segment under its parent.
@@ -1813,9 +1968,10 @@ fn label_tree(labels: &[Label]) -> String {
                 .unwrap_or("");
             let color = l.color.map(|c| format!(" {c}")).unwrap_or_default();
             format!(
-                "{}{leaf} ({}){color}",
+                "{}{leaf} ({}){color}{}",
                 "  ".repeat(l.depth()),
-                l.issue_count
+                l.issue_count,
+                paths_suffix(&l.paths)
             )
         })
         .collect::<Vec<_>>()

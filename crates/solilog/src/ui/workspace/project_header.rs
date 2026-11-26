@@ -1,6 +1,6 @@
 //! The header above the issue list while it shows a project: its name,
-//! status, progress (closed issues out of all of them), default labels and
-//! description.
+//! status, progress (closed issues out of all of them), default labels,
+//! paths (folders mapped to it) and description.
 //!
 //! The description is edited in place and saved like an open issue's (see
 //! `detail.rs`): shortly after typing stops, when it loses focus, and before
@@ -18,6 +18,7 @@ use solilog_core::{Project, ProjectUpdate};
 
 use super::Workspace;
 use super::detail::{AUTOSAVE_DELAY, description_changed};
+use super::path_chips::path_chips;
 use super::scope::Source;
 use crate::ui::actions::project;
 use crate::ui::status_icon::project_status_icon;
@@ -297,7 +298,8 @@ impl Workspace {
             })
     }
 
-    /// The project's default labels, each removable, and a button adding one.
+    /// The project's default labels and paths, each removable, and buttons
+    /// adding them. Clicking a path shows it in the file manager.
     fn default_labels(
         &self,
         project: &Project,
@@ -364,6 +366,18 @@ impl Workspace {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 window.dispatch_action(project::AddLabel::default().boxed_clone(), cx);
             }));
+        let paths = path_chips(
+            "project-path",
+            &project.paths,
+            |path| {
+                Box::new(project::RemovePath {
+                    name: None,
+                    path: Some(path),
+                })
+            },
+            project::AddPath::default().boxed_clone(),
+            &t,
+        );
         div()
             .flex()
             .flex_wrap()
@@ -372,6 +386,7 @@ impl Workspace {
             .text_size(px(12.))
             .children(chips)
             .child(add)
+            .children(paths)
     }
 }
 

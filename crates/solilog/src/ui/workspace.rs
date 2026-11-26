@@ -13,7 +13,9 @@ mod dependency;
 mod detail;
 mod filter;
 mod history;
+mod label_header;
 mod manage;
+mod path_chips;
 mod project_header;
 mod scope;
 mod sidebar;
@@ -2056,11 +2058,15 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_edit_project_description))
             .on_action(cx.listener(Self::on_add_project_label))
             .on_action(cx.listener(Self::on_remove_project_label))
+            .on_action(cx.listener(Self::on_add_project_path))
+            .on_action(cx.listener(Self::on_remove_project_path))
             .on_action(cx.listener(Self::on_rename_project))
             .on_action(cx.listener(Self::on_set_project_status))
             .on_action(cx.listener(Self::on_delete_project))
             .on_action(cx.listener(Self::on_rename_label))
             .on_action(cx.listener(Self::on_set_label_color))
+            .on_action(cx.listener(Self::on_add_label_path))
+            .on_action(cx.listener(Self::on_remove_label_path))
             .on_action(cx.listener(Self::on_delete_label))
             .on_action(cx.listener(Self::on_focus_list))
             .on_action(cx.listener(Self::on_open_keymap))
@@ -2266,6 +2272,9 @@ impl Workspace {
         let project_header = self
             .shown_project()
             .map(|project| self.render_project_header(project, window, cx));
+        let label_header = self
+            .shown_label()
+            .map(|label| self.render_label_header(label, cx));
         let t = theme::current(cx);
         let new_issue_bar = if t.is_bevel() {
             div()
@@ -2299,6 +2308,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .children(project_header)
+            .children(label_header)
             .child(new_issue_bar)
             .child(self.render_filter_header(cx))
             .child(

@@ -177,6 +177,16 @@ writing SQL or validation in `crates/solilog`, move it to core.
   (`IssueFilter::ready` / `waiting`). Informational only: nothing changes
   a status by itself, and closing an issue with open dependencies is
   allowed. Deleting an issue drops its links both ways.
+- **Mapped path**: a directory where a label's or project's code lives
+  (`path_map.rs`, `Db::add_label_path` / `add_project_path`), so an agent
+  in a repository finds its issues (`Db::path_owner`, `solilog where`,
+  `--here`). A label or project can have several; a path has one owner.
+  A directory belongs to the deepest mapped path containing it (so
+  sublabels mapped inside their parent's directory win). Stored `~/…` when
+  under the home directory, so a restore on another machine with the same
+  layout works; paths missing on this machine are kept (`exists: false`)
+  and match nothing. Renaming carries them along; deleting the owner
+  deletes them.
 - **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
   must match), labels to exclude, projects (any may match) or no project).
   Renaming a label or project updates views; deleting one makes the views

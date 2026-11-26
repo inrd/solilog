@@ -242,6 +242,17 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     ALTER TABLE issues_new RENAME TO issues;
     ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'note';
     ALTER TABLE notes ADD COLUMN data TEXT;",
+    // 22: directories mapped to labels and projects (see `path_map.rs`).
+    // `path` is stored `~/…` under the home directory; it has one owner.
+    "CREATE TABLE mapped_paths (
+        path       TEXT    PRIMARY KEY,
+        label_id   INTEGER REFERENCES labels (id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES projects (id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        CHECK ((label_id IS NULL) <> (project_id IS NULL))
+    );
+    CREATE INDEX mapped_paths_by_label ON mapped_paths (label_id);
+    CREATE INDEX mapped_paths_by_project ON mapped_paths (project_id);",
 ];
 
 /// The schema version of a database with every migration applied.

@@ -37,6 +37,8 @@ q label color docs gray
 q label color repo/api orange
 q label color repo/web green
 q label color repo/cli teal
+# Where each codebase lives (needn't exist: missing folders are kept).
+for r in api web cli; do q label add-path "repo/$r" "~/code/$r"; done
 
 q project create "v2.0 launch" -d "Ship the new API and updated web client together."
 q project create "CLI rewrite" -d "Replace the legacy Python scripts with a single binary." -l repo/cli

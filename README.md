@@ -68,6 +68,9 @@ solilog issue create "Preset crash" -p "reverb v1.1"   # gets acme/reverb too
 solilog issue ls -l acme --no-project                  # work outside any project
 solilog view save "Acme bugs" --open -l acme -l bug    # saved filter
 solilog issue ls --view "acme bugs"
+solilog label add-path acme/reverb ~/code/reverb       # where its code lives
+solilog where                                          # label or project of this folder
+solilog issue ls --here --open                         # its issues
 ```
 
 The database is `~/Library/Application Support/Solilog/solilog.db` on macOS, `~/.local/share/Solilog/solilog.db` on Linux (`solilog db-path` prints it). Set `SOLILOG_DB` to use another file.
@@ -160,7 +163,7 @@ Done and cancelled issues are hidden at first; the buttons at the top right of t
 
 `cmd-s` saves the filter as a view; `v` opens one. Saved views, projects and labels are in the sidebar; there, `space` (or the arrow before a label) collapses or expands a label's sublabels.
 
-A project's issues come under a header with its status, progress, default labels and description. Click the description (or run "Project: Edit Description") to edit it; it's saved as you type, and `Escape` goes back to the list.
+A project's issues come under a header with its status, progress, default labels, paths (folders where its code lives; click one to show it) and description; a label's, under one with its issue count and paths. Click the description (or run "Project: Edit Description") to edit it; it's saved as you type, and `Escape` goes back to the list.
 
 ### Your own bindings
 

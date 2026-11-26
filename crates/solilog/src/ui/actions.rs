@@ -247,6 +247,32 @@ pub mod project {
         pub label: Option<String>,
     }
 
+    /// Map a folder where the project's codebase lives to the project, so
+    /// agents working in it find its issues (`solilog where`). A folder
+    /// belongs to one label or project only. Without a `path`, asks for
+    /// the folder.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddPath {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub path: Option<String>,
+    }
+
+    /// Remove a folder from the project's paths. Without a `path`, opens a
+    /// picker of them.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = project)]
+    #[serde(deny_unknown_fields)]
+    pub struct RemovePath {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub path: Option<String>,
+    }
+
     /// Delete a project; its issues stay, with their labels. Asks for
     /// confirmation unless `confirmed` is true.
     #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
@@ -309,6 +335,33 @@ pub mod label {
         pub color: Option<solilog_core::LabelColor>,
         #[serde(default)]
         pub reset: bool,
+    }
+
+    /// Map a folder where the label's codebase lives to the label, so
+    /// agents working in it find its issues (`solilog where`). Folders
+    /// inside it belong to it too, unless mapped themselves; a folder
+    /// belongs to one label or project only. Without a `path`, asks for the
+    /// folder.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
+    #[serde(deny_unknown_fields)]
+    pub struct AddPath {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub path: Option<String>,
+    }
+
+    /// Remove a folder from the label's paths. Without a `path`, opens a
+    /// picker of them.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = label)]
+    #[serde(deny_unknown_fields)]
+    pub struct RemovePath {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub path: Option<String>,
     }
 
     /// Collapse or expand a label's sublabels in the sidebar. Without a

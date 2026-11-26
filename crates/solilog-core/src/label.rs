@@ -119,6 +119,10 @@ pub struct Label {
     pub display_color: Option<LabelColor>,
     /// Whether its sublabels are hidden in the GUI sidebar.
     pub collapsed: bool,
+    /// Directories where its codebase lives (see `Db::add_label_path`);
+    /// sublabels without paths of their own belong to the nearest
+    /// ancestor's when inside them.
+    pub paths: Vec<crate::MappedPath>,
     /// Open and closed issues carrying this label or one of its sublabels
     /// (archived ones excepted).
     pub issue_count: i64,
@@ -220,6 +224,22 @@ impl Db {
         };
         let mut names: Vec<String> = rows.iter().map(|(name, ..)| name.clone()).collect();
         names.sort_by_cached_key(|name| path_rank(name));
+        let mut paths: std::collections::HashMap<String, Vec<crate::MappedPath>> =
+            std::collections::HashMap::new();
+        for row in self
+            .conn
+            .prepare_cached(
+                "SELECT l.name, mp.path FROM mapped_paths mp
+                 JOIN labels l ON l.id = mp.label_id ORDER BY mp.path",
+            )?
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))?
+        {
+            let (name, path) = row?;
+            paths
+                .entry(name)
+                .or_default()
+                .push(crate::path_map::mapped_path(path));
+        }
         let assigned: Vec<(i64, String)> = self
             .conn
             .prepare_cached(
@@ -245,6 +265,7 @@ impl Db {
                     color: own_color(&name),
                     display_color: display_color(&name),
                     collapsed: collapsed.contains(name.as_str()),
+                    paths: paths.remove(&name).unwrap_or_default(),
                     name,
                 }
             })

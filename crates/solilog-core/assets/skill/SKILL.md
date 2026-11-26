@@ -53,6 +53,18 @@ This file covers the workflows. For commands and flags, run
    it up again, and hand it off again when fixed. Approve or set `done`
    yourself only when the user tells you to, and ask before `cancelled`.
 
+## The codebase you are in
+
+Labels or projects can be mapped to the directories where their code
+lives. In a repository, run `solilog where --json` first: it names the
+label or project the current directory belongs to (`kind`, `name`). Then
+`solilog issue ls --here` lists its issues and `solilog issue create
+--here` files new ones under it. If `where` fails, nothing is mapped
+there: ask the user which label or project the repository belongs to and
+offer to map it (`solilog label add-path <label> .` or `solilog project
+add-path <project> .`) rather than guessing. Picking an issue from another
+codebase, `solilog where --all` tells you where it lives.
+
 To triage or suggest what to work on next, start from
 `solilog issue ls --ready --compact --json` (or `solilog issue ls --compact --json`
 for the full backlog): lightweight summaries without descriptions or full

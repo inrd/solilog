@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
 use solilog_core::{
-    BackupReason, Check, Db, IssueFilter, IssueId, LabelColor, NoteKind, ProjectStatus, Receipt,
-    RevisionField, Status, Verdict,
+    BackupReason, Check, Db, IssueFilter, IssueId, LabelColor, NoteKind, PathOwnerKind,
+    ProjectStatus, Receipt, RevisionField, Status, Verdict,
 };
 
 fn fixtures() -> Vec<PathBuf> {
@@ -68,6 +68,9 @@ fn every_release_upgrades() {
         }
         if before >= REVIEW_SCHEMA {
             check_review(&db);
+        }
+        if before >= PATHS_SCHEMA {
+            check_paths(&db);
         }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
@@ -287,6 +290,29 @@ fn check_review(db: &Db) {
                     checks: vec![check("make lint", true)],
                     ..Default::default()
                 })
+            ),
+        ]
+    );
+}
+
+/// Mapped paths: `user_version` from migration 22 on.
+const PATHS_SCHEMA: i64 = 22;
+
+fn check_paths(db: &Db) {
+    let paths: Vec<(PathOwnerKind, String, String)> = db
+        .list_paths()
+        .unwrap()
+        .into_iter()
+        .map(|m| (m.kind, m.name, m.path))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            (PathOwnerKind::Label, "web".into(), "~/code/website".into()),
+            (
+                PathOwnerKind::Project,
+                "Website v2".into(),
+                "/srv/solilog-fixture/website-v2".into()
             ),
         ]
     );

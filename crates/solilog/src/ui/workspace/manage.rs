@@ -7,10 +7,12 @@
 //! the same thing (with any unsaved filter edits).
 
 use gpui::{
-    Action, AppContext as _, Context, IntoElement, Pixels, Point, Styled as _, Window, div, px,
+    Action, AppContext as _, Context, IntoElement, PathPromptOptions, Pixels, Point, Styled as _,
+    Window, div, px,
 };
 use solilog_core::{
-    IssueFilter, LabelColor, NewProject, ProjectStatus, ProjectUpdate, label_matches, renamed_label,
+    IssueFilter, LabelColor, MappedPath, NewProject, ProjectStatus, ProjectUpdate, label_matches,
+    renamed_label,
 };
 
 use super::scope::Source;
@@ -129,6 +131,20 @@ fn menu_entries(item: &SidebarItem) -> Vec<MenuEntry> {
                     }),
                 ),
                 (
+                    "Add Path…",
+                    Box::new(project::AddPath {
+                        name: name.clone(),
+                        path: None,
+                    }),
+                ),
+                (
+                    "Remove Path…",
+                    Box::new(project::RemovePath {
+                        name: name.clone(),
+                        path: None,
+                    }),
+                ),
+                (
                     "Archive",
                     Box::new(project::SetStatus {
                         name: name.clone(),
@@ -161,6 +177,20 @@ fn menu_entries(item: &SidebarItem) -> Vec<MenuEntry> {
                         name: name.clone(),
                         color: None,
                         reset: false,
+                    }),
+                ),
+                (
+                    "Add Path…",
+                    Box::new(label::AddPath {
+                        name: name.clone(),
+                        path: None,
+                    }),
+                ),
+                (
+                    "Remove Path…",
+                    Box::new(label::RemovePath {
+                        name: name.clone(),
+                        path: None,
                     }),
                 ),
                 (
@@ -751,6 +781,210 @@ impl Workspace {
         }
         if self.report(self.db.delete_label(&name), cx).is_some() {
             self.follow_delete(Kind::Label, &name, cx);
+        }
+    }
+}
+
+// ---- paths ----------------------------------------------------------------
+
+/// What a path action needs to know about its kind: how to make the action
+/// with a path, and how to write it.
+trait PathAction: Action + Sized {
+    const KIND: Kind;
+    fn new(name: String, path: String) -> Self;
+}
+
+impl PathAction for label::AddPath {
+    const KIND: Kind = Kind::Label;
+    fn new(name: String, path: String) -> Self {
+        Self {
+            name: Some(name),
+            path: Some(path),
+        }
+    }
+}
+
+impl PathAction for label::RemovePath {
+    const KIND: Kind = Kind::Label;
+    fn new(name: String, path: String) -> Self {
+        Self {
+            name: Some(name),
+            path: Some(path),
+        }
+    }
+}
+
+impl PathAction for project::AddPath {
+    const KIND: Kind = Kind::Project;
+    fn new(name: String, path: String) -> Self {
+        Self {
+            name: Some(name),
+            path: Some(path),
+        }
+    }
+}
+
+impl PathAction for project::RemovePath {
+    const KIND: Kind = Kind::Project;
+    fn new(name: String, path: String) -> Self {
+        Self {
+            name: Some(name),
+            path: Some(path),
+        }
+    }
+}
+
+impl Workspace {
+    pub(super) fn on_add_label_path(
+        &mut self,
+        action: &label::AddPath,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_path::<label::AddPath>(action.name.as_ref(), action.path.as_ref(), window, cx);
+    }
+
+    pub(super) fn on_remove_label_path(
+        &mut self,
+        action: &label::RemovePath,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remove_path::<label::RemovePath>(
+            action.name.as_ref(),
+            action.path.as_ref(),
+            window,
+            cx,
+        );
+    }
+
+    pub(super) fn on_add_project_path(
+        &mut self,
+        action: &project::AddPath,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_path::<project::AddPath>(action.name.as_ref(), action.path.as_ref(), window, cx);
+    }
+
+    pub(super) fn on_remove_project_path(
+        &mut self,
+        action: &project::RemovePath,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remove_path::<project::RemovePath>(
+            action.name.as_ref(),
+            action.path.as_ref(),
+            window,
+            cx,
+        );
+    }
+
+    /// The paths of the label or project named `name` (stored name).
+    fn paths_of(&self, kind: Kind, name: &str) -> Vec<MappedPath> {
+        match kind {
+            Kind::Label => self
+                .labels
+                .iter()
+                .find(|l| l.name == name)
+                .map(|l| l.paths.clone()),
+            Kind::Project => self
+                .projects
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| p.paths.clone()),
+            Kind::View => None,
+        }
+        .unwrap_or_default()
+    }
+
+    fn add_path<A: PathAction>(
+        &mut self,
+        name: Option<&String>,
+        path: Option<&String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.target(A::KIND, name, cx) else {
+            return;
+        };
+        let Some(path) = path else {
+            let chosen = cx.prompt_for_paths(PathPromptOptions {
+                files: false,
+                directories: true,
+                multiple: false,
+                prompt: Some(format!("Map to “{name}”").into()),
+            });
+            cx.spawn_in(window, async move |this, cx| {
+                let dir = match chosen.await {
+                    Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                    Ok(Err(err)) => {
+                        this.update(cx, |this, cx| this.report::<()>(Err(err), cx))
+                            .ok();
+                        return;
+                    }
+                    _ => None,
+                };
+                let Some(dir) = dir.and_then(|d| d.to_str().map(str::to_owned)) else {
+                    return;
+                };
+                this.update_in(cx, |_, window, cx| {
+                    window.dispatch_action(Box::new(A::new(name, dir)), cx);
+                })
+                .ok();
+            })
+            .detach();
+            return;
+        };
+        let added = match A::KIND {
+            Kind::Label => self.db.add_label_path(&name, path).map(drop),
+            Kind::Project => self.db.add_project_path(&name, path).map(drop),
+            Kind::View => return,
+        };
+        if self.report(added, cx).is_some() {
+            self.reload(cx);
+        }
+    }
+
+    fn remove_path<A: PathAction>(
+        &mut self,
+        name: Option<&String>,
+        path: Option<&String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.target(A::KIND, name, cx) else {
+            return;
+        };
+        let Some(path) = path else {
+            let paths = self.paths_of(A::KIND, &name);
+            if paths.is_empty() {
+                self.report::<()>(Err(anyhow::anyhow!("“{name}” has no paths")), cx);
+                return;
+            }
+            let entries = paths
+                .into_iter()
+                .map(|p| {
+                    let text = if p.exists {
+                        p.path.clone()
+                    } else {
+                        format!("{} (missing)", p.path)
+                    };
+                    let action = A::new(name.clone(), p.path);
+                    (PickerItem::new(text), Box::new(action) as Box<dyn Action>)
+                })
+                .collect();
+            let placeholder = format!("Remove a path from “{name}”…");
+            return self.open_action_picker(&placeholder, entries, 0, window, cx);
+        };
+        let removed = match A::KIND {
+            Kind::Label => self.db.remove_label_path(&name, path).map(drop),
+            Kind::Project => self.db.remove_project_path(&name, path).map(drop),
+            Kind::View => return,
+        };
+        if self.report(removed, cx).is_some() {
+            self.reload(cx);
         }
     }
 }

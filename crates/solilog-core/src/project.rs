@@ -110,6 +110,8 @@ pub struct Project {
     pub description: String,
     /// Default labels, given to issues when they join the project.
     pub labels: Vec<String>,
+    /// Directories where its codebase lives (see `Db::add_project_path`).
+    pub paths: Vec<crate::MappedPath>,
     /// Issues in the project, archived ones excepted.
     pub issue_count: i64,
     /// Done or cancelled issues (archived ones excepted).
@@ -174,6 +176,7 @@ fn project_from_row(row: &Row) -> rusqlite::Result<(i64, Project)> {
             issue_count: row.get(5)?,
             closed_issue_count: row.get(6)?,
             labels: Vec::new(),
+            paths: Vec::new(),
         },
     ))
 }
@@ -194,6 +197,7 @@ impl Db {
         for (id, mut project) in rows {
             if include_closed || !project.status.is_closed() {
                 project.labels = self.project_labels(id)?;
+                project.paths = self.owner_paths(crate::PathOwnerKind::Project, id)?;
                 projects.push(project);
             }
         }
@@ -209,6 +213,7 @@ impl Db {
             project_from_row,
         )?;
         project.labels = self.project_labels(id)?;
+        project.paths = self.owner_paths(crate::PathOwnerKind::Project, id)?;
         Ok(project)
     }
 
@@ -410,7 +415,7 @@ impl Db {
             .optional()?)
     }
 
-    fn project_id(&self, name: &str) -> Result<i64> {
+    pub(crate) fn project_id(&self, name: &str) -> Result<i64> {
         Ok(self
             .find_project(name)?
             .with_context(|| format!("no project {:?}", name.trim()))?

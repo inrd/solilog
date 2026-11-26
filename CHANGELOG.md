@@ -14,6 +14,17 @@ the scheme in AGENTS.md ("Versions and releases").
   `--remove-dependency`), together with the title and description in one
   go: all the changes are made, or none. `solilog issue create` takes
   `--depends-on`.
+- Labels and projects can be mapped to the folders where their code lives,
+  so agents working in a repository find its issues: `solilog label
+  add-path acme/reverb .` (or `project add-path`, and "Add Path…" in the
+  sidebar's menu). A folder belongs to one label or project, and folders
+  inside it belong to it too unless mapped themselves. `solilog where` tells
+  which one the current folder belongs to; `solilog issue ls --here` and
+  `solilog issue create --here` use it. Paths under your home folder are
+  saved as `~/…`, so they still work after restoring a backup on another
+  machine; folders missing on this machine are kept and marked "missing".
+  A project's header shows its paths, and a label now has a header too, with
+  its issue count and paths; click a path to show it in Finder.
 
 ### Fixed
 
