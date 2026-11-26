@@ -300,6 +300,27 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     CREATE TRIGGER search_notes_delete AFTER DELETE ON notes BEGIN
         DELETE FROM search_notes WHERE rowid = old.id;
     END;",
+    // 24: decisions (see `decision.rs`): standing statements on one issue,
+    // label or project. Never edited: `ended_at` is set when one is
+    // withdrawn or replaced (then `replaced_by` is the new one).
+    // `reviewed_at` is NULL while an agent's decision awaits the user.
+    "CREATE TABLE decisions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id    INTEGER REFERENCES issues (id) ON DELETE CASCADE,
+        label_id    INTEGER REFERENCES labels (id) ON DELETE CASCADE,
+        project_id  INTEGER REFERENCES projects (id) ON DELETE CASCADE,
+        text        TEXT    NOT NULL,
+        author      TEXT    NOT NULL,
+        created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+        ended_at    INTEGER,
+        ended_by    TEXT,
+        replaced_by INTEGER REFERENCES decisions (id) ON DELETE SET NULL,
+        reviewed_at INTEGER,
+        CHECK ((issue_id IS NOT NULL) + (label_id IS NOT NULL) + (project_id IS NOT NULL) = 1)
+    );
+    CREATE INDEX decisions_by_issue ON decisions (issue_id);
+    CREATE INDEX decisions_by_label ON decisions (label_id);
+    CREATE INDEX decisions_by_project ON decisions (project_id);",
 ];
 
 /// The schema version of a database with every migration applied.

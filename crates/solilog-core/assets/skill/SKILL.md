@@ -26,8 +26,10 @@ This file covers the workflows. For commands and flags, run
 1. Read it first: `solilog issue context SOL-12 --json` (the issue with its
    projects, dependencies, any `SOL-n` issues mentioned in the
    description, and its `notes`; use `issue show` when you only want the
-   issue). Read the notes: they hold what earlier sessions tried and
-   decided, and steering from the user. If `waiting_on` isn't empty,
+   issue). Read its `decisions` first: settled points that apply to the
+   issue (its own, its projects' and its labels'); follow them, and don't
+   reopen one without asking the user. Then the notes: they hold what
+   earlier sessions tried, and steering from the user. If `waiting_on` isn't empty,
    issues it depends on are still open: tell the user before starting.
 2. When you start: `solilog issue set-status SOL-12 in_progress`
    (`solilog statuses` lists the keys).
@@ -57,7 +59,8 @@ This file covers the workflows. For commands and flags, run
 
 Labels or projects can be mapped to the directories where their code
 lives. In a repository, run `solilog where --json` first: it names the
-label or project the current directory belongs to (`kind`, `name`). Then
+label or project the current directory belongs to (`kind`, `name`), with
+the `decisions` that apply there: read and follow them. Then
 `solilog issue ls --here` lists its issues and `solilog issue create
 --here` files new ones under it. If `where` fails, nothing is mapped
 there: ask the user which label or project the repository belongs to and
@@ -70,6 +73,19 @@ To triage or suggest what to work on next, start from
 for the full backlog): lightweight summaries without descriptions or full
 checklists, then drill into the few issues you need with `issue context`.
 `--ready` leaves out issues in review: they wait for the user, not for you.
+
+## Decisions
+
+When the user settles something that later sessions should know (an API
+to keep, a library to avoid, a convention), record it where it applies:
+`solilog decision add --issue SOL-12 "<decision>"`, `--label <label>` or
+`--project <project>` for wider ones (a label's apply to its sublabels),
+or `--here` for this codebase's label or project. Record what the user
+decided, in a sentence or two, not your own choices or plans (those go in
+notes). When the user changes their mind, `solilog decision replace <id>
+"<new decision>"` or `solilog decision withdraw <id>`. Decisions you record
+or withdraw wait for the user's review but apply at once; never confirm
+them yourself (`decision review` is for the user).
 
 ## Searching and catching up
 

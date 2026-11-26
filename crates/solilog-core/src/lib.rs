@@ -10,6 +10,7 @@ mod checklist;
 mod cli_link;
 mod context;
 mod db;
+mod decision;
 mod dependency;
 mod filter;
 mod issue;
@@ -43,6 +44,7 @@ pub use cli_link::{
 };
 pub use context::{IssueContext, IssueSummary, ProjectSummary};
 pub use db::{Db, default_path};
+pub use decision::{Decision, DecisionId, DecisionOwner, DecisionState, normalize_decision_text};
 pub use filter::IssueFilter;
 pub use issue::{
     CompactIssue, ISSUE_PREFIX, Issue, IssueChange, IssueEdit, IssueId, NewIssue, Status,

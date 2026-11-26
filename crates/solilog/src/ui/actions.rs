@@ -755,6 +755,74 @@ pub mod note {
     }
 }
 
+/// Decisions: standing statements on an issue, label or project, shown with
+/// the open issue and above the label's or project's issues. They apply
+/// below where they are recorded (a label's to its sublabels and issues) and
+/// agents read them before starting (`solilog issue context`, `solilog
+/// where`). Never edited: replaced or withdrawn. Without an `id`, commands
+/// pick one of the decisions shown.
+pub mod decision {
+    use gpui::Action;
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::{DecisionId, IssueId};
+
+    /// Record a decision. On the given `issue`, `label` or `project`, else
+    /// on the open issue (picking it, one of its projects or labels), else
+    /// on the label or project shown. Asks for the text unless given.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = decision)]
+    #[serde(deny_unknown_fields)]
+    pub struct Record {
+        #[serde(default)]
+        pub text: Option<String>,
+        #[serde(default)]
+        #[schemars(with = "Option<String>")]
+        pub issue: Option<IssueId>,
+        #[serde(default)]
+        pub label: Option<String>,
+        #[serde(default)]
+        pub project: Option<String>,
+    }
+
+    /// Replace a decision with a new one in the same place; the old one is
+    /// kept, superseded. Asks for the text unless given.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = decision)]
+    #[serde(deny_unknown_fields)]
+    pub struct Replace {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<DecisionId>,
+        #[serde(default)]
+        pub text: Option<String>,
+    }
+
+    /// Withdraw a decision: it no longer applies (it is kept, withdrawn).
+    /// Asks for confirmation unless `confirmed` is true.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = decision)]
+    #[serde(deny_unknown_fields)]
+    pub struct Withdraw {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<DecisionId>,
+        #[serde(default)]
+        pub confirmed: bool,
+    }
+
+    /// Confirm a decision an agent recorded or withdrew: the given `id`,
+    /// else every unreviewed one shown.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = decision)]
+    #[serde(deny_unknown_fields)]
+    pub struct MarkReviewed {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<DecisionId>,
+    }
+}
+
 /// Files attached to the open issue. They are copied into the attachments
 /// directory next to the database, one folder per issue.
 pub mod attachment {

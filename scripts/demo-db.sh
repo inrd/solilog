@@ -101,6 +101,12 @@ issue in_progress 3 "Rate limiting on /v2/events" -l feature -l repo/api -p "v2.
 q issue add-dependency 16 2
 q --actor codex:load-test note add 16 \
     "Benchmarked the in-memory limiter at 12k req/s; sliding window had 3x higher lock contention than a token bucket."
+# Decisions: one on the API codebase, applying to its issues, and one an
+# agent recorded on the issue, awaiting review.
+q decision add --label repo/api \
+    "Public endpoints stay backward compatible within v2; breaking changes wait for v3."
+q --actor claude:rate-limit decision add --issue 16 \
+    "Limits are per token, not per IP, so clients behind a shared NAT don't throttle each other."
 q --actor claude:rate-limit issue request-review 16 \
     -m "Added per-token bucket limiter on /v2/events with Retry-After headers and burst tests." \
     --pass "cargo test -p api" --pass "cargo clippy --all-targets" \

@@ -29,8 +29,8 @@ use gpui::{
     IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px,
 };
 use solilog_core::{
-    Activity, Issue, IssueEdit, IssueId, format_age, issue_mentions, normalize_description,
-    web_links,
+    Activity, Decision, DecisionOwner, Issue, IssueEdit, IssueId, format_age, issue_mentions,
+    normalize_description, web_links,
 };
 
 use super::{Workspace, chip, project_chip};
@@ -60,6 +60,9 @@ pub(super) struct IssueDetail {
     description: Entity<TextInput>,
     checklist: Checklist,
     notes: Notes,
+    /// The decisions that apply, then ended ones awaiting review (see
+    /// `Db::shown_decisions`).
+    decisions: Vec<Decision>,
     /// The image attachment shown over the window, if any.
     preview: Option<ImagePreview>,
     focus: FocusHandle,
@@ -75,6 +78,10 @@ impl IssueDetail {
 
     pub(super) fn focus_handle(&self) -> &FocusHandle {
         &self.focus
+    }
+
+    pub(super) fn decisions(&self) -> &[Decision] {
+        &self.decisions
     }
 }
 
@@ -142,6 +149,10 @@ impl Workspace {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
+        let decisions = self
+            .db
+            .shown_decisions(&DecisionOwner::issue(id))
+            .unwrap_or_default();
         self.detail = Some(IssueDetail {
             issue,
             unreviewed_activities,
@@ -149,6 +160,7 @@ impl Workspace {
             description,
             checklist,
             notes,
+            decisions,
             preview: None,
             focus,
             scroll,
@@ -271,6 +283,10 @@ impl Workspace {
         };
         let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
         let notes = self.db.issue_notes(id).unwrap_or_default();
+        let decisions = self
+            .db
+            .shown_decisions(&DecisionOwner::issue(id))
+            .unwrap_or_default();
         let Some(detail) = &mut self.detail else {
             return;
         };
@@ -293,6 +309,7 @@ impl Workspace {
         detail.issue = issue;
         detail.unreviewed_activities = unreviewed_activities;
         detail.notes.set_notes(notes);
+        detail.decisions = decisions;
     }
 
     /// Saves (adding the note being written) and closes the detail; the
@@ -642,6 +659,10 @@ impl Workspace {
                     })
                     .child(detail.description.clone())
                     .children(t.sunken_bevel()),
+            )
+            .children(
+                self.render_decisions(&detail.decisions, &DecisionOwner::issue(issue.id), true, cx)
+                    .map(|d| div().mt_4().flex().flex_col().child(d)),
             )
             .child(self.render_attachments(detail, &t))
             .child(self.render_dependencies(detail, &t))

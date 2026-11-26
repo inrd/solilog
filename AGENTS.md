@@ -187,6 +187,18 @@ writing SQL or validation in `crates/solilog`, move it to core.
   layout works; paths missing on this machine are kept (`exists: false`)
   and match nothing. Renaming carries them along; deleting the owner
   deletes them.
+- **Decision**: a standing statement on one issue, label or project
+  (`decision.rs`, `DecisionOwner`): text, author, time. It applies below
+  where it is recorded (`Db::inherited_decisions`: an issue gets its own,
+  its projects' and its labels' with their ancestors', most specific
+  first), in `Db::issue_context` and `solilog where`. Never edited:
+  `Db::replace_decision` ends it (`superseded`, `replaced_by`) for a new
+  one on the same owner, `Db::withdraw_decision` ends it; ended ones are
+  kept and listed on request. Reviewed one by one (`reviewed`): one an
+  agent records or withdraws waits for the user
+  (`Db::mark_decisions_reviewed`; marking an issue reviewed confirms its
+  own). On an issue, recording, replacing and withdrawing are activities.
+  Deleting the owner deletes them; renaming carries them along.
 - **View**: a named, saved `IssueFilter` (statuses, open only, labels (all
   must match), labels to exclude, projects (any may match) or no project).
   Renaming a label or project updates views; deleting one makes the views

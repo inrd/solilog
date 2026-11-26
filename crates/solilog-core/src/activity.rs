@@ -177,6 +177,9 @@ pub enum ActivityKind {
     ReviewRequested,
     Approved,
     SentBack,
+    DecisionRecorded,
+    DecisionReplaced,
+    DecisionWithdrawn,
 }
 
 impl ActivityKind {
@@ -207,6 +210,9 @@ impl ActivityKind {
             Self::ReviewRequested => "review_requested",
             Self::Approved => "approved",
             Self::SentBack => "sent_back",
+            Self::DecisionRecorded => "decision_recorded",
+            Self::DecisionReplaced => "decision_replaced",
+            Self::DecisionWithdrawn => "decision_withdrawn",
         }
     }
 
@@ -237,6 +243,9 @@ impl ActivityKind {
             ActivityKind::ReviewRequested,
             ActivityKind::Approved,
             ActivityKind::SentBack,
+            ActivityKind::DecisionRecorded,
+            ActivityKind::DecisionReplaced,
+            ActivityKind::DecisionWithdrawn,
         ];
         ALL.iter().copied().find(|k| k.key() == key)
     }
@@ -313,6 +322,9 @@ impl Activity {
             ActivityKind::ReviewRequested => with_detail("requested review"),
             ActivityKind::Approved => with_detail("approved"),
             ActivityKind::SentBack => with_detail("sent back"),
+            ActivityKind::DecisionRecorded => with_detail("recorded decision"),
+            ActivityKind::DecisionReplaced => with_detail("replaced decision"),
+            ActivityKind::DecisionWithdrawn => with_detail("withdrew decision"),
         }
     }
 }
@@ -526,6 +538,7 @@ impl Db {
             [id],
         )?;
         anyhow::ensure!(updated == 1, "no issue {id}");
+        self.set_issue_decisions_reviewed(id)?;
         Ok(())
     }
 

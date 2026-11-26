@@ -9,6 +9,7 @@ mod archive;
 mod backup;
 mod chip_row;
 mod cli_install;
+mod decisions;
 mod dependency;
 mod detail;
 mod filter;
@@ -242,6 +243,9 @@ pub struct Workspace {
     detail: Option<IssueDetail>,
     /// The description field of the project header.
     project_description: ProjectDescription,
+    /// The decisions shown in the label or project header (see
+    /// `decisions.rs`).
+    scope_decisions: Vec<solilog_core::Decision>,
     modal: Option<OpenModal>,
     error: Option<String>,
     /// News about the last command (e.g. a backup made), shown in the
@@ -331,6 +335,7 @@ impl Workspace {
             archive_scroll: ScrollHandle::new(),
             detail: None,
             project_description: ProjectDescription::new(window, cx),
+            scope_decisions: Vec::new(),
             modal: None,
             error: None,
             notice: None,
@@ -401,6 +406,7 @@ impl Workspace {
         self.fix_archive_cursor(prev_archive_ix);
         self.refresh_detail(cx);
         self.refresh_project_description(cx);
+        self.refresh_scope_decisions();
         let Some(mut issues) = self.report(self.db.list_issues(&filter), cx) else {
             self.issues.clear();
             self.sections.clear();
@@ -2071,6 +2077,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_open_url))
             .on_action(cx.listener(Self::on_add_checklist_item))
             .on_action(cx.listener(Self::on_add_note))
+            .on_action(cx.listener(Self::on_record_decision))
+            .on_action(cx.listener(Self::on_replace_decision))
+            .on_action(cx.listener(Self::on_withdraw_decision))
+            .on_action(cx.listener(Self::on_mark_decision_reviewed))
             .on_action(cx.listener(Self::on_add_label))
             .on_action(cx.listener(Self::on_remove_label))
             .on_action(cx.listener(Self::on_add_to_project))

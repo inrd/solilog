@@ -7,6 +7,7 @@ use rusqlite::OptionalExtension as _;
 use serde::Serialize;
 
 use crate::Db;
+use crate::decision::{Decision, DecisionOwner};
 use crate::issue::{Issue, IssueId, Status, issue_mentions};
 use crate::note::Note;
 use crate::project::ProjectStatus;
@@ -30,8 +31,8 @@ pub struct IssueSummary {
     pub summary: String,
 }
 
-/// An issue together with its projects, dependencies, referenced issues and
-/// notes.
+/// An issue together with its projects, dependencies, referenced issues,
+/// notes and the decisions that apply to it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct IssueContext {
     pub issue: Issue,
@@ -40,6 +41,10 @@ pub struct IssueContext {
     pub referenced_issues: Vec<IssueSummary>,
     /// The issue's worklog, oldest first.
     pub notes: Vec<Note>,
+    /// The decisions in force that apply to the issue: its own, its
+    /// projects', its labels' and their ancestors' (most specific first;
+    /// see `Db::inherited_decisions`).
+    pub decisions: Vec<Decision>,
 }
 
 fn brief_summary(description: &str) -> String {
@@ -56,8 +61,8 @@ fn brief_summary(description: &str) -> String {
 
 impl Db {
     /// Returns an issue together with its projects, `depends_on` issues, and
-    /// any existing `SOL-n` issues referenced in its description, and its
-    /// notes.
+    /// any existing `SOL-n` issues referenced in its description, its
+    /// notes and the decisions that apply to it.
     pub fn issue_context(&self, id: IssueId) -> Result<IssueContext> {
         let issue = self.get_issue(id)?;
 
@@ -89,12 +94,14 @@ impl Db {
         }
 
         let notes = self.issue_notes(id)?;
+        let decisions = self.inherited_decisions(&DecisionOwner::issue(id))?;
         Ok(IssueContext {
             issue,
             projects,
             depends_on,
             referenced_issues,
             notes,
+            decisions,
         })
     }
 
@@ -199,6 +206,12 @@ mod tests {
         assert!(ctx.notes.is_empty());
         let note = db.add_note(main.id, "Started on it.").unwrap();
         assert_eq!(db.issue_context(main.id).unwrap().notes, [note]);
+
+        assert!(ctx.decisions.is_empty());
+        let decision = db
+            .record_decision(&DecisionOwner::project("alpha"), "No unsafe code.")
+            .unwrap();
+        assert_eq!(db.issue_context(main.id).unwrap().decisions, [decision]);
     }
 
     #[test]

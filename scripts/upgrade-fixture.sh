@@ -63,6 +63,11 @@ s --actor claude:footer issue request-review SOL-4 -m "Lint fixed." --pass "make
 # one absolute; neither exists.
 s label add-path web "~/code/website"
 s project add-path "Website v2" /srv/solilog-fixture/website-v2
+# Decisions (after 0.2.4): one on a label, replaced; one by an agent on
+# SOL-2, unreviewed.
+s decision add --label web "Keep the header under 80px."
+s --actor claude:fix-header decision add --issue SOL-2 "The logo scales down below 600px."
+s decision replace 1 "Keep the header under 64px."
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

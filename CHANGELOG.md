@@ -8,6 +8,16 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- Decisions: standing statements on an issue, label or project ("Keep the
+  v1 API; breaking changes wait for 2.0") that agents read before starting
+  work there. A label's decisions apply to its sublabels and their issues,
+  a project's to its issues. `solilog decision add|list|replace|withdraw`
+  manages them; `issue context` and `where` include those that apply.
+  Decisions are never edited: replacing or withdrawing one keeps it. One an
+  agent records or withdraws is marked unreviewed until you confirm it. In
+  the app, they show with the open issue and in the label's or project's
+  header.
+
 - Full-text search: `solilog search <words>` finds issues by their title,
   description, checklist items and notes, best matches first (words match
   as prefixes, ignoring case and accents; `"quoted words"` as a phrase).

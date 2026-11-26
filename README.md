@@ -19,6 +19,7 @@ solilog skill show        # what it says
 From any project, mentioning an issue ("work on SOL-16") or your backlog ("what should I do next?") makes the agent reach for `solilog`:
 
 - **Read in one call:** agents scan ready work with `issue ls --ready --compact --json` and pull an issue together with its projects, dependencies, referenced `SOL-n` issues, and notes via `issue context`.
+- **Decisions that stick:** settled points ("keep the v1 API") are recorded on an issue, a label or a project, and apply below it: a label's decisions reach its sublabels and their issues. Agents get them with `issue context` and `where` before starting, so a new session doesn't reopen them. Decisions are never edited, only replaced or withdrawn, and one an agent records waits for you to confirm it.
 - **Worklog, not spec:** as an agent works, it ticks checklist items and logs progress, decisions, and handoffs in append-only **notes**, leaving your description alone. If text is ever overwritten by mistake, revision history (`shift-h` / `issue history`) lets you restore it.
 - **Authorship and review tracking:** agents identify themselves with `--actor` or `SOLILOG_ACTOR` (e.g. `claude:fix-auth`). Changes made outside the app are attributed, marked subtly in the UI, recorded in an activity log, and collected in the sidebar's **Unreviewed** view until you clear them (`r` / `shift-r`).
 - **Review handoff with receipts:** when finished, the agent doesn't close the issue — it hands it to you (`In Review`, at the top of the list) with a receipt of the checks it ran (pass or fail) and the commits and files it changed. You approve it in the app (`cmd-enter`, marking it done) or send it back to Todo with a note (`cmd-backspace`).
@@ -51,13 +52,14 @@ On Linux, building needs a C compiler and the development packages of GPUI's dep
 solilog issue create "Fix the thing"
 solilog issue ls --open --json
 solilog issue ls --ready --compact --json    # open issues with nothing open to wait for
-solilog issue context SOL-1 --json           # issue + projects, dependencies, refs, notes
+solilog issue context SOL-1 --json           # issue + projects, dependencies, refs, decisions, notes
 solilog issue set-status SOL-1 done
 pbpaste | solilog issue edit SOL-1 -d -      # description from stdin
 solilog checklist add SOL-1 "Write tests" "Update docs"
 solilog checklist check 1                    # item ids are shown by `issue show`
 solilog attachment add SOL-1 crash.log       # copied next to the database
 solilog note add SOL-1 "Tried X, fails on Y" # the issue's worklog
+solilog decision add --label acme/reverb "Keep the v1 preset format"   # applies to its issues
 solilog issue request-review SOL-1 -m "Fixed X" --pass "cargo test" --commit a1b2c3d
 solilog issue create "Crash on load" -l acme/reverb -l bug
 solilog issue ls -l acme                     # also matches sublabels like acme/reverb
@@ -129,6 +131,8 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 ### An open issue
 
 Title, description and checklist are edited in place and saved as you type. `Escape` goes back.
+
+Below the description, the decisions that apply to the issue: its own, and those of its projects and labels (with where each comes from). Hover one to replace or withdraw it; one an agent recorded or withdrew is marked until you confirm it. **Decision: Record** (or "+ Record") adds one on the issue, one of its projects or one of its labels. A label's or project's decisions also show in its header above the issue list.
 
 Below the checklist, notes are the issue's worklog: what you or an agent tried, decided or left for next time, each with its author and time. Notes are never edited; a note being written is added when you leave the issue.
 

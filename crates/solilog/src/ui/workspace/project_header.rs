@@ -14,7 +14,7 @@ use gpui::{
     Action, ClickEvent, Context, Entity, Focusable, FontWeight, IntoElement, Task, Window, div,
     prelude::*, px, relative,
 };
-use solilog_core::{Project, ProjectUpdate};
+use solilog_core::{DecisionOwner, Project, ProjectUpdate};
 
 use super::Workspace;
 use super::detail::{AUTOSAVE_DELAY, description_changed};
@@ -248,6 +248,12 @@ impl Workspace {
             )
             .child(self.default_labels(project, cx))
             .child(self.render_project_description(window, cx))
+            .children(self.render_decisions(
+                &self.scope_decisions,
+                &DecisionOwner::project(&project.name),
+                false,
+                cx,
+            ))
     }
 
     /// The description field, cut to a few lines while not edited if long.
@@ -387,6 +393,7 @@ impl Workspace {
             .children(chips)
             .child(add)
             .children(paths)
+            .children(self.record_decision_chip(&DecisionOwner::project(&project.name), &t))
     }
 }
 

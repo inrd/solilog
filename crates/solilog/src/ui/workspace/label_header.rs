@@ -1,9 +1,10 @@
 //! The header above the issue list while it shows a label: its name (in its
-//! color), how many issues carry it or a sublabel, and its paths (folders
-//! where its code lives; see `path_chips.rs`).
+//! color), how many issues carry it or a sublabel, its paths (folders where
+//! its code lives; see `path_chips.rs`) and the decisions that apply to it
+//! (see `decisions.rs`).
 
 use gpui::{Action as _, Context, FontWeight, IntoElement, div, prelude::*, px};
-use solilog_core::Label;
+use solilog_core::{DecisionOwner, Label};
 
 use super::Workspace;
 use super::path_chips::path_chips;
@@ -44,6 +45,9 @@ impl Workspace {
             label::AddPath::default().boxed_clone(),
             &t,
         );
+        let here = DecisionOwner::label(&shown.name);
+        let record = self.record_decision_chip(&here, &t);
+        let decisions = self.render_decisions(&self.scope_decisions, &here, false, cx);
         div()
             .flex()
             .flex_col()
@@ -85,7 +89,9 @@ impl Workspace {
                     .items_center()
                     .gap_1()
                     .text_size(px(12.))
-                    .children(paths),
+                    .children(paths)
+                    .children(record),
             )
+            .children(decisions)
     }
 }

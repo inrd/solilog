@@ -77,6 +77,14 @@ pub struct PathMapping {
 }
 
 impl PathMapping {
+    /// This label or project, as the owner of decisions.
+    pub fn decision_owner(&self) -> crate::DecisionOwner {
+        match self.kind {
+            PathOwnerKind::Label => crate::DecisionOwner::label(&self.name),
+            PathOwnerKind::Project => crate::DecisionOwner::project(&self.name),
+        }
+    }
+
     /// Narrows a filter to this label's or project's issues.
     pub fn scope_filter(&self, filter: &mut IssueFilter) {
         let list = match self.kind {

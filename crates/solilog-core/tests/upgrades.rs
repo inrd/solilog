@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
 use solilog_core::{
-    BackupReason, Check, Db, IssueFilter, IssueId, LabelColor, NoteKind, PathOwnerKind,
-    ProjectStatus, Receipt, RevisionField, Status, Verdict,
+    BackupReason, Check, Db, DecisionId, DecisionOwner, DecisionState, IssueFilter, IssueId,
+    LabelColor, NoteKind, PathOwnerKind, ProjectStatus, Receipt, RevisionField, Status, Verdict,
 };
 
 fn fixtures() -> Vec<PathBuf> {
@@ -71,6 +71,9 @@ fn every_release_upgrades() {
         }
         if before >= PATHS_SCHEMA {
             check_paths(&db);
+        }
+        if before >= DECISIONS_SCHEMA {
+            check_decisions(&db);
         }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
@@ -315,6 +318,49 @@ fn check_paths(db: &Db) {
                 "/srv/solilog-fixture/website-v2".into()
             ),
         ]
+    );
+}
+
+/// Decisions: `user_version` from migration 24 on.
+const DECISIONS_SCHEMA: i64 = 24;
+
+fn check_decisions(db: &Db) {
+    let rows = |owner: DecisionOwner| -> Vec<(DecisionId, String, DecisionState, bool)> {
+        db.decisions(&owner, true)
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.id, d.text, d.state, d.reviewed))
+            .collect()
+    };
+    assert_eq!(
+        rows(DecisionOwner::label("web")),
+        [
+            (
+                DecisionId(1),
+                "Keep the header under 80px.".into(),
+                DecisionState::Superseded,
+                true
+            ),
+            (
+                DecisionId(3),
+                "Keep the header under 64px.".into(),
+                DecisionState::InForce,
+                true
+            ),
+        ]
+    );
+    assert_eq!(
+        rows(DecisionOwner::issue(IssueId(2))),
+        [(
+            DecisionId(2),
+            "The logo scales down below 600px.".into(),
+            DecisionState::InForce,
+            false
+        )]
+    );
+    assert_eq!(
+        db.get_decision(DecisionId(3)).unwrap().replaces,
+        Some(DecisionId(1))
     );
 }
 

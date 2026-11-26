@@ -17,12 +17,13 @@ use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
     Activity, ActivityQuery, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir,
-    BackupReason, Check, ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueChange,
-    IssueContext, IssueEdit, IssueFilter, IssueId, IssueSummary, Label, LabelColor, MappedPath,
-    NewIssue, NewProject, Note, NoteId, NoteKind, PathMapping, Placement, Project, ProjectStatus,
-    ProjectSummary, ProjectUpdate, Receipt, Revision, RevisionId, SKILL_NAME, SKILL_VERSION,
-    SearchField, SearchHit, SearchQuery, SkillChange, SkillEnv, SkillState, SkillStatus, Status,
-    Verdict, View, format_age, format_size, format_utc,
+    BackupReason, Check, ChecklistItemId, CompactIssue, Db, Decision, DecisionId, DecisionOwner,
+    DecisionState, Handoff, Issue, IssueChange, IssueContext, IssueEdit, IssueFilter, IssueId,
+    IssueSummary, Label, LabelColor, MappedPath, NewIssue, NewProject, Note, NoteId, NoteKind,
+    PathMapping, Placement, Project, ProjectStatus, ProjectSummary, ProjectUpdate, Receipt,
+    Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SearchField, SearchHit, SearchQuery,
+    SkillChange, SkillEnv, SkillState, SkillStatus, Status, Verdict, View, format_age, format_size,
+    format_utc,
 };
 
 #[derive(Parser)]
@@ -103,6 +104,28 @@ pub enum Command {
     /// deleted only by the user or by its author.
     #[command(subcommand, visible_alias = "n")]
     Note(NoteCommand),
+    /// Manage decisions: standing statements on an issue, label or project
+    /// that agents read before starting work there.
+    ///
+    /// A decision records something settled ("Keep the v1 API; breaking
+    /// changes wait for 2.0") so later sessions don't reopen it. It applies
+    /// where it is recorded and below: a label's decisions apply to its
+    /// sublabels and their issues, a project's to its issues. `issue
+    /// context` and `where` include the decisions that apply.
+    ///
+    /// Decisions are never edited: `replace` records a new one in place of
+    /// an old one (kept, `superseded`), `withdraw` ends one. Record what the
+    /// user decided, not your own choices. A decision recorded or withdrawn
+    /// by an agent is unreviewed (`reviewed: false`) until the user
+    /// confirms it; it still applies meanwhile.
+    ///
+    /// JSON: `id`, `owner` (`{"kind": "issue", "id": "SOL-12"}`, `{"kind":
+    /// "label", "name": …}` or `{"kind": "project", "name": …}`), `text`,
+    /// `author`, `created_at`, `state` (`in_force`, `superseded`,
+    /// `withdrawn`), `replaces`, `replaced_by`, `ended_at`, `ended_by`,
+    /// `reviewed`.
+    #[command(subcommand, visible_alias = "d")]
+    Decision(DecisionCommand),
     /// Search issues' titles, descriptions, checklist items and notes, best
     /// matches first.
     ///
@@ -154,7 +177,9 @@ pub enum Command {
     /// directories missing on this machine.
     ///
     /// JSON: `kind` (`label` or `project`), `name`, `path` (as stored,
-    /// `~/…` under the home directory), `absolute`, `exists`. Use it to
+    /// `~/…` under the home directory), `absolute`, `exists`, and
+    /// `decisions`: those in force for that label (with its ancestors') or
+    /// project, most specific first (see `solilog decision`). Use it to
     /// find the issues of the codebase you are in (`issue list --here`).
     Where {
         /// Look up this directory instead of the current one.
@@ -628,6 +653,95 @@ pub enum NoteCommand {
     /// note's author can.
     #[command(visible_alias = "rm")]
     Delete { note: NoteId },
+}
+
+/// Which issue, label or project a decision command is about.
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+pub struct DecisionOwnerArgs {
+    /// On this issue.
+    #[arg(long, value_name = "ID")]
+    issue: Option<IssueId>,
+    /// On this label (a sublabel's decisions are its own).
+    #[arg(long, value_name = "LABEL")]
+    label: Option<String>,
+    /// On this project.
+    #[arg(long, value_name = "PROJECT")]
+    project: Option<String>,
+    /// On the label or project mapped to the current directory (see
+    /// `solilog where`).
+    #[arg(long)]
+    here: bool,
+}
+
+impl DecisionOwnerArgs {
+    fn owner(self, db: &Db) -> Result<DecisionOwner> {
+        Ok(match self {
+            Self {
+                issue: Some(id), ..
+            } => DecisionOwner::issue(id),
+            Self {
+                label: Some(name), ..
+            } => DecisionOwner::label(name),
+            Self {
+                project: Some(name),
+                ..
+            } => DecisionOwner::project(name),
+            _ => db.require_path_owner(&current_dir()?)?.decision_owner(),
+        })
+    }
+}
+
+#[derive(Subcommand)]
+pub enum DecisionCommand {
+    /// Record a decision on an issue, label or project and print it.
+    ///
+    /// Example: `solilog decision add --label acme/reverb "Keep the v1 API;
+    /// breaking changes wait for 2.0"`, or `-` to read it from stdin.
+    /// Record what the user decided (in your session or elsewhere), not
+    /// your own choices.
+    #[command(visible_alias = "new")]
+    Add {
+        #[command(flatten)]
+        owner: DecisionOwnerArgs,
+        /// The decision; `-` reads it from stdin.
+        text: String,
+    },
+    /// List the decisions recorded on an issue, label or project, oldest
+    /// first: those in force, unless `--all`.
+    #[command(visible_alias = "ls")]
+    List {
+        #[command(flatten)]
+        owner: DecisionOwnerArgs,
+        /// Also superseded and withdrawn decisions.
+        #[arg(long, short, conflicts_with = "inherited")]
+        all: bool,
+        /// Every decision in force that applies, not only those recorded
+        /// there: for an issue, its projects' and labels' too; for a label,
+        /// its ancestors' (as in `issue context` and `where`).
+        #[arg(long)]
+        inherited: bool,
+    },
+    /// Show one decision.
+    Show { decision: DecisionId },
+    /// Replace a decision in force with a new one on the same issue, label
+    /// or project, and print the new one. The old one is kept, superseded.
+    Replace {
+        decision: DecisionId,
+        /// The new decision; `-` reads it from stdin.
+        text: String,
+    },
+    /// Withdraw a decision in force (it no longer applies) and print it.
+    Withdraw { decision: DecisionId },
+    /// List the decisions awaiting the user's review (recorded or withdrawn
+    /// by an agent), oldest first.
+    Unreviewed,
+    /// Confirm decisions as reviewed and print them. For the user: an
+    /// agent shouldn't confirm its own.
+    Review {
+        #[arg(required = true)]
+        decisions: Vec<DecisionId>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1280,6 +1394,37 @@ fn run_command(
                 NoteCommand::Delete { note } => out.note(&db.delete_note(note)?),
             }
         }
+        Command::Decision(cmd) => {
+            let db = &*open_db(opened, actor)?;
+            match cmd {
+                DecisionCommand::Add { owner, text } => out.decision(
+                    &db.record_decision(&owner.owner(db)?, &read_arg(text, "decision")?)?,
+                ),
+                DecisionCommand::List {
+                    owner,
+                    all,
+                    inherited,
+                } => {
+                    let owner = owner.owner(db)?;
+                    if inherited {
+                        out.decisions(&db.inherited_decisions(&owner)?)
+                    } else {
+                        out.decisions(&db.decisions(&owner, all)?)
+                    }
+                }
+                DecisionCommand::Show { decision } => out.decision(&db.get_decision(decision)?),
+                DecisionCommand::Replace { decision, text } => {
+                    out.decision(&db.replace_decision(decision, &read_arg(text, "decision")?)?)
+                }
+                DecisionCommand::Withdraw { decision } => {
+                    out.decision(&db.withdraw_decision(decision)?)
+                }
+                DecisionCommand::Unreviewed => out.decisions(&db.unreviewed_decisions()?),
+                DecisionCommand::Review { decisions } => {
+                    out.decisions(&db.mark_decisions_reviewed(&decisions)?)
+                }
+            }
+        }
         Command::View(cmd) => {
             let db = &*opened.insert(Db::open_default()?);
             match cmd {
@@ -1471,7 +1616,19 @@ fn run_command(
                     None => current_dir()?,
                 };
                 let found = db.require_path_owner(&dir)?;
-                out.print(&found, || mapping_line(&found))
+                let decisions = db.inherited_decisions(&found.decision_owner())?;
+                let result = WhereResult {
+                    mapping: &found,
+                    decisions: &decisions,
+                };
+                out.print(&result, || {
+                    let mut text = mapping_line(&found);
+                    if !decisions.is_empty() {
+                        text.push_str("\n\nDecisions:\n");
+                        text.push_str(&decisions_text(&decisions));
+                    }
+                    text
+                })
             }
         }
         Command::DbPath => {
@@ -1637,6 +1794,10 @@ impl Output {
                     text.push_str(&issue_summary_line(i));
                 }
             }
+            if !ctx.decisions.is_empty() {
+                text.push_str("\n\nDecisions:\n");
+                text.push_str(&decisions_text(&ctx.decisions));
+            }
             if !ctx.notes.is_empty() {
                 text.push_str("\n\nNotes:\n");
                 text.push_str(&notes_text(&ctx.notes));
@@ -1647,6 +1808,14 @@ impl Output {
 
     fn note(&self, note: &Note) -> Result<()> {
         self.print(note, || note_text(note))
+    }
+
+    fn decision(&self, decision: &Decision) -> Result<()> {
+        self.print(decision, || decision_text(decision))
+    }
+
+    fn decisions(&self, decisions: &[Decision]) -> Result<()> {
+        self.print(decisions, || decisions_text(decisions))
     }
 
     fn handoff(&self, handoff: &Handoff) -> Result<()> {
@@ -2018,6 +2187,53 @@ fn handoff_text(handoff: &Handoff) -> String {
 /// Notes, a blank line apart.
 fn notes_text(notes: &[Note]) -> String {
     notes.iter().map(note_text).collect::<Vec<_>>().join("\n\n")
+}
+
+/// `where`'s JSON: the mapping's fields and the decisions that apply.
+#[derive(Serialize)]
+struct WhereResult<'a> {
+    #[serde(flatten)]
+    mapping: &'a PathMapping,
+    decisions: &'a [Decision],
+}
+
+/// Id, owner, age, author, state and review, then the text, indented.
+fn decision_text(decision: &Decision) -> String {
+    let mut text = format!(
+        "{:<4} {:<20} {:<12} {}",
+        decision.id.0,
+        decision.owner.to_string(),
+        format_age(decision.created_at),
+        decision.author
+    );
+    match (decision.state, decision.replaced_by) {
+        (DecisionState::Superseded, Some(by)) => text.push_str(&format!("  superseded by {by}")),
+        (DecisionState::InForce, _) => {}
+        (state, _) => text.push_str(&format!("  {}", state.key())),
+    }
+    if let Some(old) = decision.replaces {
+        text.push_str(&format!("  replaces {old}"));
+    }
+    if !decision.reviewed {
+        text.push_str("  unreviewed");
+    }
+    for line in decision.text.lines() {
+        text.push('\n');
+        if !line.is_empty() {
+            text.push_str("    ");
+            text.push_str(line);
+        }
+    }
+    text
+}
+
+/// Decisions, a blank line apart.
+fn decisions_text(decisions: &[Decision]) -> String {
+    decisions
+        .iter()
+        .map(decision_text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Id, name, size and path.
