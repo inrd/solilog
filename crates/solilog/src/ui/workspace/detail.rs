@@ -652,6 +652,9 @@ impl Workspace {
         div()
             .flex_1()
             .min_w_0()
+            // Without it, the column grows to fit the whole issue and the
+            // scroll area below never overflows: the wheel does nothing.
+            .min_h_0()
             .flex()
             .flex_col()
             .child(header)
@@ -692,11 +695,20 @@ impl Workspace {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&detail.scroll)
-                    // In a row, so the body's max width also applies when
-                    // its wrapped text is measured: directly in the scroll
-                    // area, a long description was measured wider than it
-                    // is drawn, too short, and ran into what follows it.
-                    .child(div().flex().w_full().child(body)),
+                    // The scroll range is the height of the row below, so
+                    // it must be measured at the width the text is drawn:
+                    // - a flex column stretches the row to the area's width
+                    //   (as a plain block, it was sized from an unwrapped
+                    //   pass: too short to reach the bottom);
+                    // - the body is a flex item of the row, so its max
+                    //   width applies when its wrapped text is measured
+                    //   (stretched or `w_full`, it was measured wider than
+                    //   drawn, too short, and ran into what follows it);
+                    // - `flex_shrink_0` keeps the row from shrinking to the
+                    //   area's height.
+                    .flex()
+                    .flex_col()
+                    .child(div().flex().flex_shrink_0().child(body)),
             )
     }
 }

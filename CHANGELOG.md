@@ -6,6 +6,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Fixed
+
+- The mouse wheel scrolls an open issue again, all the way to its end and no
+  further.
+
 ## [0.2.4] - 2026-11-25
 
 ### Added
