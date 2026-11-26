@@ -1,12 +1,14 @@
 # Solilog
 
-A fast, minimal, offline issue tracker for you and your coding agents. Native desktop app built in Rust with [GPUI](https://gpui.rs), plus a CLI over the same local database.
+A local planning and handoff hub for working with coding agents: a fast, lightweight native desktop app where you spec, prioritize, and review work, paired with a CLI over the same local database that agents read from and report back to.
+
+Solilog lives outside any single tool, repository, or session. Different agents across your projects share one durable source of truth: issues hold the spec, an append-only worklog of what each agent tried or decided, and structured review handoffs with test results and commits. Offline, keyboard-first, single-user.
 
 ![Solilog](docs/screenshot.png)
 
-## Working with AI agents
+## Agent workflow
 
-The `solilog` CLI is built for coding agents as much as for people: every command takes `--json`, and `--help` is written for an agent that has never seen Solilog. To let your agents know the tracker exists, install the built-in Solilog skill:
+Every `solilog` command takes `--json`, and `--help` is written for an agent that has never seen Solilog. Install the built-in skill so agents know to use it:
 
 ```sh
 solilog skill install     # for every agent found: Antigravity, Claude Code, Codex, Cursor, OpenCode, pi
