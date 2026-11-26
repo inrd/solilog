@@ -425,7 +425,7 @@ impl Workspace {
             .items_center()
             .px_2()
             .py_3()
-            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .when(t.surface_toolbars(), |s| s.bg(t.colors.surface))
             .border_b_1()
             .border_color(t.colors.divider)
             .child(back)

@@ -7,6 +7,7 @@
   "icons": "pixel",
   "radius": 0,
   "shadow": "hard",
+  "toolbars": "plain",
   "font_family": "monospace",
   "colors": {
     "background": "#050c06",

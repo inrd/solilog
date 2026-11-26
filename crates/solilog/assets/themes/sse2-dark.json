@@ -7,6 +7,7 @@
   "icons": "default",
   "radius": 6,
   "shadow": "soft",
+  "toolbars": "plain",
   "colors": {
     "background": "#0a1729",
     "sidebar": "#071221",

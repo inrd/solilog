@@ -51,7 +51,7 @@ impl Workspace {
             .px_4()
             .pt_3()
             .pb_2()
-            .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+            .when(t.surface_toolbars(), |s| s.bg(t.colors.surface))
             .border_b_1()
             .border_color(t.colors.divider)
             .child(

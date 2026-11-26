@@ -8,6 +8,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- An `SSE` theme, inspired by early-2000s desktops: a bold blue title bar
+  with rounded buttons, beige surfaces and a light blue sidebar. Theme files
+  can use its title bar with `"titlebar": "luna"`, and draw the bars above
+  the issue list and open issue in their `surface` color with
+  `"toolbars": "surface"`.
 - `solilog issue edit` can change the status, labels, projects and
   dependencies too (`--status`, `--add-label`, `--remove-label`,
   `--add-to-project`, `--remove-from-project`, `--add-dependency`,
@@ -28,6 +33,9 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Fixed
 
+- Label tags on the highlighted or selected issue row get a filled background,
+  and its checklist and unreviewed badges switch to the row's text color when
+  the accent doesn't stand out, so they stay readable on strong highlights.
 - The mouse wheel scrolls an open issue again, all the way to its end and no
   further.
 - The window can no longer be shrunk below 600×400, where its content stopped

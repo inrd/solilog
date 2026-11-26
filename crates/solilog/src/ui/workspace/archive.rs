@@ -337,6 +337,8 @@ impl Workspace {
                 })
             });
         let muted = highlight.map_or(t.colors.text_muted, |(_, fg)| fg);
+        // The focused cursor's row, not the faint unfocused one.
+        let painted = highlight.is_some_and(|(bg, _)| bg == t.colors.highlight);
         match item {
             ArchiveItem::Project(name) => {
                 let count = self
@@ -400,7 +402,7 @@ impl Workspace {
                             issue.title.clone(),
                         )),
                 )
-                .child(self.issue_chips(issue, &t))
+                .child(self.issue_chips(issue, painted, &t))
                 .into_any_element()
             }
         }
@@ -466,7 +468,7 @@ impl Workspace {
                     .items_baseline()
                     .px_4()
                     .py_3()
-                    .when(t.is_bevel(), |s| s.bg(t.colors.surface))
+                    .when(t.surface_toolbars(), |s| s.bg(t.colors.surface))
                     .border_b_1()
                     .border_color(t.colors.divider)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Archive"))

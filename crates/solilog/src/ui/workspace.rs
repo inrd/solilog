@@ -1487,8 +1487,15 @@ impl Workspace {
             Some((_, fg)) if in_selection || highlighted => fg,
             _ => t.colors.text_muted,
         };
+        // On a painted row, the accent gives way to the row's text color
+        // when it doesn't stand out from the row (navy on navy in MMX).
+        let painted = in_selection || highlighted;
         let row_accent = match row_colors {
-            Some((_, fg)) if (in_selection || highlighted) && (t.is_bevel() || t.is_crt()) => fg,
+            Some((bg, fg))
+                if painted && theme::contrast_ratio(t.colors.accent, bg) < MIN_ACCENT_CONTRAST =>
+            {
+                fg
+            }
             _ => t.colors.accent,
         };
         div()
@@ -1613,23 +1620,35 @@ impl Workspace {
             .when(issue.unreviewed, |row| {
                 row.child(unreviewed_badge(&issue.unreviewed_actors, row_accent))
             })
-            .child(self.issue_chips(issue, &t))
+            .child(self.issue_chips(issue, painted, &t))
     }
 
     /// An issue's project and label chips, in a row that gives way to the
     /// title: chips that don't fit are counted in a last "+N" chip.
-    pub(super) fn issue_chips(&self, issue: &Issue, t: &theme::Theme) -> impl IntoElement + use<> {
-        let projects = issue
-            .projects
-            .iter()
-            .map(|project| project_chip(project.clone(), t).into_any_element());
+    /// `painted`: the row has a highlight or selection background, so the
+    /// chips get a background of their own to stay legible on it.
+    pub(super) fn issue_chips(
+        &self,
+        issue: &Issue,
+        painted: bool,
+        t: &theme::Theme,
+    ) -> impl IntoElement + use<> {
+        let projects = issue.projects.iter().map(|project| {
+            project_chip(project.clone(), t)
+                .when(painted, |s| s.border_color(t.colors.input))
+                .into_any_element()
+        });
         let labels = issue.labels.iter().map(|label| {
-            chip(label.clone(), self.label_chip_color(label, t), t).into_any_element()
+            chip(label.clone(), self.label_chip_color(label, t), t)
+                .when(painted, |s| filled_chip(s, t))
+                .into_any_element()
         });
         let overflow_color = t.colors.text_muted;
         let t_overflow = t.clone();
         chip_row(projects.chain(labels).collect(), move |hidden| {
-            chip(format!("+{hidden}"), overflow_color, &t_overflow).into_any_element()
+            chip(format!("+{hidden}"), overflow_color, &t_overflow)
+                .when(painted, |s| filled_chip(s, &t_overflow))
+                .into_any_element()
         })
     }
 
@@ -1831,6 +1850,10 @@ fn checklist_badge(
 /// The width an issue title keeps in a list row, however many chips follow it.
 pub(super) const MIN_TITLE_WIDTH: f32 = 160.;
 
+/// Below this contrast with a painted row, accent-colored badges use the
+/// row's text color instead (WCAG's minimum for large text and icons).
+const MIN_ACCENT_CONTRAST: f32 = 3.;
+
 /// Text size of the workspace, unless an element sets its own.
 const BODY_TEXT_SIZE: f32 = 14.;
 
@@ -1851,6 +1874,17 @@ fn chip(text: String, color: gpui::Hsla, t: &theme::Theme) -> gpui::Div {
         .text_color(color)
         .child(text)
         .children(t.raised_bevel_thin())
+}
+
+/// A chip on a highlighted or selected row: on the input color, so its
+/// text keeps its color and stays legible on any highlight. Bevel chips
+/// already sit on the surface color.
+fn filled_chip(chip: gpui::Div, t: &theme::Theme) -> gpui::Div {
+    if t.is_bevel() {
+        chip
+    } else {
+        chip.bg(t.colors.input).border_color(t.colors.input)
+    }
 }
 
 /// Width of an issue id column whose widest id is `widest`, at

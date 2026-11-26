@@ -387,7 +387,9 @@ impl Workspace {
             .gap_2()
             .px_4()
             .py_1()
-            .when(t.is_bevel() || t.is_glass(), |s| s.bg(t.colors.surface))
+            .when(t.surface_toolbars() || t.is_glass(), |s| {
+                s.bg(t.colors.surface)
+            })
             .border_b_1()
             .border_color(t.colors.divider)
             .text_size(px(12.))

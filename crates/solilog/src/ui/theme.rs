@@ -25,6 +25,7 @@ const BUILTIN_THEMES: &[(&str, &str)] = &[
     ("light", include_str!("../../assets/themes/light.json")),
     ("8086", include_str!("../../assets/themes/8086.json")),
     ("mmx", include_str!("../../assets/themes/mmx.json")),
+    ("sse", include_str!("../../assets/themes/sse.json")),
     ("sse2", include_str!("../../assets/themes/sse2.json")),
     (
         "sse2-dark",
@@ -55,6 +56,7 @@ pub enum TitlebarStyle {
     Classic,
     Glass,
     Crt,
+    Luna,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -62,6 +64,15 @@ pub enum TitlebarStyle {
 pub enum IconSet {
     Default,
     Pixel,
+}
+
+/// What the bars above the main pane (list filters, issue and project
+/// headers) are drawn on. Bevel themes always use `surface`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolbarStyle {
+    Plain,
+    Surface,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -146,6 +157,7 @@ pub struct Theme {
     pub icons: IconSet,
     pub radius: f32,
     pub shadow: ShadowStyle,
+    pub toolbars: ToolbarStyle,
     pub font_family: Option<String>,
     pub colors: ThemeColors,
 }
@@ -175,8 +187,18 @@ impl Theme {
         self.titlebar == TitlebarStyle::Crt
     }
 
+    pub fn is_luna_titlebar(&self) -> bool {
+        self.titlebar == TitlebarStyle::Luna
+    }
+
     pub fn uses_custom_titlebar(&self) -> bool {
         self.titlebar != TitlebarStyle::Native
+    }
+
+    /// Whether the bars above the main pane use the `surface` color
+    /// rather than the pane's own background.
+    pub fn surface_toolbars(&self) -> bool {
+        self.is_bevel() || self.toolbars == ToolbarStyle::Surface
     }
 
     pub fn is_pixel_icons(&self) -> bool {
@@ -349,6 +371,23 @@ impl Theme {
     }
 }
 
+/// WCAG contrast ratio between two colors (1 to 21), ignoring alpha.
+pub fn contrast_ratio(a: Hsla, b: Hsla) -> f32 {
+    fn luminance(c: Hsla) -> f32 {
+        let rgb = c.to_rgb();
+        let channel = |v: f32| {
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b)
+    }
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
 /// Paints a 1px or 2px 3D bevel along the inside edges of its parent container.
 fn bevel_canvas(outer_tl: Hsla, outer_br: Hsla, inner: Option<(Hsla, Hsla)>) -> AnyElement {
     canvas(
@@ -502,6 +541,7 @@ struct RawTheme {
     icons: Option<IconSet>,
     radius: Option<f32>,
     shadow: Option<ShadowStyle>,
+    toolbars: Option<ToolbarStyle>,
     font_family: Option<String>,
     #[serde(default)]
     colors: RawColors,
@@ -627,6 +667,7 @@ fn parse_complete(id: &str, source: &str) -> Result<Theme> {
         icons: raw.icons.unwrap_or(IconSet::Default),
         radius: raw.radius.unwrap_or(4.),
         shadow: raw.shadow.unwrap_or(ShadowStyle::Soft),
+        toolbars: raw.toolbars.unwrap_or(ToolbarStyle::Plain),
         font_family: raw.font_family.clone(),
         colors: ThemeColors {
             background: rgb(0).into(),
@@ -724,6 +765,9 @@ fn merge_raw(theme: &mut Theme, raw: &RawTheme) -> Result<()> {
     }
     if let Some(s) = raw.shadow {
         theme.shadow = s;
+    }
+    if let Some(tb) = raw.toolbars {
+        theme.toolbars = tb;
     }
     if let Some(ref f) = raw.font_family {
         theme.font_family = if f.trim().is_empty() {
@@ -1104,7 +1148,7 @@ mod tests {
     #[test]
     fn builtin_themes_are_valid() {
         let builtins = load_builtins();
-        assert_eq!(builtins.len(), 6);
+        assert_eq!(builtins.len(), 7);
         assert_eq!(builtins[0].id, "dark");
         assert_eq!(builtins[0].appearance, Appearance::Dark);
         assert_eq!(builtins[0].chrome, Chrome::Flat);
@@ -1125,15 +1169,21 @@ mod tests {
         assert_eq!(builtins[3].radius, 0.);
         assert_eq!(builtins[3].shadow, ShadowStyle::Hard);
 
-        assert_eq!(builtins[4].id, "sse2");
+        assert_eq!(builtins[4].id, "sse");
         assert_eq!(builtins[4].appearance, Appearance::Light);
-        assert_eq!(builtins[4].chrome, Chrome::Glass);
-        assert_eq!(builtins[4].titlebar, TitlebarStyle::Glass);
+        assert_eq!(builtins[4].chrome, Chrome::Flat);
+        assert_eq!(builtins[4].titlebar, TitlebarStyle::Luna);
+        assert!(builtins[4].surface_toolbars());
 
-        assert_eq!(builtins[5].id, "sse2-dark");
-        assert_eq!(builtins[5].appearance, Appearance::Dark);
+        assert_eq!(builtins[5].id, "sse2");
+        assert_eq!(builtins[5].appearance, Appearance::Light);
         assert_eq!(builtins[5].chrome, Chrome::Glass);
         assert_eq!(builtins[5].titlebar, TitlebarStyle::Glass);
+
+        assert_eq!(builtins[6].id, "sse2-dark");
+        assert_eq!(builtins[6].appearance, Appearance::Dark);
+        assert_eq!(builtins[6].chrome, Chrome::Glass);
+        assert_eq!(builtins[6].titlebar, TitlebarStyle::Glass);
     }
 
     #[test]
@@ -1160,6 +1210,15 @@ mod tests {
         assert_eq!(custom.colors.highlight, rgb(0xffff00).into());
         // Inherited from mmx:
         assert_eq!(custom.colors.background, builtins[3].colors.background);
+    }
+
+    #[test]
+    fn contrast_ratio_matches_wcag() {
+        let black = parse_hex_color("#000000").unwrap();
+        let white = parse_hex_color("#ffffff").unwrap();
+        assert!((contrast_ratio(black, white) - 21.).abs() < 0.01);
+        assert!((contrast_ratio(white, black) - 21.).abs() < 0.01);
+        assert!((contrast_ratio(white, white) - 1.).abs() < 0.01);
     }
 
     #[test]

@@ -20,6 +20,9 @@ const TITLE_BAR_HEIGHT: f32 = 34.;
 const MACOS_TITLE_BAR_HEIGHT: f32 = 28.;
 const CLASSIC_TITLE_BAR_HEIGHT: f32 = 24.;
 const GLASS_TITLE_BAR_HEIGHT: f32 = 28.;
+const LUNA_TITLE_BAR_HEIGHT: f32 = 30.;
+/// Width of the blue window frame around the workspace in the Luna style.
+const LUNA_FRAME: f32 = 3.;
 /// Width of the zone along each window edge that resizes the window.
 const RESIZE_EDGE: f32 = 5.;
 /// Size of the corner zones, which resize in both directions.
@@ -307,6 +310,151 @@ impl WindowFrame {
             )
     }
 
+    fn render_luna_title_bar(
+        &self,
+        window: &Window,
+        t: &theme::Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = window.is_window_active();
+        let maximized = window.is_maximized();
+        let (start, end, text_color) = if active {
+            (
+                t.colors.titlebar_active_start,
+                t.colors.titlebar_active_end,
+                t.colors.titlebar_text,
+            )
+        } else {
+            (
+                t.colors.titlebar_inactive_start,
+                t.colors.titlebar_inactive_end,
+                t.colors.titlebar_inactive_text,
+            )
+        };
+        let pixel = t.is_pixel_icons();
+        div()
+            .id("luna-title-bar")
+            .relative()
+            .flex_none()
+            .h(px(LUNA_TITLE_BAR_HEIGHT))
+            .pl(px(8.))
+            .pr(px(5.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            // Bright rim at the top, then the deep body color.
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(start, 0.),
+                linear_color_stop(end, 0.35),
+            ))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, _| this.drag_pending = true),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseUpEvent, _, _| this.drag_pending = false),
+            )
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, window, _| {
+                if this.drag_pending {
+                    this.drag_pending = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(text_color)
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::BOLD)
+                    .child(APP_NAME),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(luna_window_button(
+                        "minimize",
+                        assets::icon_for(assets::WINDOW_MINIMIZE, pixel),
+                        false,
+                        active,
+                        t,
+                        |window, _| window.minimize_window(),
+                    ))
+                    .child(luna_window_button(
+                        "maximize",
+                        assets::icon_for(
+                            if maximized {
+                                assets::WINDOW_RESTORE
+                            } else {
+                                assets::WINDOW_MAXIMIZE
+                            },
+                            pixel,
+                        ),
+                        false,
+                        active,
+                        t,
+                        |window, _| window.zoom_window(),
+                    ))
+                    .child(div().ml(px(2.)).child(luna_window_button(
+                        "close",
+                        assets::icon_for(assets::WINDOW_CLOSE, pixel),
+                        true,
+                        active,
+                        t,
+                        |window, _| window.remove_window(),
+                    ))),
+            )
+    }
+
+    /// The Luna window: a title bar and a frame of its body color around
+    /// the workspace (`tiling`: sides against the screen's edge get none).
+    fn render_luna_window(
+        &self,
+        window: &Window,
+        t: &theme::Theme,
+        workspace: impl IntoElement,
+        tiling: Option<Tiling>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let frame = if window.is_window_active() {
+            t.colors.titlebar_active_end
+        } else {
+            t.colors.titlebar_inactive_end
+        };
+        let free = |against_edge: bool| if against_edge { px(0.) } else { px(LUNA_FRAME) };
+        let tiling = tiling.unwrap_or_default();
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .relative()
+            .bg(frame)
+            .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
+            .child(self.render_luna_title_bar(window, t, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .pl(free(tiling.left))
+                    .pr(free(tiling.right))
+                    .pb(free(tiling.bottom))
+                    .child(workspace),
+            )
+    }
+
     fn render_classic_title_bar(
         &self,
         window: &Window,
@@ -582,6 +730,11 @@ impl Render for WindowFrame {
                     .child(workspace)
                     .children(resize_edges(tiling));
             }
+            if t.is_luna_titlebar() {
+                return self
+                    .render_luna_window(window, &t, workspace, Some(tiling), cx)
+                    .children(resize_edges(tiling));
+            }
             if t.is_glass_titlebar() {
                 return div()
                     .size_full()
@@ -642,6 +795,9 @@ impl Render for WindowFrame {
                     .when_some(t.resolved_font_family(), |d, f| d.font_family(f))
                     .child(self.render_crt_title_bar(window, &t, cx))
                     .child(workspace);
+            }
+            if t.is_luna_titlebar() {
+                return self.render_luna_window(window, &t, workspace, None, cx);
             }
             if t.is_glass_titlebar() {
                 return div()
@@ -730,6 +886,62 @@ fn glass_window_button(
             on_click(window, cx);
         })
         .children(t.gloss_overlay())
+        .child(
+            svg()
+                .path(icon)
+                .size(px(11.))
+                .text_color(t.colors.titlebar_text),
+        )
+}
+
+/// Rounded Luna window button (`–`, `□`, `×`): blue, or red-orange for
+/// close, with a white rim and a lighter top.
+fn luna_window_button(
+    id: &'static str,
+    icon: &'static str,
+    is_close: bool,
+    active: bool,
+    t: &theme::Theme,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let (top, bottom, hover_top, hover_bottom) = match (is_close, active) {
+        (true, true) => (0xf09a80ff, 0xd8431cff, 0xffb8a0ff, 0xe85a30ff),
+        (false, true) => (0x7fb4ffff, 0x2a66e8ff, 0xa6ccffff, 0x3f7cf5ff),
+        (_, false) => (0xc2d3f5ff, 0x8ea8e6ff, 0xd6e2faff, 0xa2b8ecff),
+    };
+    div()
+        .id(id)
+        .size(px(21.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(3.))
+        .border_1()
+        .border_color(rgba(0xffffffee))
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(rgba(top), 0.),
+            linear_color_stop(rgba(bottom), 1.),
+        ))
+        .hover(move |s| {
+            s.bg(linear_gradient(
+                180.,
+                linear_color_stop(rgba(hover_top), 0.),
+                linear_color_stop(rgba(hover_bottom), 1.),
+            ))
+        })
+        .active(move |s| {
+            s.bg(linear_gradient(
+                180.,
+                linear_color_stop(rgba(bottom), 0.),
+                linear_color_stop(rgba(top), 1.),
+            ))
+        })
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            on_click(window, cx);
+        })
         .child(
             svg()
                 .path(icon)
