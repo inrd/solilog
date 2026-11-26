@@ -5137,7 +5137,7 @@ dependencies = [
 
 [[package]]
 name = "solilog"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -5157,7 +5157,7 @@ dependencies = [
 
 [[package]]
 name = "solilog-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "dirs 7.0.0",

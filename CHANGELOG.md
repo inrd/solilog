@@ -6,6 +6,8 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-26
+
 ### Added
 
 - Decisions: standing statements on an issue, label or project ("Keep the
