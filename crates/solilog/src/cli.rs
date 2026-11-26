@@ -17,9 +17,9 @@ use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
     Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, Check,
-    ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueContext, IssueEdit, IssueFilter,
-    IssueId, IssueSummary, Label, LabelColor, NewIssue, NewProject, Note, NoteId, NoteKind,
-    Placement, Project, ProjectStatus, ProjectSummary, ProjectUpdate, Receipt, Revision,
+    ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueChange, IssueContext, IssueEdit,
+    IssueFilter, IssueId, IssueSummary, Label, LabelColor, NewIssue, NewProject, Note, NoteId,
+    NoteKind, Placement, Project, ProjectStatus, ProjectSummary, ProjectUpdate, Receipt, Revision,
     RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv, SkillState, SkillStatus, Status,
     Verdict, View, format_age, format_size, format_utc,
 };
@@ -261,11 +261,16 @@ pub enum IssueCommand {
         /// order given).
         #[arg(long, short, value_name = "TEXT")]
         item: Vec<String>,
+        /// Make it depend on this issue (repeatable; see `issue add-dependency`).
+        #[arg(long, value_name = "ID")]
+        depends_on: Vec<IssueId>,
     },
-    /// Change an issue's fields (give at least one) and print it.
+    /// Change an issue (give at least one change) and print it. All the
+    /// changes are made together, or none if one fails.
     ///
     /// Examples: `solilog issue edit SOL-12 --title "Fix the reverb tail"`,
-    /// `git log -1 --format=%B | solilog issue edit SOL-12 --description -`.
+    /// `git log -1 --format=%B | solilog issue edit SOL-12 --description -`,
+    /// `solilog issue edit SOL-12 -d - --status todo -l bug --add-dependency SOL-7`.
     #[command(group = clap::ArgGroup::new("fields").required(true).multiple(true))]
     Edit {
         id: IssueId,
@@ -276,6 +281,27 @@ pub enum IssueCommand {
         /// it); `-` reads it from stdin.
         #[arg(long, short, group = "fields")]
         description: Option<String>,
+        /// New status (see `issue set-status`).
+        #[arg(long, short, group = "fields")]
+        status: Option<Status>,
+        /// Add this label, creating it if needed (repeatable).
+        #[arg(long, short = 'l', value_name = "LABEL", group = "fields")]
+        add_label: Vec<String>,
+        /// Remove this label; sublabels are not removed (repeatable).
+        #[arg(long, value_name = "LABEL", group = "fields")]
+        remove_label: Vec<String>,
+        /// Add to this existing project, with its default labels (repeatable).
+        #[arg(long, short = 'p', value_name = "PROJECT", group = "fields")]
+        add_to_project: Vec<String>,
+        /// Remove from this project; the issue keeps its labels (repeatable).
+        #[arg(long, value_name = "PROJECT", group = "fields")]
+        remove_from_project: Vec<String>,
+        /// Make it depend on this issue (repeatable; see `issue add-dependency`).
+        #[arg(long, value_name = "ID", group = "fields")]
+        add_dependency: Vec<IssueId>,
+        /// Make it no longer depend on this issue (repeatable).
+        #[arg(long, value_name = "ID", group = "fields")]
+        remove_dependency: Vec<IssueId>,
     },
     /// List the revisions of an issue's text, newest first: earlier titles,
     /// descriptions and checklist item texts, including deleted items.
@@ -872,6 +898,7 @@ fn run_command(
                     label,
                     project,
                     item,
+                    depends_on,
                 } => {
                     check_one_stdin([&title, &description])?;
                     let new = NewIssue::new(read_arg(title, "title")?)
@@ -879,20 +906,45 @@ fn run_command(
                         .status(status)
                         .labels(label)
                         .projects(project)
-                        .checklist(item);
+                        .checklist(item)
+                        .depends_on(depends_on);
                     out.issue(&db.create_issue(&new)?)
                 }
                 IssueCommand::Edit {
                     id,
                     title,
                     description,
+                    status,
+                    add_label,
+                    remove_label,
+                    add_to_project,
+                    remove_from_project,
+                    add_dependency,
+                    remove_dependency,
                 } => {
                     check_one_stdin([&title, &description].into_iter().flatten())?;
+                    // Projects first, so that `--remove-label` can drop a
+                    // default label they add; the status last.
+                    let changes = [
+                        (!add_to_project.is_empty())
+                            .then_some(IssueChange::AddToProjects(add_to_project)),
+                        (!remove_from_project.is_empty())
+                            .then_some(IssueChange::RemoveFromProjects(remove_from_project)),
+                        (!add_label.is_empty()).then_some(IssueChange::AddLabels(add_label)),
+                        (!remove_label.is_empty())
+                            .then_some(IssueChange::RemoveLabels(remove_label)),
+                        (!add_dependency.is_empty())
+                            .then_some(IssueChange::AddDependencies(add_dependency)),
+                        (!remove_dependency.is_empty())
+                            .then_some(IssueChange::RemoveDependencies(remove_dependency)),
+                        status.map(IssueChange::SetStatus),
+                    ];
                     let edit = IssueEdit {
                         title: title.map(|t| read_arg(t, "title")).transpose()?,
                         description: description
                             .map(|d| read_arg(d, "description"))
                             .transpose()?,
+                        changes: changes.into_iter().flatten().collect(),
                     };
                     out.issue(&db.edit_issue(id, &edit)?)
                 }
@@ -1837,7 +1889,10 @@ mod tests {
 
         record_skill_hint(&stamp, t0);
         assert!(!skill_hint_due(&stamp, t0));
-        assert!(!skill_hint_due(&stamp, t0 + SKILL_HINT_INTERVAL.as_secs() - 1));
+        assert!(!skill_hint_due(
+            &stamp,
+            t0 + SKILL_HINT_INTERVAL.as_secs() - 1
+        ));
         assert!(skill_hint_due(&stamp, t0 + SKILL_HINT_INTERVAL.as_secs()));
 
         // A corrupt or future timestamp doesn't silence the hint forever.

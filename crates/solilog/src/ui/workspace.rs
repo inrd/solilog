@@ -912,6 +912,7 @@ impl Workspace {
         let edit = IssueEdit {
             title: action.title.clone(),
             description: action.description.clone(),
+            ..Default::default()
         };
         if self
             .report(self.db.edit_issue(issue.id, &edit), cx)
@@ -1620,10 +1621,9 @@ impl Workspace {
             .projects
             .iter()
             .map(|project| project_chip(project.clone(), t).into_any_element());
-        let labels = issue
-            .labels
-            .iter()
-            .map(|label| chip(label.clone(), self.label_chip_color(label, t), t).into_any_element());
+        let labels = issue.labels.iter().map(|label| {
+            chip(label.clone(), self.label_chip_color(label, t), t).into_any_element()
+        });
         let overflow_color = t.colors.text_muted;
         let t_overflow = t.clone();
         chip_row(projects.chain(labels).collect(), move |hidden| {
@@ -1753,13 +1753,7 @@ fn of_issues(issues: &[Issue]) -> String {
 
 /// Shown in the list for issues with a description: a few lines of text.
 fn description_icon(color: gpui::Hsla) -> impl IntoElement {
-    let line = |width: f32| {
-        div()
-            .w(px(width))
-            .h(px(1.5))
-            .rounded_full()
-            .bg(color)
-    };
+    let line = |width: f32| div().w(px(width)).h(px(1.5)).rounded_full().bg(color);
     div()
         .flex_none()
         .flex()
@@ -1819,7 +1813,12 @@ fn unreviewed_badge(actors: &[Actor], accent: gpui::Hsla) -> impl IntoElement {
 }
 
 /// Checklist progress of an issue in the list: done/total items.
-fn checklist_badge(done: usize, total: usize, accent: gpui::Hsla, muted: gpui::Hsla) -> impl IntoElement {
+fn checklist_badge(
+    done: usize,
+    total: usize,
+    accent: gpui::Hsla,
+    muted: gpui::Hsla,
+) -> impl IntoElement {
     div()
         .flex_none()
         .text_size(px(12.))
@@ -2336,21 +2335,17 @@ impl Workspace {
                     .py_1()
                     .children(rows)
                     .when(empty, |s| {
-                        s.child(
-                            div()
-                                .px_4()
-                                .py_2()
-                                .text_color(t.colors.text_muted)
-                                .child(if self.scope.filter == IssueFilter::default() {
-                                    "No issues yet. Type a title above and press Enter."
-                                } else if self.scope.filter == scope::Source::All.filter() {
-                                    "No open issues. Type a title above and press Enter."
-                                } else if self.scope.filter == scope::Source::Unreviewed.filter() {
-                                    "Nothing to review."
-                                } else {
-                                    "No issues here."
-                                }),
-                        )
+                        s.child(div().px_4().py_2().text_color(t.colors.text_muted).child(
+                            if self.scope.filter == IssueFilter::default() {
+                                "No issues yet. Type a title above and press Enter."
+                            } else if self.scope.filter == scope::Source::All.filter() {
+                                "No open issues. Type a title above and press Enter."
+                            } else if self.scope.filter == scope::Source::Unreviewed.filter() {
+                                "Nothing to review."
+                            } else {
+                                "No issues here."
+                            },
+                        ))
                     }),
             )
     }

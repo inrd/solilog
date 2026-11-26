@@ -531,13 +531,15 @@ impl Db {
         }
         self.join_projects(id, &new.projects)?;
         self.insert_checklist_items(id, &checklist)?;
+        self.insert_dependencies(id, &new.depends_on)?;
         self.record_activity(id, ActivityKind::Created, "")?;
         tx.commit()?;
         self.get_issue(id)
     }
 
-    /// Changes the fields of one issue (title, description) and returns it.
-    /// The text it replaces is kept as a revision (see [`Db::issue_revisions`]).
+    /// Changes one issue (title, description, then each of `edit.changes`
+    /// in order), all or nothing, and returns it. The text it replaces is
+    /// kept as a revision (see [`Db::issue_revisions`]).
     pub fn edit_issue(&self, id: IssueId, edit: &IssueEdit) -> Result<Issue> {
         let tx = self.conn.unchecked_transaction()?;
         let issue = self.get_issue(id)?;
@@ -563,6 +565,9 @@ impl Db {
                 };
                 self.record_activity(id, ActivityKind::DescriptionEdited, detail)?;
             }
+        }
+        for change in &edit.changes {
+            self.apply_change(id, change)?;
         }
         tx.commit()?;
         self.get_issue(id)
@@ -974,6 +979,66 @@ mod tests {
             db.edit_issue(issue.id, &edit("  \n")).unwrap().description,
             ""
         );
+    }
+
+    #[test]
+    fn edit_with_changes() {
+        let db = Db::open_in_memory().unwrap();
+        let dep = db.create_issue(&NewIssue::new("dep")).unwrap();
+        let issue = db
+            .create_issue(&NewIssue::new("x").status(Status::Backlog).labels(["old"]))
+            .unwrap();
+        let edited = db
+            .edit_issue(
+                issue.id,
+                &IssueEdit {
+                    description: Some("spec".into()),
+                    changes: vec![
+                        IssueChange::SetStatus(Status::Todo),
+                        IssueChange::AddLabels(vec!["new".into()]),
+                        IssueChange::RemoveLabels(vec!["old".into()]),
+                        IssueChange::AddDependencies(vec![dep.id]),
+                    ],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(edited.description, "spec");
+        assert_eq!(edited.status, Status::Todo);
+        assert_eq!(edited.labels, ["new"]);
+        assert_eq!(edited.depends_on, [dep.id]);
+
+        // All or nothing: a failing change leaves the text alone too.
+        let failed = db.edit_issue(
+            issue.id,
+            &IssueEdit {
+                title: Some("renamed".into()),
+                changes: vec![
+                    IssueChange::SetStatus(Status::InProgress),
+                    IssueChange::AddDependencies(vec![issue.id]),
+                ],
+                ..Default::default()
+            },
+        );
+        assert!(failed.is_err());
+        assert_eq!(db.get_issue(issue.id).unwrap(), edited);
+    }
+
+    #[test]
+    fn create_with_dependencies() {
+        let db = Db::open_in_memory().unwrap();
+        let dep = db.create_issue(&NewIssue::new("dep")).unwrap();
+        let issue = db
+            .create_issue(&NewIssue::new("x").depends_on([dep.id]))
+            .unwrap();
+        assert_eq!(issue.depends_on, [dep.id]);
+        assert_eq!(issue.waiting_on, [dep.id]);
+        // An unknown issue creates nothing.
+        assert!(
+            db.create_issue(&NewIssue::new("y").depends_on([IssueId(999)]))
+                .is_err()
+        );
+        assert_eq!(titles(&db, &IssueFilter::default()), ["x", "dep"]);
     }
 
     #[test]

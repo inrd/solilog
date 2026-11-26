@@ -204,6 +204,8 @@ pub struct NewIssue {
     pub projects: Vec<String>,
     /// Checklist item texts, in order.
     pub checklist: Vec<String>,
+    /// Issues it depends on; they must exist.
+    pub depends_on: Vec<IssueId>,
 }
 
 impl NewIssue {
@@ -215,6 +217,7 @@ impl NewIssue {
             labels: Vec::new(),
             projects: Vec::new(),
             checklist: Vec::new(),
+            depends_on: Vec::new(),
         }
     }
 
@@ -242,6 +245,11 @@ impl NewIssue {
         self.checklist = items.into_iter().map(Into::into).collect();
         self
     }
+
+    pub fn depends_on(mut self, on: impl IntoIterator<Item = IssueId>) -> Self {
+        self.depends_on = on.into_iter().collect();
+        self
+    }
 }
 
 /// A change to apply to issues with
@@ -266,13 +274,16 @@ pub enum IssueChange {
     RemoveDependencies(Vec<IssueId>),
 }
 
-/// Changes to the fields of one issue, for
-/// [`Db::edit_issue`](crate::Db::edit_issue); `None` fields are left alone.
+/// Changes to one issue, for [`Db::edit_issue`](crate::Db::edit_issue);
+/// `None` fields are left alone.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssueEdit {
     pub title: Option<String>,
     /// Empty to remove the description.
     pub description: Option<String>,
+    /// Other changes, applied in order after the text, in the same
+    /// transaction.
+    pub changes: Vec<IssueChange>,
 }
 
 /// Trims a title and checks that it is not empty.

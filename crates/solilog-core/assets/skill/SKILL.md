@@ -66,6 +66,9 @@ checklists, then drill into the few issues you need with `issue context`.
   Unidentified CLI writes are recorded as `cli` and flagged for review.
 - New issue: `solilog issue create "Title" -d - -l <label> -i "<item>"`
   (`-` reads text from stdin). Every write prints the resulting issue.
+- Several changes to one issue go in one `solilog issue edit` (text,
+  `--status`, labels, projects, dependencies; all or nothing) rather than
+  one command each.
 - Writing `SOL-n` in a description links to that issue.
 - When an issue needs another finished first, record it:
   `solilog issue add-dependency SOL-12 SOL-7` (SOL-12 depends on SOL-7),

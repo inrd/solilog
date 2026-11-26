@@ -228,6 +228,7 @@ impl Workspace {
             title: title_changed(&title, &detail.issue.title).then_some(title),
             description: description_changed(&description, &detail.issue.description)
                 .then_some(description),
+            ..Default::default()
         };
         if edit.title.as_ref().is_some_and(|t| t.trim().is_empty()) {
             edit.title = None;
@@ -478,15 +479,14 @@ impl Workspace {
                     window.dispatch_action(SetStatus::default().boxed_clone(), cx);
                 }
             });
-        let chips: Vec<_> =
-            issue
-                .projects
-                .iter()
-                .map(|project| project_chip(project.clone(), &t).into_any_element())
-                .chain(issue.labels.iter().map(|label| {
-                    chip(label.clone(), self.label_chip_color(label, &t), &t).into_any_element()
-                }))
-                .collect();
+        let chips: Vec<_> = issue
+            .projects
+            .iter()
+            .map(|project| project_chip(project.clone(), &t).into_any_element())
+            .chain(issue.labels.iter().map(|label| {
+                chip(label.clone(), self.label_chip_color(label, &t), &t).into_any_element()
+            }))
+            .collect();
         let has_chips = !chips.is_empty();
 
         let unreviewed_banner = issue.unreviewed.then(|| {

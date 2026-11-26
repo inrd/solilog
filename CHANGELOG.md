@@ -6,6 +6,15 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- `solilog issue edit` can change the status, labels, projects and
+  dependencies too (`--status`, `--add-label`, `--remove-label`,
+  `--add-to-project`, `--remove-from-project`, `--add-dependency`,
+  `--remove-dependency`), together with the title and description in one
+  go: all the changes are made, or none. `solilog issue create` takes
+  `--depends-on`.
+
 ### Fixed
 
 - The mouse wheel scrolls an open issue again, all the way to its end and no

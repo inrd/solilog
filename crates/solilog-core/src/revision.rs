@@ -696,6 +696,7 @@ mod tests {
         let edit = IssueEdit {
             title: Some("new".into()),
             description: Some(String::new()),
+            ..Default::default()
         };
         db.edit_issue(id, &edit).unwrap();
         let revisions = db.issue_revisions(id).unwrap();
