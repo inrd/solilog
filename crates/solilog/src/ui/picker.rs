@@ -4,13 +4,15 @@
 //! Key context: `Picker` (see `assets/keymap.json`). Emits [`PickerEvent`];
 //! the owner decides what confirming an item means and closes the picker.
 //! With [`Picker::creatable`], typing something that matches no item exactly
-//! offers a "Create …" row as well.
+//! offers a "Create …" row as well. With [`Picker::searching`], the items
+//! come from a function of the query instead (e.g. issue search).
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, ScrollHandle,
-    SharedString, Window, div, prelude::*, px,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    HighlightStyle, Pixels, ScrollHandle, SharedString, StyledText, Window, div, prelude::*, px,
 };
 
 use super::actions::picker::{Confirm, Dismiss, SelectNext, SelectPrevious};
@@ -26,6 +28,9 @@ pub struct PickerItem {
     /// Right-aligned secondary text, e.g. a key binding.
     pub hint: Option<SharedString>,
     pub icon: Option<Rc<dyn Fn() -> AnyElement>>,
+    /// A second, smaller line (e.g. a search excerpt), with ranges of it to
+    /// show in bold.
+    pub detail: Option<(SharedString, Vec<Range<usize>>)>,
 }
 
 impl PickerItem {
@@ -34,7 +39,13 @@ impl PickerItem {
             label: label.into(),
             hint: None,
             icon: None,
+            detail: None,
         }
+    }
+
+    pub fn detail(mut self, text: impl Into<SharedString>, bold: Vec<Range<usize>>) -> Self {
+        self.detail = Some((text.into(), bold));
+        self
     }
 
     pub fn hint(mut self, hint: Option<impl Into<SharedString>>) -> Self {
@@ -56,8 +67,15 @@ pub enum PickerEvent {
     Dismissed,
 }
 
+/// Items for a query, in a [`Picker::searching`] picker.
+type Source = Box<dyn FnMut(&str, &mut App) -> Vec<PickerItem>>;
+
 pub struct Picker {
     input: Entity<TextInput>,
+    /// Gives the items for the query, instead of filtering a fixed list.
+    source: Option<Source>,
+    /// Shown in a searching picker while the query is empty.
+    empty_text: SharedString,
     items: Vec<PickerItem>,
     /// Indices into `items` that match the query, best first.
     matches: Vec<usize>,
@@ -91,6 +109,8 @@ impl Picker {
         scroll.scroll_to_item(highlighted);
         Self {
             input,
+            source: None,
+            empty_text: SharedString::default(),
             items,
             matches,
             highlighted,
@@ -113,6 +133,19 @@ impl Picker {
         self
     }
 
+    /// Gets the items from `source` whenever the query changes (the
+    /// confirmed index is into the latest ones); `empty_text` is shown while
+    /// the query is empty.
+    pub fn searching(
+        mut self,
+        empty_text: impl Into<SharedString>,
+        source: impl FnMut(&str, &mut App) -> Vec<PickerItem> + 'static,
+    ) -> Self {
+        self.source = Some(Box::new(source));
+        self.empty_text = empty_text.into();
+        self
+    }
+
     /// Offers a "`label` “query”" row when the query matches no item exactly.
     pub fn creatable(mut self, label: impl Into<SharedString>) -> Self {
         self.create_label = Some(label.into());
@@ -125,7 +158,12 @@ impl Picker {
 
     fn update_matches(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).text().to_owned();
-        self.matches = rank(&query, self.items.iter().map(|i| i.label.as_ref()));
+        if let Some(source) = &mut self.source {
+            self.items = source(&query, cx);
+            self.matches = (0..self.items.len()).collect();
+        } else {
+            self.matches = rank(&query, self.items.iter().map(|i| i.label.as_ref()));
+        }
         let trimmed = query.trim();
         self.create_query = (self.create_label.is_some()
             && !trimmed.is_empty()
@@ -217,8 +255,32 @@ impl Picker {
             .child(
                 div()
                     .flex_1()
-                    .truncate()
-                    .child(truncated_text(("picker-label", row), item.label.clone())),
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .truncate()
+                            .child(truncated_text(("picker-label", row), item.label.clone())),
+                    )
+                    .children(item.detail.clone().map(|(text, ranges)| {
+                        let bold = HighlightStyle {
+                            font_weight: Some(FontWeight::BOLD),
+                            ..Default::default()
+                        };
+                        div()
+                            .truncate()
+                            .text_size(px(12.))
+                            .text_color(if is_highlighted {
+                                t.colors.highlight_text
+                            } else {
+                                t.colors.text_muted
+                            })
+                            .child(
+                                StyledText::new(text)
+                                    .with_highlights(ranges.into_iter().map(|r| (r, bold))),
+                            )
+                    })),
             )
             .children(item.hint.clone().map(|hint| {
                 div()
@@ -252,6 +314,11 @@ impl Render for Picker {
             .collect();
         rows.extend(self.render_create_row(cx));
         let empty = rows.is_empty();
+        let empty_text = if self.source.is_some() && self.input.read(cx).text().trim().is_empty() {
+            self.empty_text.clone()
+        } else {
+            "No matches".into()
+        };
 
         let input_box = if t.is_bevel() {
             div().p_2().child(
@@ -309,7 +376,7 @@ impl Render for Picker {
                                     .px_2()
                                     .py_1()
                                     .text_color(t.colors.text_muted)
-                                    .child("No matches"),
+                                    .child(empty_text),
                             )
                         }),
                 )

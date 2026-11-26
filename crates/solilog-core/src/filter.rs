@@ -4,6 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::backup::format_utc;
 use crate::issue::{Issue, Status};
 use crate::label::{label_matches, renamed_label};
 
@@ -34,6 +35,11 @@ pub struct IssueFilter {
     pub waiting: bool,
     /// The issue has unreviewed non-user changes.
     pub unreviewed: bool,
+    /// The issue changed at or after this Unix time (its `updated_at`: any
+    /// recorded activity, by anyone). Not meant for views: an absolute time
+    /// goes stale.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_since: Option<i64>,
 }
 
 impl IssueFilter {
@@ -54,6 +60,9 @@ impl IssueFilter {
             && (!self.ready || issue.is_ready())
             && (!self.waiting || issue.is_waiting())
             && (!self.unreviewed || issue.unreviewed)
+            && self
+                .updated_since
+                .is_none_or(|since| issue.updated_at >= since)
     }
 
     /// Follows the rename of label `old` (with its sublabels) to `new`.
@@ -116,6 +125,9 @@ impl fmt::Display for IssueFilter {
         }
         if self.unreviewed {
             parts.push("unreviewed".to_string());
+        }
+        if let Some(since) = self.updated_since {
+            parts.push(format!("changed since {}", format_utc(since)));
         }
         if parts.is_empty() {
             f.write_str("all issues")

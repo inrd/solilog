@@ -65,6 +65,10 @@ pub mod workspace {
             /// Show the archive: archived projects and issues, which can be
             /// deleted or brought back from there.
             OpenArchive,
+            /// Search every issue, closed and archived ones too: titles,
+            /// descriptions, checklist items and notes. Choosing a result
+            /// opens it.
+            Search,
             /// Show the database file and its attachments in the file manager.
             OpenDatabaseDirectory,
             /// Put the `solilog` command on the PATH (a link in

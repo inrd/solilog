@@ -20,11 +20,12 @@ mod path_map;
 mod project;
 mod review;
 mod revision;
+mod search;
 mod skill;
 mod thinning;
 mod view;
 
-pub use activity::{Activity, ActivityId, ActivityKind, Actor};
+pub use activity::{Activity, ActivityId, ActivityKind, ActivityQuery, Actor};
 pub use attachment::{
     Attachment, AttachmentId, AttachmentKind, attachments_dir_for, format_size,
     normalize_attachment_name,
@@ -56,6 +57,7 @@ pub use path_map::{MappedPath, PathMapping, PathOwnerKind, normalize_mapped_path
 pub use project::{NewProject, Project, ProjectStatus, ProjectUpdate};
 pub use review::{Check, Handoff, Receipt, Verdict, latest_receipt};
 pub use revision::{Revision, RevisionField, RevisionId, RevisionReason, format_age};
+pub use search::{SearchField, SearchHit, SearchMatch, SearchQuery};
 pub use skill::{
     Agent, SKILL_NAME, SKILL_VERSION, SkillAction, SkillChange, SkillEnv, SkillLocation,
     SkillState, SkillStatus, install_skill, outdated_skills, skill_md, skill_status,

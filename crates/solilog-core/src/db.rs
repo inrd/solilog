@@ -253,6 +253,53 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX mapped_paths_by_label ON mapped_paths (label_id);
     CREATE INDEX mapped_paths_by_project ON mapped_paths (project_id);",
+    // 23: full-text search (see `search.rs`): one FTS5 table per source,
+    // rowid = the source row's id, kept in sync by triggers. Dropping a
+    // table drops its triggers: a migration that rebuilds `issues`,
+    // `checklist_items` or `notes` must create them again (the
+    // `search_triggers_exist` test checks).
+    "CREATE VIRTUAL TABLE search_issues USING fts5 (
+        title, description, tokenize = 'unicode61 remove_diacritics 2'
+    );
+    CREATE VIRTUAL TABLE search_checklist_items USING fts5 (
+        text, tokenize = 'unicode61 remove_diacritics 2'
+    );
+    CREATE VIRTUAL TABLE search_notes USING fts5 (
+        text, tokenize = 'unicode61 remove_diacritics 2'
+    );
+    INSERT INTO search_issues (rowid, title, description) SELECT id, title, description FROM issues;
+    INSERT INTO search_checklist_items (rowid, text) SELECT id, text FROM checklist_items;
+    INSERT INTO search_notes (rowid, text) SELECT id, text FROM notes;
+    CREATE TRIGGER search_issues_insert AFTER INSERT ON issues BEGIN
+        INSERT INTO search_issues (rowid, title, description) VALUES (new.id, new.title, new.description);
+    END;
+    CREATE TRIGGER search_issues_update AFTER UPDATE OF title, description ON issues BEGIN
+        DELETE FROM search_issues WHERE rowid = old.id;
+        INSERT INTO search_issues (rowid, title, description) VALUES (new.id, new.title, new.description);
+    END;
+    CREATE TRIGGER search_issues_delete AFTER DELETE ON issues BEGIN
+        DELETE FROM search_issues WHERE rowid = old.id;
+    END;
+    CREATE TRIGGER search_checklist_items_insert AFTER INSERT ON checklist_items BEGIN
+        INSERT INTO search_checklist_items (rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER search_checklist_items_update AFTER UPDATE OF text ON checklist_items BEGIN
+        DELETE FROM search_checklist_items WHERE rowid = old.id;
+        INSERT INTO search_checklist_items (rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER search_checklist_items_delete AFTER DELETE ON checklist_items BEGIN
+        DELETE FROM search_checklist_items WHERE rowid = old.id;
+    END;
+    CREATE TRIGGER search_notes_insert AFTER INSERT ON notes BEGIN
+        INSERT INTO search_notes (rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER search_notes_update AFTER UPDATE OF text ON notes BEGIN
+        DELETE FROM search_notes WHERE rowid = old.id;
+        INSERT INTO search_notes (rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER search_notes_delete AFTER DELETE ON notes BEGIN
+        DELETE FROM search_notes WHERE rowid = old.id;
+    END;",
 ];
 
 /// The schema version of a database with every migration applied.

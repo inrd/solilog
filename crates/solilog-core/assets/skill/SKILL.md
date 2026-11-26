@@ -71,6 +71,21 @@ for the full backlog): lightweight summaries without descriptions or full
 checklists, then drill into the few issues you need with `issue context`.
 `--ready` leaves out issues in review: they wait for the user, not for you.
 
+## Searching and catching up
+
+- Before filing an issue or starting on a bug, look for earlier work:
+  `solilog search "<words>" --include-closed --json` searches every
+  issue's title, description, checklist and notes, done and archived ones
+  included, across all codebases. Past decisions, failed attempts and
+  fixes are often there; read the hits that matter with `issue context`.
+- When resuming after a while (a scheduled run, a new session on old
+  work), see what changed instead of re-reading everything:
+  `solilog issue activity --since <time> --json` (a Unix time, a date, or
+  an age like `2h`; add `--by user` for the user's changes, `--here` for
+  this codebase), or `solilog issue ls --since <time> --compact --json`
+  for the issues that changed. Note the time (`date +%s`) when you start,
+  to use next time.
+
 ## Writing
 
 - Identify yourself on every write with `--actor <agent>:<task>` or

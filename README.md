@@ -71,6 +71,8 @@ solilog issue ls --view "acme bugs"
 solilog label add-path acme/reverb ~/code/reverb       # where its code lives
 solilog where                                          # label or project of this folder
 solilog issue ls --here --open                         # its issues
+solilog search sqlite wal --include-closed             # past bugs, decisions, notes
+solilog issue activity --since 2h --by user            # what changed lately
 ```
 
 The database is `~/Library/Application Support/Solilog/solilog.db` on macOS, `~/.local/share/Solilog/solilog.db` on Linux (`solilog db-path` prints it). Set `SOLILOG_DB` to use another file.
@@ -96,6 +98,7 @@ Everything is a command: press `cmd-k` to open the command palette and search fo
 | Key | Action |
 |---|---|
 | `cmd-k` | Command palette |
+| `cmd-f` | Search all issues, closed and archived ones too |
 | `cmd-n` / `c` | New issue |
 | `j` / `k` (or arrows) | Move down / up |
 | `h` / `l` | Focus the sidebar / the issue list |

@@ -30,6 +30,7 @@
     "bindings": {
       "secondary-k": "command_palette::Toggle",
       "secondary-shift-p": "command_palette::Toggle",
+      "secondary-f": "workspace::Search",
       "secondary-n": "issue::New",
       "secondary-b": "workspace::ToggleSidebar",
       "secondary-s": "view::Save",

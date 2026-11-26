@@ -153,6 +153,7 @@ pub struct CompactIssue {
     pub waiting_on: Vec<IssueId>,
     pub unreviewed: bool,
     pub updated_at: i64,
+    pub archived: bool,
 }
 
 impl From<&Issue> for CompactIssue {
@@ -169,6 +170,7 @@ impl From<&Issue> for CompactIssue {
             waiting_on: issue.waiting_on.clone(),
             unreviewed: issue.unreviewed,
             updated_at: issue.updated_at,
+            archived: issue.archived,
         }
     }
 }
@@ -188,6 +190,7 @@ impl From<Issue> for CompactIssue {
             waiting_on: issue.waiting_on,
             unreviewed: issue.unreviewed,
             updated_at: issue.updated_at,
+            archived: issue.archived,
         }
     }
 }
@@ -693,6 +696,7 @@ mod tests {
         assert_eq!(
             keys,
             [
+                "archived",
                 "checklist_progress",
                 "id",
                 "labels",

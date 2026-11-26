@@ -8,6 +8,17 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- Full-text search: `solilog search <words>` finds issues by their title,
+  description, checklist items and notes, best matches first (words match
+  as prefixes, ignoring case and accents; `"quoted words"` as a phrase).
+  `--include-closed` searches done, cancelled and archived issues too. In
+  the app, `cmd-f` (`ctrl-f`) searches every issue as you type and opens
+  the one you pick.
+- Catching up on changes: `solilog issue activity` without an issue lists
+  the changes on every issue, and takes `--since` (a time, a date or an
+  age like `2h`), `--by` / `--not-by` an actor, `--here` and `--limit`.
+  `solilog issue ls --since` lists the issues changed since then.
+- `issue ls --compact --json` rows have `archived`.
 - An `SSE` theme, inspired by early-2000s desktops: a bold blue title bar
   with rounded buttons, beige surfaces and a light blue sidebar. Theme files
   can use its title bar with `"titlebar": "luna"`, and draw the bars above

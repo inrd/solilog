@@ -16,12 +16,13 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
-    Activity, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir, BackupReason, Check,
-    ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueChange, IssueContext, IssueEdit,
-    IssueFilter, IssueId, IssueSummary, Label, LabelColor, MappedPath, NewIssue, NewProject, Note,
-    NoteId, NoteKind, PathMapping, Placement, Project, ProjectStatus, ProjectSummary,
-    ProjectUpdate, Receipt, Revision, RevisionId, SKILL_NAME, SKILL_VERSION, SkillChange, SkillEnv,
-    SkillState, SkillStatus, Status, Verdict, View, format_age, format_size, format_utc,
+    Activity, ActivityQuery, Actor, Agent, Attachment, AttachmentId, Backup, BackupDir,
+    BackupReason, Check, ChecklistItemId, CompactIssue, Db, Handoff, Issue, IssueChange,
+    IssueContext, IssueEdit, IssueFilter, IssueId, IssueSummary, Label, LabelColor, MappedPath,
+    NewIssue, NewProject, Note, NoteId, NoteKind, PathMapping, Placement, Project, ProjectStatus,
+    ProjectSummary, ProjectUpdate, Receipt, Revision, RevisionId, SKILL_NAME, SKILL_VERSION,
+    SearchField, SearchHit, SearchQuery, SkillChange, SkillEnv, SkillState, SkillStatus, Status,
+    Verdict, View, format_age, format_size, format_utc,
 };
 
 #[derive(Parser)]
@@ -102,6 +103,43 @@ pub enum Command {
     /// deleted only by the user or by its author.
     #[command(subcommand, visible_alias = "n")]
     Note(NoteCommand),
+    /// Search issues' titles, descriptions, checklist items and notes, best
+    /// matches first.
+    ///
+    /// Every word must appear somewhere in the issue (not necessarily in
+    /// the same field), as the start of a word, ignoring case and accents:
+    /// `migr` finds "migration". `"quoted words"` must appear together.
+    /// Open issues only, unless `--include-closed` (done, cancelled and
+    /// archived issues too: past bugs and decisions) or `--status` asks for
+    /// closed ones.
+    ///
+    /// JSON: an array of `{issue, matches}`: `issue` as in `issue list
+    /// --compact`; each match has `field` (`title`, `description`,
+    /// `checklist_item`, `note`), `id` (the checklist item's or note's, else
+    /// null) and `snippet` (the matching text on one line, shortened around
+    /// the match for long text, matched words in `**`). Read a hit with
+    /// `issue context`.
+    #[command(visible_alias = "s")]
+    Search {
+        /// Words to look for (several arguments are joined).
+        #[arg(required = true, value_name = "QUERY")]
+        query: Vec<String>,
+        /// Also search done, cancelled and archived issues.
+        #[arg(long, short = 'a')]
+        include_closed: bool,
+        /// Only issues of the label or project mapped to the current
+        /// directory (see `solilog where`), on top of the other filters.
+        #[arg(long)]
+        here: bool,
+        /// Only issues changed at or after this time (see `issue list --since`).
+        #[arg(long, value_name = "TIME")]
+        since: Option<String>,
+        /// At most this many issues.
+        #[arg(long, short = 'n', value_name = "N", default_value_t = 20)]
+        limit: usize,
+        #[command(flatten)]
+        filter: FilterArgs,
+    },
     /// List the valid issue statuses, or collapse a status's section in the
     /// GUI issue list.
     ///
@@ -245,7 +283,7 @@ pub enum IssueCommand {
         archived: bool,
         /// Return lightweight JSON summaries (`id`, `title`, `status`,
         /// `labels`, `projects`, `checklist_progress`, `waiting_on`,
-        /// `unreviewed`, `updated_at`), omitting descriptions, full
+        /// `unreviewed`, `updated_at`, `archived`), omitting descriptions, full
         /// checklists, attachments and authorship details.
         #[arg(long)]
         compact: bool,
@@ -254,6 +292,12 @@ pub enum IssueCommand {
         /// Fails when no label or project is mapped to it.
         #[arg(long)]
         here: bool,
+        /// Only issues changed (by anyone) at or after this time: a Unix
+        /// timestamp, an age (`30m`, `2h`, `3d`, `1w`) or a local date and
+        /// time (`2026-11-25`, `2026-11-25 14:30`). See `issue activity
+        /// --since` for what changed.
+        #[arg(long, value_name = "TIME")]
+        since: Option<String>,
         #[command(flatten)]
         filter: FilterArgs,
     },
@@ -345,13 +389,37 @@ pub enum IssueCommand {
         /// Revision id, from `issue history`.
         revision: RevisionId,
     },
-    /// List recorded changes on an issue, newest first (creation, edits,
-    /// status, checklist, labels, projects, dependencies, attachments, notes).
+    /// List recorded changes, newest first (creation, edits, status,
+    /// checklist, labels, projects, dependencies, attachments, notes): on
+    /// one issue, or on every issue (archived ones included) without an id.
+    ///
+    /// To catch up after a while, e.g. what the user changed since your
+    /// last run: `solilog issue activity --since 2026-11-25T14:30 --by user`.
+    /// JSON rows: `id`, `issue_id`, `actor`, `kind`, `detail`, `created_at`.
+    /// Deleted issues leave nothing behind.
     Activity {
-        id: IssueId,
+        id: Option<IssueId>,
         /// Only non-user changes since the issue was last marked reviewed.
-        #[arg(long)]
+        #[arg(long, requires = "id", conflicts_with_all = ["since", "by", "not_by", "here", "limit"])]
         unreviewed: bool,
+        /// Only changes at or after this time: a Unix timestamp, an age
+        /// (`30m`, `2h`, `3d`, `1w`) or a local date and time (`2026-11-25`,
+        /// `2026-11-25 14:30`; with `Z` or `+02:00`, in that zone).
+        #[arg(long, value_name = "TIME")]
+        since: Option<String>,
+        /// Only changes by this actor (repeatable), e.g. `user`.
+        #[arg(long, value_name = "ACTOR")]
+        by: Vec<Actor>,
+        /// Leave out changes by this actor (repeatable), e.g. yourself.
+        #[arg(long, value_name = "ACTOR")]
+        not_by: Vec<Actor>,
+        /// Only on the issues of the label or project mapped to the current
+        /// directory (see `solilog where`).
+        #[arg(long, conflicts_with = "id")]
+        here: bool,
+        /// At most this many changes.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
     },
     /// Mark an issue's non-user changes as reviewed and print it, or use
     /// `--all` to mark every unreviewed issue reviewed. Any later non-user
@@ -695,6 +763,7 @@ impl From<FilterArgs> for IssueFilter {
             ready: args.ready,
             waiting: args.waiting,
             unreviewed: args.unreviewed,
+            updated_since: None,
         }
     }
 }
@@ -937,12 +1006,16 @@ fn run_command(
                     archived,
                     compact,
                     here,
+                    since,
                     filter,
                 } => {
                     let mut filter = match view {
                         Some(name) => db.get_view(&name)?.filter,
                         None => filter.into(),
                     };
+                    if let Some(since) = since {
+                        filter.updated_since = Some(db.parse_time(&since)?);
+                    }
                     if here {
                         db.require_path_owner(&current_dir()?)?
                             .scope_filter(&mut filter);
@@ -1032,13 +1105,41 @@ fn run_command(
                     );
                     out.issue(&db.restore_revision(revision)?)
                 }
-                IssueCommand::Activity { id, unreviewed } => {
-                    let activities = if unreviewed {
-                        db.unreviewed_activities(id)?
-                    } else {
-                        db.issue_activities(id)?
+                IssueCommand::Activity {
+                    id,
+                    unreviewed,
+                    since,
+                    by,
+                    not_by,
+                    here,
+                    limit,
+                } => {
+                    let activities = match id {
+                        Some(id) if unreviewed => db.unreviewed_activities(id)?,
+                        _ => {
+                            let issues = if here {
+                                let mut filter = IssueFilter::default();
+                                db.require_path_owner(&current_dir()?)?
+                                    .scope_filter(&mut filter);
+                                Some(filter)
+                            } else {
+                                None
+                            };
+                            db.activities(&ActivityQuery {
+                                issue: id,
+                                since: since.map(|s| db.parse_time(&s)).transpose()?,
+                                by,
+                                not_by,
+                                issues,
+                                limit,
+                            })?
+                        }
                     };
-                    out.activities(&activities)
+                    if id.is_some() {
+                        out.activities(&activities)
+                    } else {
+                        out.feed(&activities)
+                    }
                 }
                 IssueCommand::Review { id, all } => {
                     if all {
@@ -1144,6 +1245,30 @@ fn run_command(
                     out.attachment(&db.delete_attachment(attachment)?)
                 }
             }
+        }
+        Command::Search {
+            query,
+            include_closed,
+            here,
+            since,
+            limit,
+            filter,
+        } => {
+            let db = &*open_db(opened, actor)?;
+            let mut filter: IssueFilter = filter.into();
+            if let Some(since) = since {
+                filter.updated_since = Some(db.parse_time(&since)?);
+            }
+            if here {
+                db.require_path_owner(&current_dir()?)?
+                    .scope_filter(&mut filter);
+            }
+            out.search_hits(&db.search(&SearchQuery {
+                text: query.join(" "),
+                filter,
+                include_closed,
+                limit: Some(limit),
+            })?)
         }
         Command::Note(cmd) => {
             let db = &*open_db(opened, actor)?;
@@ -1552,6 +1677,40 @@ impl Output {
         })
     }
 
+    /// Activities across issues: each line names its issue.
+    fn feed(&self, activities: &[Activity]) -> Result<()> {
+        self.print(activities, || {
+            activities
+                .iter()
+                .map(|a| format!("{:<8} {}", a.issue_id.to_string(), activity_line(a)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
+    fn search_hits(&self, hits: &[SearchHit]) -> Result<()> {
+        self.print(hits, || {
+            hits.iter()
+                .map(|hit| {
+                    let mut text = compact_issue_line(&hit.issue);
+                    for m in &hit.matches {
+                        if m.field == SearchField::Title {
+                            continue;
+                        }
+                        let field = match (m.field, m.id) {
+                            (SearchField::ChecklistItem, Some(id)) => format!("item {id}"),
+                            (SearchField::Note, Some(id)) => format!("note {id}"),
+                            (field, _) => field.key().to_owned(),
+                        };
+                        text.push_str(&format!("\n    {field:<12} {}", m.snippet));
+                    }
+                    text
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+
     fn activities(&self, activities: &[Activity]) -> Result<()> {
         self.print(activities, || {
             activities
@@ -1687,6 +1846,26 @@ fn issue_line(issue: &Issue) -> String {
     if issue.unreviewed {
         let actors: Vec<&str> = issue.unreviewed_actors.iter().map(Actor::as_str).collect();
         line.push_str(&format!("  unreviewed ({})", actors.join(", ")));
+    }
+    if issue.archived {
+        line.push_str("  (archived)");
+    }
+    line
+}
+
+/// Like [`issue_line`], for a compact issue.
+fn compact_issue_line(issue: &CompactIssue) -> String {
+    let mut line = format!(
+        "{:<8} {:<12} {}",
+        issue.id.to_string(),
+        issue.status.key(),
+        issue.title
+    );
+    if !issue.labels.is_empty() {
+        line.push_str(&format!("  [{}]", issue.labels.join(", ")));
+    }
+    if !issue.projects.is_empty() {
+        line.push_str(&format!("  in: {}", issue.projects.join(", ")));
     }
     if issue.archived {
         line.push_str("  (archived)");

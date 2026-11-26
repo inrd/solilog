@@ -191,6 +191,12 @@ writing SQL or validation in `crates/solilog`, move it to core.
   must match), labels to exclude, projects (any may match) or no project).
   Renaming a label or project updates views; deleting one makes the views
   that use it fail until they are saved again.
+- **Search**: `Db::search` matches words (as prefixes) and phrases in
+  titles, descriptions, checklist items and notes through FTS5 tables
+  (`search.rs`); an issue matches when every term is somewhere in it.
+  Open issues only unless asked (`include_closed`: closed and archived).
+  Changes since a time: `Db::activities` (`ActivityQuery`, across issues)
+  and `IssueFilter::updated_since` (not for saved views).
 
 ## Naming
 
@@ -270,6 +276,10 @@ migration in one transaction (a failure applies none and leaves
 - A rebuilt table must keep its `PRIMARY KEY` and constraints
   (`CREATE TABLE … AS SELECT` drops them; if other tables point to it,
   the check fails).
+- Full-text search (`search.rs`) is kept in sync by triggers on `issues`,
+  `checklist_items` and `notes` (migration 23). Rebuilding one of those
+  tables drops its triggers: create them again in the same migration
+  (`search_triggers_exist` checks they exist).
 - The pre-upgrade backup reads the old schema (`Db::snapshot`): keep it
   working with every schema since migration 15.
 
@@ -301,6 +311,8 @@ migration in one transaction (a failure applies none and leaves
   `IssueDetail > Checklist > ChecklistItem > TextInput` for checklist items,
   `IssueDetail > NoteDraft > TextInput` for the new-note field
   (attachment commands are registered on `IssueDetail`);
+  `workspace::Search` (`workspace/search.rs`) is a picker over `Db::search`
+  (`Picker::searching`: its items come from the query);
   `ProjectHeader > TextInput` for the description of the project the list
   shows (`workspace/project_header.rs`; outside `IssueList`, so its
   single-key bindings don't fire while typing);

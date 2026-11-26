@@ -18,10 +18,13 @@ mod manage;
 mod path_chips;
 mod project_header;
 mod scope;
+mod search;
 mod sidebar;
 mod skill_update;
 
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashSet};
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
@@ -94,6 +97,12 @@ enum Modal {
     History {
         picker: Entity<Picker>,
         revisions: Vec<RevisionId>,
+    },
+    /// Quick search (see `search.rs`).
+    Search {
+        picker: Entity<Picker>,
+        /// The issues found for the current query, by picker index.
+        ids: Rc<RefCell<Vec<IssueId>>>,
     },
     /// The actions of a sidebar row or archived item.
     ContextMenu {
@@ -168,6 +177,7 @@ impl Modal {
             | Modal::Dependency { picker, .. }
             | Modal::ActionPicker { picker, .. }
             | Modal::History { picker, .. }
+            | Modal::Search { picker, .. }
             | Modal::ContextMenu { picker, .. } => picker,
         }
     }
@@ -583,6 +593,12 @@ impl Workspace {
             }
             (Modal::History { revisions, .. }, PickerEvent::Confirmed(ix)) => {
                 self.restore_revision(revisions[*ix], cx);
+            }
+            (Modal::Search { ids, .. }, PickerEvent::Confirmed(ix)) => {
+                let id = ids.borrow().get(*ix).copied();
+                if let Some(id) = id {
+                    self.open_search_result(id, window, cx);
+                }
             }
             (_, PickerEvent::Create(_)) => {}
         }
@@ -2049,6 +2065,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_set_status))
             .on_action(cx.listener(Self::on_edit_issue))
             .on_action(cx.listener(Self::on_open_issue))
+            .on_action(cx.listener(Self::on_search))
             .on_action(cx.listener(Self::on_copy_issue_id))
             .on_action(cx.listener(Self::on_show_history))
             .on_action(cx.listener(Self::on_open_url))
@@ -2185,15 +2202,19 @@ impl Workspace {
             }
         };
         // Hints for what can be done from the focused element: those of
-        // `footer_hints` that have a binding there, then the palette.
+        // `footer_hints` that have a binding there, then search and the
+        // palette.
         let focus = window.focused(cx);
         let hints = self
             .footer_hints()
             .into_iter()
-            .chain([(
-                Box::new(command_palette::Toggle) as Box<dyn Action>,
-                "Commands",
-            )])
+            .chain([
+                (
+                    Box::new(actions::workspace::Search) as Box<dyn Action>,
+                    "Search",
+                ),
+                (Box::new(command_palette::Toggle), "Commands"),
+            ])
             .filter_map(|(action, label)| {
                 let binding = simplest_binding(action.as_ref(), focus.as_ref(), window)?;
                 Some(footer_hint(action, label, &binding, &t))

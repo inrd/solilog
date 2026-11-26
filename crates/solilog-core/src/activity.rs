@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{OptionalExtension as _, Row, params};
 use schemars::JsonSchema;
@@ -317,6 +317,37 @@ impl Activity {
     }
 }
 
+/// Which activities [`Db::activities`] returns. The default is all of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActivityQuery {
+    /// Only on this issue.
+    pub issue: Option<IssueId>,
+    /// Only at or after this Unix time.
+    pub since: Option<i64>,
+    /// Only by these actors (any actor if empty).
+    pub by: Vec<Actor>,
+    /// Not by these actors.
+    pub not_by: Vec<Actor>,
+    /// Only on issues this filter matches, archived ones included.
+    pub issues: Option<IssueFilter>,
+    /// At most this many, newest first.
+    pub limit: Option<usize>,
+}
+
+/// `30m`, `2h`, `3d`, `1w` (also `45s`) in seconds.
+fn parse_age(s: &str) -> Option<i64> {
+    let unit = match s.chars().last()? {
+        's' => 1,
+        'm' => 60,
+        'h' => 3600,
+        'd' => 86_400,
+        'w' => 7 * 86_400,
+        _ => return None,
+    };
+    let n: i64 = s[..s.len() - 1].trim().parse().ok().filter(|n| *n >= 0)?;
+    n.checked_mul(unit)
+}
+
 fn activity_from_row(row: &Row) -> rusqlite::Result<Activity> {
     let kind: String = row.get(3)?;
     Ok(Activity {
@@ -365,6 +396,83 @@ impl Db {
             )?
             .query_map([issue], activity_from_row)?
             .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Recorded activities across issues (archived ones included), newest
+    /// first, narrowed by `query`. A text edit soon after the same actor's
+    /// previous one updates that activity (see [`ACTIVITY_COALESCE`]), so its
+    /// `created_at` is the time of the latest edit.
+    pub fn activities(&self, query: &ActivityQuery) -> Result<Vec<Activity>> {
+        if let Some(issue) = query.issue {
+            self.get_issue(issue)?;
+        }
+        let issues: Option<std::collections::HashSet<IssueId>> = match &query.issues {
+            Some(filter) => Some(
+                self.list_issues(filter)?
+                    .into_iter()
+                    .chain(self.list_archived_issues(filter)?)
+                    .map(|i| i.id)
+                    .collect(),
+            ),
+            None => None,
+        };
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, issue_id, actor, kind, detail, created_at
+             FROM activities
+             WHERE (?1 IS NULL OR issue_id = ?1) AND (?2 IS NULL OR created_at >= ?2)
+             ORDER BY created_at DESC, id DESC",
+        )?;
+        let mut activities = Vec::new();
+        for activity in stmt.query_map(params![query.issue, query.since], activity_from_row)? {
+            let activity = activity?;
+            if (query.by.is_empty() || query.by.contains(&activity.actor))
+                && !query.not_by.contains(&activity.actor)
+                && issues
+                    .as_ref()
+                    .is_none_or(|ids| ids.contains(&activity.issue_id))
+            {
+                activities.push(activity);
+                if query.limit.is_some_and(|limit| activities.len() >= limit) {
+                    break;
+                }
+            }
+        }
+        Ok(activities)
+    }
+
+    /// A time given by a person or an agent, as a Unix timestamp: a number
+    /// (already one), an age before now (`30m`, `2h`, `3d`, `1w`), or a
+    /// date and time (`2026-11-25`, `2026-11-25 14:30`,
+    /// `2026-11-25T14:30:00`), in local time unless it ends with `Z` or an
+    /// offset (`+02:00`).
+    pub fn parse_time(&self, raw: &str) -> Result<i64> {
+        let s = raw.trim();
+        if let Ok(timestamp) = s.parse::<i64>() {
+            return Ok(timestamp);
+        }
+        if let Some(age) = parse_age(s) {
+            let now: i64 = self
+                .conn
+                .query_row("SELECT unixepoch()", [], |r| r.get(0))?;
+            return Ok(now - age);
+        }
+        // SQLite reads the formats above; `utc` takes a time without a zone
+        // as local time.
+        let has_zone = s.ends_with(['Z', 'z'])
+            || s.rfind(['+', '-'])
+                .is_some_and(|i| i > 10 && s[i + 1..].contains(':'));
+        let sql = if has_zone {
+            "SELECT unixepoch(?1)"
+        } else {
+            "SELECT unixepoch(?1, 'utc')"
+        };
+        let timestamp: Option<i64> = self.conn.query_row(sql, [s], |r| r.get(0))?;
+        timestamp.with_context(|| {
+            format!(
+                "invalid time {raw:?}: give a Unix timestamp, an age (30m, 2h, 3d, 1w) \
+                 or a date and time (2026-11-25, 2026-11-25 14:30)"
+            )
+        })
     }
 
     /// Non-user activities on an issue since it was last marked reviewed,
@@ -691,6 +799,145 @@ mod tests {
         assert_eq!(revisions[0].author, agent);
         assert_eq!(revisions[1].text, "v0");
         assert_eq!(revisions[1].author, Actor::user());
+    }
+
+    #[test]
+    fn activities_across_issues() {
+        let mut db = Db::open_in_memory().unwrap();
+        let acme = db
+            .create_issue(&NewIssue::new("acme").labels(["acme"]))
+            .unwrap();
+        let agent = Actor::parse("claude:triage").unwrap();
+        db.set_actor(agent.clone());
+        let other = db.create_issue(&NewIssue::new("other")).unwrap();
+        db.set_status(acme.id, Status::InProgress).unwrap();
+        db.set_archived(other.id, true).unwrap();
+        // Long ago.
+        db.conn
+            .execute(
+                "UPDATE activities SET created_at = 1000 WHERE issue_id = ?1 AND kind = 'created'",
+                [acme.id],
+            )
+            .unwrap();
+
+        let kinds = |q: &ActivityQuery| -> Vec<(IssueId, ActivityKind)> {
+            db.activities(q)
+                .unwrap()
+                .into_iter()
+                .map(|a| (a.issue_id, a.kind))
+                .collect()
+        };
+        assert_eq!(kinds(&ActivityQuery::default()).len(), 4);
+        // Newest first; the archived issue's activities are there.
+        assert_eq!(
+            kinds(&ActivityQuery {
+                since: Some(2000),
+                ..Default::default()
+            }),
+            [
+                (other.id, ActivityKind::Archived),
+                (acme.id, ActivityKind::StatusChanged),
+                (other.id, ActivityKind::Created),
+            ]
+        );
+        assert_eq!(
+            kinds(&ActivityQuery {
+                by: vec![Actor::user()],
+                ..Default::default()
+            }),
+            [(acme.id, ActivityKind::Created)]
+        );
+        assert_eq!(
+            kinds(&ActivityQuery {
+                not_by: vec![agent.clone()],
+                ..Default::default()
+            }),
+            [(acme.id, ActivityKind::Created)]
+        );
+        assert_eq!(
+            kinds(&ActivityQuery {
+                issues: Some(IssueFilter {
+                    labels: vec!["acme".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            [
+                (acme.id, ActivityKind::StatusChanged),
+                (acme.id, ActivityKind::Created),
+            ]
+        );
+        assert_eq!(
+            kinds(&ActivityQuery {
+                issue: Some(other.id),
+                limit: Some(1),
+                ..Default::default()
+            }),
+            [(other.id, ActivityKind::Archived)]
+        );
+        assert!(
+            db.activities(&ActivityQuery {
+                issue: Some(IssueId(999)),
+                ..Default::default()
+            })
+            .is_err()
+        );
+
+        // `updated_since` on issue filters.
+        db.conn
+            .execute(
+                "UPDATE issues SET updated_at = 1000 WHERE id = ?1",
+                [acme.id],
+            )
+            .unwrap();
+        let changed = db
+            .list_issues(&IssueFilter {
+                updated_since: Some(2000),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(changed.is_empty());
+        let archived = db
+            .list_archived_issues(&IssueFilter {
+                updated_since: Some(2000),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(archived.len(), 1);
+    }
+
+    #[test]
+    fn times() {
+        let db = Db::open_in_memory().unwrap();
+        let now: i64 = db
+            .conn
+            .query_row("SELECT unixepoch()", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(db.parse_time("1795424326").unwrap(), 1_795_424_326);
+        let two_hours = db.parse_time("2h").unwrap();
+        assert!((now - 7200 - two_hours).abs() <= 1);
+        assert!((now - 3 * 86_400 - db.parse_time(" 3d ").unwrap()).abs() <= 1);
+        assert!((now - 604_800 - db.parse_time("1w").unwrap()).abs() <= 1);
+        assert!((now - 1800 - db.parse_time("30m").unwrap()).abs() <= 1);
+        // With a zone: exact.
+        assert_eq!(
+            db.parse_time("2026-11-25T00:00:00Z").unwrap(),
+            1_795_564_800
+        );
+        assert_eq!(
+            db.parse_time("2026-11-25T02:00:00+02:00").unwrap(),
+            1_795_564_800
+        );
+        // Without one: local time, within a day of UTC.
+        let local = db.parse_time("2026-11-25").unwrap();
+        assert!((local - 1_795_564_800).abs() <= 14 * 3600);
+        assert_eq!(
+            db.parse_time("2026-11-25 10:30").unwrap() - local,
+            10 * 3600 + 30 * 60
+        );
+        for bad in ["", "yesterday", "2h ago", "-3d", "2026-13-45"] {
+            assert!(db.parse_time(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
