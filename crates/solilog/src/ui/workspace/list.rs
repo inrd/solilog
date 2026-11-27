@@ -158,3 +158,219 @@ impl ListState {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use solilog_core::{Db, NewIssue};
+
+    use super::*;
+    use Status::{Done, InProgress, Todo};
+
+    /// One issue per status, in that order, with ids 1, 2, 3…
+    fn issues(statuses: &[Status]) -> Vec<Issue> {
+        let db = Db::open_in_memory().unwrap();
+        statuses
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                db.create_issue(&NewIssue::new(format!("issue {}", i + 1)).status(s))
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    fn ids(issues: &[Issue]) -> Vec<i64> {
+        issues.iter().map(|i| i.id.0).collect()
+    }
+
+    fn id(n: i64) -> IssueId {
+        IssueId(n)
+    }
+
+    fn selection(list: &ListState) -> Vec<i64> {
+        let mut ids: Vec<i64> = list.selection.iter().map(|id| id.0).collect();
+        ids.sort();
+        ids
+    }
+
+    /// Lists five `todo` issues, 1 to 5, the first highlighted.
+    fn five() -> ListState {
+        let mut list = ListState::default();
+        list.set_issues(issues(&[Todo; 5]), None);
+        list
+    }
+
+    #[test]
+    fn sections_follow_list_order_keeping_order_within_a_status() {
+        let mut list = ListState::default();
+        list.set_issues(issues(&[Todo, InProgress, Todo, Done]), None);
+        assert_eq!(ids(&list.issues), [2, 1, 3, 4]);
+        assert_eq!(list.sections, [(InProgress, 1), (Todo, 2), (Done, 1)]);
+    }
+
+    #[test]
+    fn collapsed_sections_keep_their_header_but_not_their_issues() {
+        let mut list = ListState {
+            collapsed_statuses: vec![Todo],
+            ..ListState::default()
+        };
+        list.set_issues(issues(&[Todo, InProgress, Todo, Done]), None);
+        assert_eq!(ids(&list.issues), [2, 4]);
+        assert_eq!(list.sections, [(InProgress, 1), (Todo, 2), (Done, 1)]);
+
+        // Rows come after their own header and every earlier one, the
+        // collapsed section's included.
+        assert_eq!(list.child_index(0), 1);
+        assert_eq!(list.child_index(1), 4);
+        assert_eq!(list.child_index(7), 7, "past the end: unchanged");
+    }
+
+    #[test]
+    fn the_first_issue_is_highlighted_on_first_load() {
+        let list = five();
+        assert_eq!(list.selected, Some(id(1)));
+
+        let mut empty = ListState::default();
+        empty.set_issues(Vec::new(), None);
+        assert_eq!(empty.selected, None);
+        assert_eq!(empty.last_index(), 0);
+        assert!(!empty.select(0));
+    }
+
+    #[test]
+    fn reloading_keeps_the_highlighted_issue_wherever_it_moves() {
+        let mut list = ListState::default();
+        let all = issues(&[Todo, Todo, Todo]);
+        list.set_issues(all.clone(), None);
+        assert!(list.select(2));
+        let prev = list.selected_index();
+
+        // Issue 3 is now in progress: listed first.
+        let mut moved = all;
+        moved[2].status = InProgress;
+        list.set_issues(moved, prev);
+        assert_eq!(list.selected, Some(id(3)));
+        assert_eq!(list.selected_index(), Some(0));
+        assert_eq!(list.highlighted().map(|i| i.id), Some(id(3)));
+    }
+
+    #[test]
+    fn reloading_without_the_highlighted_issue_keeps_its_row() {
+        let mut list = five();
+        let all = list.issues.clone();
+        assert!(list.select(1));
+
+        let without = |gone: i64| {
+            all.iter()
+                .filter(|i| i.id.0 != gone)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let prev = list.selected_index();
+        list.set_issues(without(2), prev);
+        assert_eq!(list.selected, Some(id(3)), "the next issue takes its row");
+
+        // The last row: the new last one.
+        list.set_issues(all.clone(), list.selected_index());
+        assert!(list.select(4));
+        let prev = list.selected_index();
+        list.set_issues(without(5), prev);
+        assert_eq!(list.selected, Some(id(4)));
+
+        // Nothing left.
+        list.set_issues(Vec::new(), list.selected_index());
+        assert_eq!(list.selected, None);
+    }
+
+    #[test]
+    fn reloading_drops_selected_issues_that_are_no_longer_listed() {
+        let mut list = five();
+        let all = list.issues.clone();
+        list.select(2);
+        list.toggle_selected();
+        list.select(0);
+        list.toggle_selected();
+        assert_eq!(selection(&list), [1, 3]);
+        assert_eq!(list.selection_anchor, Some(id(1)));
+
+        // Issue 1 leaves the list, the anchor with it.
+        list.set_issues(all[1..].to_vec(), list.selected_index());
+        assert_eq!(selection(&list), [3]);
+        assert_eq!(list.selection_anchor, None);
+
+        // A collapsed section's issues aren't listed either.
+        let mut all_done = all;
+        all_done[2].status = Done;
+        list.collapsed_statuses = vec![Done];
+        list.set_issues(all_done, list.selected_index());
+        assert!(list.selection.is_empty());
+    }
+
+    #[test]
+    fn extending_selects_from_the_anchor_replacing_the_previous_range() {
+        let mut list = five();
+        assert!(list.select(1));
+        assert!(list.extend_selection_to(3));
+        assert_eq!(selection(&list), [2, 3, 4]);
+        assert_eq!(list.selected, Some(id(4)));
+        assert_eq!(
+            list.selection_anchor,
+            Some(id(2)),
+            "where the range started"
+        );
+
+        // Back past the anchor: the range now runs up from it.
+        assert!(list.extend_selection_to(0));
+        assert_eq!(selection(&list), [1, 2]);
+        assert_eq!(list.selected, Some(id(1)));
+
+        // Past the end: up to the last issue.
+        assert!(list.extend_selection_to(99));
+        assert_eq!(selection(&list), [2, 3, 4, 5]);
+        assert_eq!(list.selected, Some(id(5)));
+    }
+
+    #[test]
+    fn extending_keeps_issues_picked_outside_the_range() {
+        let mut list = five();
+        list.select(4);
+        assert!(list.toggle_selected());
+        assert_eq!(list.selection_anchor, Some(id(5)));
+
+        // Moving the highlight without extending starts a new range there.
+        list.select(0);
+        assert_eq!(list.selection_anchor, None);
+        list.extend_selection_to(1);
+        assert_eq!(selection(&list), [1, 2, 5]);
+    }
+
+    #[test]
+    fn extending_without_a_highlight_just_highlights() {
+        let mut list = five();
+        list.selected = None;
+        assert!(list.extend_selection_to(2));
+        assert_eq!(list.selected, Some(id(3)));
+        assert!(list.selection.is_empty());
+        assert_eq!(list.selection_anchor, None);
+    }
+
+    #[test]
+    fn toggling_select_all_and_clearing() {
+        let mut list = five();
+        list.select(1);
+        assert!(list.toggle_selected());
+        assert_eq!(selection(&list), [2]);
+        assert!(list.toggle_selected());
+        assert!(list.selection.is_empty());
+
+        list.select_all();
+        assert_eq!(selection(&list), [1, 2, 3, 4, 5]);
+        assert!(list.clear_selection());
+        assert!(list.selection.is_empty());
+        assert_eq!(list.selection_anchor, None);
+        assert!(!list.clear_selection(), "nothing left to clear");
+
+        list.selected = None;
+        assert!(!list.toggle_selected(), "no highlighted issue");
+    }
+}
