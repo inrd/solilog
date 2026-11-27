@@ -20,6 +20,7 @@ mod path_chips;
 mod project_header;
 mod scope;
 mod search;
+mod section;
 mod sidebar;
 mod skill_update;
 

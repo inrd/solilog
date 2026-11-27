@@ -8,12 +8,12 @@
 use std::path::PathBuf;
 
 use gpui::{
-    Action, ClickEvent, Context, FontWeight, IntoElement, PathPromptOptions, Window, div,
-    prelude::*, px,
+    Action, ClickEvent, Context, IntoElement, PathPromptOptions, Window, div, prelude::*, px,
 };
 use solilog_core::{Attachment, AttachmentId, AttachmentKind, IssueId, format_size};
 
 use super::super::Workspace;
+use super::super::section::{section_action, section_count, section_header};
 use super::IssueDetail;
 use crate::ui::actions::attachment::{Add, Delete, Paste, Preview, Reveal};
 use crate::ui::clipboard::{self, Attachable};
@@ -213,30 +213,19 @@ impl Workspace {
         t: &theme::Theme,
     ) -> impl IntoElement + use<> {
         let pane_focus = detail.focus.clone();
-        let add = div()
-            .id("attachments-add")
-            .px_1()
-            .rounded(t.radius_sm())
-            .cursor_pointer()
-            .text_size(px(12.))
-            .text_color(t.colors.text_muted)
-            .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
-            .child("Add files…")
-            .on_click({
-                let focus = pane_focus.clone();
-                move |_: &ClickEvent, window, cx| {
-                    window.focus(&focus);
-                    window.dispatch_action(Add::default().boxed_clone(), cx);
-                }
-            });
-        let header = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Attachments"))
-            .child(add);
-
         let attachments = &detail.issue().attachments;
+        let add = section_action(
+            "attachments-add",
+            "+ Add files",
+            Add::default().boxed_clone(),
+            Some(pane_focus.clone()),
+            t,
+        );
+        let header = section_header(
+            "Attachments",
+            section_count(attachments.len(), t),
+            [add.into_any_element()],
+        );
         let rows = attachments.iter().map(|attachment| {
             let id = attachment.id;
             let delete = div()
@@ -300,7 +289,6 @@ impl Workspace {
         });
 
         div()
-            .mt_4()
             .flex()
             .flex_col()
             .gap_1()

@@ -33,6 +33,7 @@ use solilog_core::{
     normalize_description, web_links,
 };
 
+use super::section::issue_section;
 use super::{Workspace, chip, project_chip};
 use crate::ui::actions::{
     attachment,
@@ -671,12 +672,12 @@ impl Workspace {
             )
             .children(
                 self.render_decisions(&detail.decisions, &DecisionOwner::issue(issue.id), true, cx)
-                    .map(|d| div().mt_4().flex().flex_col().child(d)),
+                    .map(|d| issue_section(d, &t)),
             )
-            .child(self.render_attachments(detail, &t))
-            .child(self.render_dependencies(detail, &t))
-            .child(self.render_checklist(detail, cx))
-            .child(self.render_notes(detail, cx));
+            .child(issue_section(self.render_attachments(detail, &t), &t))
+            .child(issue_section(self.render_dependencies(detail, &t), &t))
+            .child(issue_section(self.render_checklist(detail, cx), &t))
+            .child(issue_section(self.render_notes(detail, cx), &t));
 
         let drag_bg = t.colors.selection;
         div()

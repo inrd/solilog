@@ -3,8 +3,7 @@
 //! `issue::AddDependency` / `issue::RemoveDependency`.
 
 use gpui::{
-    Action, ClickEvent, FocusHandle, FontWeight, IntoElement, Pixels, SharedString, div,
-    prelude::*, px,
+    Action, ClickEvent, FocusHandle, IntoElement, Pixels, SharedString, div, prelude::*, px,
 };
 use solilog_core::{IssueId, Status};
 
@@ -14,6 +13,7 @@ use crate::ui::status_icon::status_icon;
 use crate::ui::theme;
 use crate::ui::tooltip::truncated_text;
 use crate::ui::workspace::Workspace;
+use crate::ui::workspace::section::{section_action, section_count, section_header};
 
 impl Workspace {
     pub(super) fn render_dependencies(
@@ -22,34 +22,20 @@ impl Workspace {
         t: &theme::Theme,
     ) -> impl IntoElement + use<> {
         let focus = detail.focus.clone();
-        let add = div()
-            .id("dependency-add")
-            .px_1()
-            .rounded(t.radius_sm())
-            .cursor_pointer()
-            .text_size(px(12.))
-            .text_color(t.colors.text_muted)
-            .hover(|s| s.bg(t.colors.highlight).text_color(t.colors.highlight_text))
-            .child("Add…")
-            .on_click({
-                let focus = focus.clone();
-                move |_: &ClickEvent, window, cx| {
-                    window.focus(&focus);
-                    window.dispatch_action(AddDependency::default().boxed_clone(), cx);
-                }
-            });
-        let header = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Dependencies"),
-            )
-            .child(add);
-
         let issue = detail.issue();
+        let add = section_action(
+            "dependency-add",
+            "+ Add",
+            AddDependency::default().boxed_clone(),
+            Some(focus.clone()),
+            t,
+        );
+        let count = issue.depends_on.len() + issue.dependents.len() + detail.mentioned_by().len();
+        let header = section_header(
+            "Dependencies",
+            section_count(count, t),
+            [add.into_any_element()],
+        );
         let group = |title: &'static str, ids: &[IssueId], removable: bool| {
             (!ids.is_empty()).then(|| {
                 div()

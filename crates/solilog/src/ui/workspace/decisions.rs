@@ -9,6 +9,7 @@ use gpui::{
 };
 use solilog_core::{Decision, DecisionId, DecisionOwner, DecisionState, format_age};
 
+use super::section::{section_action, section_count, section_header};
 use super::{CreateAction, Workspace};
 use crate::ui::actions::decision::{MarkReviewed, Record, Replace, Withdraw};
 use crate::ui::picker::PickerItem;
@@ -371,31 +372,19 @@ impl Workspace {
                     window.dispatch_action(action.boxed_clone(), cx);
                 })
         };
-        let header = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Decisions"))
-            .when(!decisions.is_empty(), |s| {
-                s.child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(t.colors.text_muted)
-                        .child(
-                            decisions
-                                .iter()
-                                .filter(|d| d.in_force())
-                                .count()
-                                .to_string(),
-                        ),
-                )
-            })
-            .child(div().flex_1())
-            .child(div().text_size(px(12.)).child(link(
-                "decision-record".into(),
+        let in_force = decisions.iter().filter(|d| d.in_force()).count();
+        let header = section_header(
+            "Decisions",
+            section_count(in_force, &t),
+            [section_action(
+                "decision-record",
                 "+ Record",
                 Box::new(record_on(here, None)),
-            )));
+                None,
+                &t,
+            )
+            .into_any_element()],
+        );
 
         let rows = decisions.iter().map(|d| {
             let id = d.id;

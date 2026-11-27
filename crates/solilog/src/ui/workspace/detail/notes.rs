@@ -13,6 +13,7 @@ use gpui::{
 use solilog_core::{Note, NoteId, NoteKind, Verdict, format_age};
 
 use super::super::Workspace;
+use super::super::section::{section_count, section_header};
 use super::IssueDetail;
 use super::review::receipt_details;
 use crate::ui::actions::note::{Add, AddDraft, Delete};
@@ -189,19 +190,7 @@ impl Workspace {
         let t = theme::current(cx);
         let pane_focus = detail.focus.clone();
         let notes = &detail.notes.notes;
-        let header = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Notes"))
-            .when(!notes.is_empty(), |s| {
-                s.child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(t.colors.text_muted)
-                        .child(notes.len().to_string()),
-                )
-            });
+        let header = section_header("Notes", section_count(notes.len(), &t), []);
 
         let rows = notes.iter().map(|note| {
             let id: NoteId = note.id;
@@ -309,7 +298,6 @@ impl Workspace {
             .children(t.sunken_bevel());
 
         div()
-            .mt_4()
             .mb_6()
             .flex()
             .flex_col()

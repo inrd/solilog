@@ -21,6 +21,7 @@ use gpui::{
 use solilog_core::{ChecklistItem, ChecklistItemId, Placement};
 
 use super::super::Workspace;
+use super::super::section::section_header;
 use super::IssueDetail;
 use crate::ui::actions::checklist::{
     AddItem, DeleteItem, FocusNext, FocusPrevious, MoveItem, MoveItemDown, MoveItemUp, ToggleItem,
@@ -479,61 +480,56 @@ impl Workspace {
     ) -> impl IntoElement + use<> {
         let t = theme::current(cx);
         let pane_focus = detail.focus.clone();
-        let header = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Checklist"))
-            .children(detail.issue.checklist_progress().map(|(done, total)| {
-                let complete = done == total;
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(12.))
-                            .text_color(if complete {
-                                t.colors.accent
-                            } else {
-                                t.colors.text_muted
-                            })
-                            .child(format!("{done}/{total}")),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .flex_1()
-                            .max_w(px(240.))
-                            .h(if t.is_bevel() {
-                                px(12.)
-                            } else if t.is_glass() {
-                                px(8.)
-                            } else {
-                                px(4.)
-                            })
-                            .when(!t.is_bevel(), |s| {
-                                s.rounded_full()
-                                    .bg(t.colors.highlight)
-                                    .when(t.is_glass(), |s| {
-                                        s.border_1().border_color(t.colors.border)
-                                    })
-                            })
-                            .when(t.is_bevel(), |s| s.p(px(2.)).bg(t.colors.input))
-                            .child(
-                                div()
-                                    .relative()
-                                    .h_full()
-                                    .when(!t.is_bevel(), |s| s.rounded_full())
-                                    .bg(t.colors.accent)
-                                    .w(relative(done as f32 / total as f32))
-                                    .children(t.gloss_overlay()),
-                            )
-                            .children(t.sunken_bevel_thin()),
-                    )
-            }));
+        let progress = detail.issue.checklist_progress().map(|(done, total)| {
+            let complete = done == total;
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(12.))
+                        .text_color(if complete {
+                            t.colors.accent
+                        } else {
+                            t.colors.text_muted
+                        })
+                        .child(format!("{done}/{total}")),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .flex_1()
+                        .max_w(px(240.))
+                        .h(if t.is_bevel() {
+                            px(12.)
+                        } else if t.is_glass() {
+                            px(8.)
+                        } else {
+                            px(4.)
+                        })
+                        .when(!t.is_bevel(), |s| {
+                            s.rounded_full()
+                                .bg(t.colors.highlight)
+                                .when(t.is_glass(), |s| s.border_1().border_color(t.colors.border))
+                        })
+                        .when(t.is_bevel(), |s| s.p(px(2.)).bg(t.colors.input))
+                        .child(
+                            div()
+                                .relative()
+                                .h_full()
+                                .when(!t.is_bevel(), |s| s.rounded_full())
+                                .bg(t.colors.accent)
+                                .w(relative(done as f32 / total as f32))
+                                .children(t.gloss_overlay()),
+                        )
+                        .children(t.sunken_bevel_thin()),
+                )
+                .into_any_element()
+        });
+        let header = section_header("Checklist", progress, []);
 
         let rows = detail
             .checklist
@@ -687,7 +683,6 @@ impl Workspace {
             .on_action(cx.listener(Self::on_move_item_down))
             .on_action(cx.listener(Self::on_focus_next))
             .on_action(cx.listener(Self::on_focus_previous))
-            .mt_4()
             .flex()
             .flex_col()
             .gap_1()

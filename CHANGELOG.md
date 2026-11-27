@@ -12,6 +12,12 @@ the scheme in AGENTS.md ("Versions and releases").
   their description, checklist or notes (`mentioned_by` in `--json`), and
   the open issue shows them under "Mentioned in" in the app.
 
+### Changed
+
+- The open issue's sections (decisions, attachments, dependencies,
+  checklist, notes) are set apart by space and a rule, with the same header
+  everywhere: title, count, and actions on the right.
+
 ### Fixed
 
 - An open issue with notes, a receipt or a review no longer scrolls past
