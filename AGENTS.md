@@ -13,7 +13,10 @@ crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast t
   src/skill.rs         installing it into agents' skills folders (no DB: in core to test without gpui)
   src/cli_link.rs      the macOS app's /usr/local/bin/solilog link (same reason)
   tests/upgrades.rs    every release's database (tests/fixtures/v*.db) opens and keeps its data
-crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
+crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli/)
+  src/cli/args.rs      clap definitions (the `--help` text)
+  src/cli/run.rs       one function per command group: gathers arguments, calls the core
+  src/cli/text.rs      `Output`: JSON or the human-readable text
   tests/cli_json.rs    the CLI's --json output, against tests/snapshots/cli_json/
   assets/keymap.json   default key bindings
   assets/themes/       built-in JSON themes (`dark.json`, `light.json`, `8086.json`, `mmx.json`, `sse2.json`, `sse2-dark.json`)
@@ -59,8 +62,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
    new module). Writes return the resulting object. Add unit tests (in-memory DB).
    Schema changes: **append** to `MIGRATIONS`, never edit existing entries
    (see "Migrations").
-2. **CLI**: add a subcommand in `cli.rs`. It must work with `--json` (serialize
-   the core type) and print the result of writes. Doc comments become `--help`;
+2. **CLI**: add a subcommand in `cli/args.rs`, run it in `cli/run.rs` and
+   print it through an `Output` method in `cli/text.rs`. It must work with
+   `--json` (serialize the core type) and print the result of writes. Doc comments become `--help`;
    write them for an agent who has never seen the code. Add a step for it
    to `tests/cli_json.rs` and run `make snapshots`.
 3. **GUI action**: declare it in `ui/actions.rs` under the right namespace,

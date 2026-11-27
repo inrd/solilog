@@ -564,7 +564,10 @@ mod tests {
         assert!(db.withdraw_decision(first.id).is_err());
 
         let owner = DecisionOwner::label("acme");
-        assert_eq!(db.decisions(&owner, false).unwrap(), std::slice::from_ref(&second));
+        assert_eq!(
+            db.decisions(&owner, false).unwrap(),
+            std::slice::from_ref(&second)
+        );
         assert_eq!(db.decisions(&owner, true).unwrap().len(), 2);
 
         let withdrawn = db.withdraw_decision(second.id).unwrap();
