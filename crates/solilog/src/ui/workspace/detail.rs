@@ -222,7 +222,7 @@ impl Workspace {
                 let issue = self
                     .all_issues
                     .iter()
-                    .chain(&self.archived_issues)
+                    .chain(&self.archive.issues)
                     .find(|i| i.id == id)?;
                 Some(Link {
                     range,

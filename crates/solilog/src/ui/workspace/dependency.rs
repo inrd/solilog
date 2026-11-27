@@ -22,7 +22,7 @@ impl Workspace {
     pub(super) fn issue_summary(&self, id: IssueId) -> Option<(String, Status)> {
         self.all_issues
             .iter()
-            .chain(&self.archived_issues)
+            .chain(&self.archive.issues)
             .find(|i| i.id == id)
             .map(|i| (i.title.clone(), i.status))
             .or_else(|| {

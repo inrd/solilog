@@ -32,8 +32,8 @@ use std::time::Duration;
 
 use gpui::{
     Action, App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding,
-    MouseButton, MouseDownEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task,
-    Window, anchored, deferred, div, prelude::*, px, svg,
+    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Task, Window, anchored,
+    deferred, div, prelude::*, px, svg,
 };
 use solilog_core::{
     Actor, Db, Issue, IssueChange, IssueEdit, IssueFilter, IssueId, Label, NewProject, Placement,
@@ -54,7 +54,7 @@ use super::status_icon::status_icon;
 use super::text_input::{Submit, TextInput};
 use super::tooltip::truncated_text;
 use super::{SHOW_IN_FILE_MANAGER, assets, theme};
-use archive::ArchiveItem;
+use archive::{ArchiveItem, ArchiveState};
 use chip_row::chip_row;
 use detail::IssueDetail;
 use list::ListState;
@@ -201,8 +201,7 @@ pub struct Workspace {
     list: ListState,
     /// Every issue but archived ones, for the sidebar's counts.
     all_issues: Vec<Issue>,
-    /// Newest first.
-    archived_issues: Vec<Issue>,
+    archive: ArchiveState,
     /// Width of the issue id column (list, archive, dependencies): fits
     /// the widest id in the database. Updated on every render.
     id_width: Pixels,
@@ -226,8 +225,6 @@ pub struct Workspace {
     /// The archive is shown in place of the issue list; `scope` is kept for
     /// when it closes.
     showing_archive: bool,
-    archive_cursor: Option<ArchiveItem>,
-    archive_scroll: ScrollHandle,
     /// The open issue, shown in place of the list (or the archive).
     detail: Option<IssueDetail>,
     /// The description field of the project header.
@@ -299,7 +296,7 @@ impl Workspace {
             db,
             list: ListState::default(),
             all_issues: Vec::new(),
-            archived_issues: Vec::new(),
+            archive: ArchiveState::default(),
             id_width: px(0.),
             views: Vec::new(),
             projects: Vec::new(),
@@ -314,8 +311,6 @@ impl Workspace {
             sidebar_cursor: SidebarItem::AllIssues,
             show_closed_projects: false,
             showing_archive: false,
-            archive_cursor: None,
-            archive_scroll: ScrollHandle::new(),
             detail: None,
             project_description: ProjectDescription::new(window, cx),
             scope_decisions: Vec::new(),
@@ -381,12 +376,12 @@ impl Workspace {
         {
             self.list.collapsed_statuses = collapsed;
             self.all_issues = all_issues;
-            self.archived_issues = archived_issues;
+            self.archive.issues = archived_issues;
             self.views = views;
             self.projects = projects;
             self.labels = labels;
         }
-        self.fix_archive_cursor(prev_archive_ix);
+        self.archive.fix_cursor(&self.projects, prev_archive_ix);
         self.refresh_detail(cx);
         self.refresh_project_description(cx);
         self.refresh_scope_decisions();
@@ -1980,7 +1975,7 @@ impl Render for Workspace {
         let widest = self
             .all_issues
             .iter()
-            .chain(&self.archived_issues)
+            .chain(&self.archive.issues)
             .map(|i| i.id)
             .max();
         self.id_width = id_column_width(widest, px(BODY_TEXT_SIZE), window);

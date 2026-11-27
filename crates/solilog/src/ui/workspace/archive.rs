@@ -9,7 +9,7 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent, Pixels,
-    Point, Window, div, prelude::*, px,
+    Point, ScrollHandle, Window, div, prelude::*, px,
 };
 use solilog_core::{Issue, IssueChange, IssueId, Project, ProjectStatus};
 
@@ -35,28 +35,32 @@ enum Row {
     Item(ArchiveItem),
 }
 
-impl Workspace {
-    fn archived_projects(&self) -> impl Iterator<Item = &Project> {
-        self.projects
-            .iter()
-            .filter(|p| p.status == ProjectStatus::Archived)
-    }
+/// The archive's state: the archived issues, the highlighted item and the
+/// scroll position. Its rows also list the archived projects, which it
+/// takes from the workspace's projects (`projects` below: all of them).
+#[derive(Default)]
+pub struct ArchiveState {
+    /// Newest first.
+    pub issues: Vec<Issue>,
+    pub cursor: Option<ArchiveItem>,
+    pub scroll: ScrollHandle,
+}
 
+impl ArchiveState {
     /// Archived projects (in project order), then archived issues (newest first).
-    fn archive_rows(&self) -> Vec<Row> {
+    fn rows(&self, projects: &[Project]) -> Vec<Row> {
         let mut rows = Vec::new();
-        let projects: Vec<_> = self
-            .archived_projects()
+        let projects: Vec<_> = archived_projects(projects)
             .map(|p| Row::Item(ArchiveItem::Project(p.name.clone())))
             .collect();
         if !projects.is_empty() {
             rows.push(Row::Heading("Projects"));
             rows.extend(projects);
         }
-        if !self.archived_issues.is_empty() {
+        if !self.issues.is_empty() {
             rows.push(Row::Heading("Issues"));
             rows.extend(
-                self.archived_issues
+                self.issues
                     .iter()
                     .map(|i| Row::Item(ArchiveItem::Issue(i.id))),
             );
@@ -64,8 +68,8 @@ impl Workspace {
         rows
     }
 
-    fn archive_items(&self) -> Vec<ArchiveItem> {
-        self.archive_rows()
+    fn items(&self, projects: &[Project]) -> Vec<ArchiveItem> {
+        self.rows(projects)
             .into_iter()
             .filter_map(|row| match row {
                 Row::Item(item) => Some(item),
@@ -75,58 +79,84 @@ impl Workspace {
     }
 
     /// Index of the highlighted item among the archive's items.
-    pub(super) fn archive_index(&self) -> Option<usize> {
-        let cursor = self.archive_cursor.as_ref()?;
-        self.archive_items().iter().position(|i| i == cursor)
+    pub fn index(&self, projects: &[Project]) -> Option<usize> {
+        let cursor = self.cursor.as_ref()?;
+        self.items(projects).iter().position(|i| i == cursor)
     }
 
     /// After a reload: keeps the cursor on the same item, or on the same
     /// row (`prev_ix`) if the item left the archive.
-    pub(super) fn fix_archive_cursor(&mut self, prev_ix: Option<usize>) {
-        let items = self.archive_items();
-        if self
-            .archive_cursor
-            .as_ref()
-            .is_some_and(|c| items.contains(c))
-        {
+    pub fn fix_cursor(&mut self, projects: &[Project], prev_ix: Option<usize>) {
+        let items = self.items(projects);
+        if self.cursor.as_ref().is_some_and(|c| items.contains(c)) {
             return;
         }
         let ix = prev_ix.unwrap_or(0).min(items.len().saturating_sub(1));
-        self.archive_cursor = items.get(ix).cloned();
+        self.cursor = items.get(ix).cloned();
     }
 
     /// The highlighted archived issue.
-    pub(super) fn archive_selected_issue(&self) -> Option<Issue> {
-        match &self.archive_cursor {
-            Some(ArchiveItem::Issue(id)) => {
-                self.archived_issues.iter().find(|i| i.id == *id).cloned()
-            }
+    pub fn selected_issue(&self) -> Option<&Issue> {
+        match &self.cursor {
+            Some(ArchiveItem::Issue(id)) => self.issues.iter().find(|i| i.id == *id),
             _ => None,
         }
     }
 
-    fn set_archive_cursor(&mut self, item: ArchiveItem, cx: &mut Context<Self>) {
+    /// Highlights `item`, scrolling it into view.
+    fn set_cursor(&mut self, projects: &[Project], item: ArchiveItem) {
         let row = self
-            .archive_rows()
+            .rows(projects)
             .iter()
             .position(|r| matches!(r, Row::Item(i) if *i == item));
         if let Some(row) = row {
-            self.archive_scroll.scroll_to_item(row);
+            self.scroll.scroll_to_item(row);
         }
-        self.archive_cursor = Some(item);
+        self.cursor = Some(item);
+    }
+
+    /// Moves the highlight `delta` items, staying within the archive.
+    /// False if it is empty.
+    fn move_cursor(&mut self, projects: &[Project], delta: isize) -> bool {
+        let items = self.items(projects);
+        if items.is_empty() {
+            return false;
+        }
+        let ix = match self.index(projects) {
+            Some(ix) => (ix as isize + delta).clamp(0, items.len() as isize - 1) as usize,
+            None => 0,
+        };
+        self.set_cursor(projects, items[ix].clone());
+        true
+    }
+}
+
+fn archived_projects(projects: &[Project]) -> impl Iterator<Item = &Project> {
+    projects
+        .iter()
+        .filter(|p| p.status == ProjectStatus::Archived)
+}
+
+impl Workspace {
+    /// Index of the highlighted item among the archive's items.
+    pub(super) fn archive_index(&self) -> Option<usize> {
+        self.archive.index(&self.projects)
+    }
+
+    /// The highlighted archived issue.
+    pub(super) fn archive_selected_issue(&self) -> Option<Issue> {
+        self.archive.selected_issue().cloned()
+    }
+
+    fn set_archive_cursor(&mut self, item: ArchiveItem, cx: &mut Context<Self>) {
+        self.archive.set_cursor(&self.projects, item);
         cx.notify();
     }
 
     fn move_archive_cursor(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let items = self.archive_items();
-        if items.is_empty() {
-            return;
+        if self.archive.move_cursor(&self.projects, delta) {
+            cx.notify();
         }
-        let ix = match self.archive_index() {
-            Some(ix) => (ix as isize + delta).clamp(0, items.len() as isize - 1) as usize,
-            None => 0,
-        };
-        self.set_archive_cursor(items[ix].clone(), cx);
     }
 
     // ---- actions ------------------------------------------------------------
@@ -181,7 +211,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(item) = self.archive_cursor.clone() else {
+        let Some(item) = self.archive.cursor.clone() else {
             return;
         };
         let (title, entries): (String, Vec<MenuEntry>) = match &item {
@@ -373,7 +403,7 @@ impl Workspace {
                 .into_any_element()
             }
             ArchiveItem::Issue(id) => {
-                let Some(issue) = self.archived_issues.iter().find(|i| i.id == id) else {
+                let Some(issue) = self.archive.issues.iter().find(|i| i.id == id) else {
                     return row.into_any_element();
                 };
                 row.child(
@@ -426,9 +456,9 @@ impl Workspace {
             }) => Some(item.clone()),
             _ => None,
         };
-        let rows = self.archive_rows();
+        let rows = self.archive.rows(&self.projects);
         let empty = rows.is_empty();
-        let count = self.archive_items().len();
+        let count = self.archive.items(&self.projects).len();
         let rows: Vec<AnyElement> = rows
             .into_iter()
             .enumerate()
@@ -444,10 +474,10 @@ impl Workspace {
                     .into_any_element(),
                 Row::Item(item) => {
                     let highlight = if menu_item.as_ref() == Some(&item)
-                        || (list_focused && self.archive_cursor.as_ref() == Some(&item))
+                        || (list_focused && self.archive.cursor.as_ref() == Some(&item))
                     {
                         Some((t.colors.highlight, t.colors.highlight_text))
-                    } else if self.archive_cursor.as_ref() == Some(&item) {
+                    } else if self.archive.cursor.as_ref() == Some(&item) {
                         Some((t.colors.hover, t.colors.text))
                     } else {
                         None
@@ -506,7 +536,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .overflow_y_scroll()
-                    .track_scroll(&self.archive_scroll)
+                    .track_scroll(&self.archive.scroll)
                     .pb_1()
                     .children(rows)
                     .when(empty, |s| {
