@@ -1,0 +1,28 @@
+{
+  "command": "solilog where --json",
+  "output": {
+    "kind": "label",
+    "name": "acme/reverb",
+    "path": "<tmp>/code",
+    "absolute": "<tmp>/code",
+    "exists": true,
+    "decisions": [
+      {
+        "id": 2,
+        "owner": {
+          "kind": "label",
+          "name": "acme"
+        },
+        "text": "Keep the v1 API until 2.0",
+        "author": "claude:contract-test",
+        "created_at": "<time>",
+        "state": "in_force",
+        "replaces": 1,
+        "replaced_by": null,
+        "ended_at": null,
+        "ended_by": null,
+        "reviewed": false
+      }
+    ]
+  }
+}

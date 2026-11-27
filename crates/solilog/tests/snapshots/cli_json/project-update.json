@@ -1,0 +1,13 @@
+{
+  "command": "solilog project update Later -d \"Some day\" --json",
+  "output": {
+    "name": "Later",
+    "status": "planned",
+    "description": "Some day",
+    "labels": [],
+    "paths": [],
+    "issue_count": 0,
+    "closed_issue_count": 0,
+    "created_at": "<time>"
+  }
+}

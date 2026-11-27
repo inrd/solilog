@@ -1,0 +1,37 @@
+{
+  "command": "solilog decision unreviewed --json",
+  "output": [
+    {
+      "id": 1,
+      "owner": {
+        "kind": "label",
+        "name": "acme"
+      },
+      "text": "Keep the v1 API",
+      "author": "claude:contract-test",
+      "created_at": "<time>",
+      "state": "superseded",
+      "replaces": null,
+      "replaced_by": 2,
+      "ended_at": "<time>",
+      "ended_by": "claude:contract-test",
+      "reviewed": false
+    },
+    {
+      "id": 2,
+      "owner": {
+        "kind": "label",
+        "name": "acme"
+      },
+      "text": "Keep the v1 API until 2.0",
+      "author": "claude:contract-test",
+      "created_at": "<time>",
+      "state": "in_force",
+      "replaces": 1,
+      "replaced_by": null,
+      "ended_at": null,
+      "ended_by": null,
+      "reviewed": false
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "command": "solilog issue request-review SOL-1 -m Fixed. --pass \"cargo test\" --fail \"cargo clippy: 1 lint\" --commit abc1234 --file src/tail.rs --json",
+  "output": {
+    "issue": {
+      "id": "SOL-1",
+      "title": "Fix the reverb tail",
+      "description": "It clicks.",
+      "status": "in_review",
+      "created_at": "<time>",
+      "archived": false,
+      "labels": [
+        "acme/reverb",
+        "bug"
+      ],
+      "projects": [
+        "Reverb v1"
+      ],
+      "checklist": [
+        {
+          "id": 1,
+          "text": "Reproduce",
+          "done": true,
+          "author": "claude:contract-test"
+        },
+        {
+          "id": 2,
+          "text": "Fix",
+          "done": false,
+          "author": "claude:contract-test"
+        },
+        {
+          "id": 3,
+          "text": "Add a test",
+          "done": false,
+          "author": "claude:contract-test"
+        }
+      ],
+      "attachments": [],
+      "depends_on": [],
+      "dependents": [
+        "SOL-2"
+      ],
+      "waiting_on": [],
+      "created_by": "claude:contract-test",
+      "title_by": "claude:contract-test",
+      "description_by": "claude:contract-test",
+      "updated_by": "claude:contract-test",
+      "updated_at": "<time>",
+      "reviewed_at": null,
+      "unreviewed": true,
+      "unreviewed_actors": [
+        "claude:contract-test"
+      ]
+    },
+    "note": {
+      "id": 2,
+      "issue_id": "SOL-1",
+      "text": "Fixed.",
+      "kind": "receipt",
+      "checks": [
+        {
+          "command": "cargo test",
+          "passed": true
+        },
+        {
+          "command": "cargo clippy: 1 lint",
+          "passed": false
+        }
+      ],
+      "commits": [
+        "abc1234"
+      ],
+      "files": [
+        "src/tail.rs"
+      ],
+      "author": "claude:contract-test",
+      "created_at": "<time>"
+    }
+  }
+}

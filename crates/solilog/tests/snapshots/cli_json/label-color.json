@@ -1,0 +1,11 @@
+{
+  "command": "solilog label color acme blue --json",
+  "output": {
+    "name": "acme",
+    "color": "blue",
+    "display_color": "blue",
+    "collapsed": false,
+    "paths": [],
+    "issue_count": 0
+  }
+}

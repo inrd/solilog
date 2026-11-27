@@ -1,0 +1,16 @@
+{
+  "command": "solilog issue history SOL-1 --json",
+  "output": [
+    {
+      "id": 1,
+      "issue_id": "SOL-1",
+      "field": "title",
+      "checklist_item_id": null,
+      "item_deleted": false,
+      "text": "Fix the tail",
+      "reason": "edit",
+      "author": "claude:contract-test",
+      "created_at": "<time>"
+    }
+  ]
+}

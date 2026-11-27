@@ -1,0 +1,11 @@
+{
+  "command": "solilog label create acme/reverb --json",
+  "output": {
+    "name": "acme/reverb",
+    "color": null,
+    "display_color": null,
+    "collapsed": false,
+    "paths": [],
+    "issue_count": 0
+  }
+}

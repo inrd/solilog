@@ -1,0 +1,14 @@
+{
+  "command": "solilog attachment add SOL-1 crash.log --json",
+  "output": [
+    {
+      "id": 1,
+      "issue_id": "SOL-1",
+      "name": "crash.log",
+      "kind": "file",
+      "size": 5,
+      "created_at": "<time>",
+      "path": "<tmp>/solilog-attachments/SOL-1/crash.log"
+    }
+  ]
+}

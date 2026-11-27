@@ -1,0 +1,43 @@
+{
+  "command": "solilog label list --json",
+  "output": [
+    {
+      "name": "acme",
+      "color": "blue",
+      "display_color": "blue",
+      "collapsed": false,
+      "paths": [],
+      "issue_count": 1
+    },
+    {
+      "name": "acme/reverb",
+      "color": null,
+      "display_color": "blue",
+      "collapsed": false,
+      "paths": [
+        {
+          "path": "<tmp>/code",
+          "absolute": "<tmp>/code",
+          "exists": true
+        }
+      ],
+      "issue_count": 1
+    },
+    {
+      "name": "bug",
+      "color": null,
+      "display_color": null,
+      "collapsed": false,
+      "paths": [],
+      "issue_count": 1
+    },
+    {
+      "name": "release",
+      "color": null,
+      "display_color": null,
+      "collapsed": false,
+      "paths": [],
+      "issue_count": 1
+    }
+  ]
+}

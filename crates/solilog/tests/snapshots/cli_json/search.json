@@ -1,0 +1,34 @@
+{
+  "command": "solilog search reverb --include-closed --json",
+  "output": [
+    {
+      "issue": {
+        "id": "SOL-1",
+        "title": "Fix the reverb tail",
+        "status": "in_review",
+        "labels": [
+          "acme/reverb",
+          "bug"
+        ],
+        "projects": [
+          "Reverb v1"
+        ],
+        "checklist_progress": {
+          "done": 1,
+          "total": 3
+        },
+        "waiting_on": [],
+        "unreviewed": true,
+        "updated_at": "<time>",
+        "archived": false
+      },
+      "matches": [
+        {
+          "field": "title",
+          "id": null,
+          "snippet": "Fix the **reverb** tail"
+        }
+      ]
+    }
+  ]
+}

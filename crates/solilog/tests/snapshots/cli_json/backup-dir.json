@@ -1,0 +1,7 @@
+{
+  "command": "solilog backup dir --json",
+  "output": {
+    "path": "<tmp>/solilog-backups",
+    "is_default": true
+  }
+}

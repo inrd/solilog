@@ -1,0 +1,4 @@
+{
+  "command": "solilog issue list --ready --compact --json",
+  "output": []
+}

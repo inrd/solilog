@@ -1,0 +1,22 @@
+{
+  "command": "solilog view list --json",
+  "output": [
+    {
+      "name": "Acme bugs",
+      "filter": {
+        "statuses": [],
+        "open_only": true,
+        "labels": [
+          "acme",
+          "bug"
+        ],
+        "without_labels": [],
+        "projects": [],
+        "no_project": false,
+        "ready": false,
+        "waiting": false,
+        "unreviewed": false
+      }
+    }
+  ]
+}

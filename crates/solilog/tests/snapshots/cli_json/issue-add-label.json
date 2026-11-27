@@ -1,0 +1,34 @@
+{
+  "command": "solilog issue add-label SOL-2 release --json",
+  "output": {
+    "id": "SOL-2",
+    "title": "Release",
+    "description": "After SOL-1.",
+    "status": "todo",
+    "created_at": "<time>",
+    "archived": false,
+    "labels": [
+      "release"
+    ],
+    "projects": [],
+    "checklist": [],
+    "attachments": [],
+    "depends_on": [
+      "SOL-1"
+    ],
+    "dependents": [],
+    "waiting_on": [
+      "SOL-1"
+    ],
+    "created_by": "claude:contract-test",
+    "title_by": "claude:contract-test",
+    "description_by": "claude:contract-test",
+    "updated_by": "claude:contract-test",
+    "updated_at": "<time>",
+    "reviewed_at": null,
+    "unreviewed": true,
+    "unreviewed_actors": [
+      "claude:contract-test"
+    ]
+  }
+}

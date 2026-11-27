@@ -1,0 +1,13 @@
+{
+  "command": "solilog note list SOL-1 --json",
+  "output": [
+    {
+      "id": 1,
+      "issue_id": "SOL-1",
+      "text": "Tried a longer window: no change.",
+      "kind": "note",
+      "author": "claude:contract-test",
+      "created_at": "<time>"
+    }
+  ]
+}

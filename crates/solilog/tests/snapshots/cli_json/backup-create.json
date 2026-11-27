@@ -1,0 +1,16 @@
+{
+  "command": "solilog backup create --json",
+  "output": {
+    "name": "<varies>",
+    "path": "<varies>",
+    "size": "<varies>",
+    "created_at": "<time>",
+    "reason": "manual",
+    "database_id": "<varies>",
+    "own": true,
+    "schema_version": 24,
+    "app_version": "<varies>",
+    "issue_count": 2,
+    "attachment_count": 1
+  }
+}

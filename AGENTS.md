@@ -14,6 +14,7 @@ crates/solilog-core/   domain types, DB, every domain operation. NO gpui. Fast t
   src/cli_link.rs      the macOS app's /usr/local/bin/solilog link (same reason)
   tests/upgrades.rs    every release's database (tests/fixtures/v*.db) opens and keeps its data
 crates/solilog/        one binary: GUI (src/ui/) + CLI (src/cli.rs)
+  tests/cli_json.rs    the CLI's --json output, against tests/snapshots/cli_json/
   assets/keymap.json   default key bindings
   assets/themes/       built-in JSON themes (`dark.json`, `light.json`, `8086.json`, `mmx.json`, `sse2.json`, `sse2-dark.json`)
   assets/icons/        default SVG icons, plus `pixel/` variants for pixel-icon themes
@@ -60,7 +61,8 @@ writing SQL or validation in `crates/solilog`, move it to core.
    (see "Migrations").
 2. **CLI**: add a subcommand in `cli.rs`. It must work with `--json` (serialize
    the core type) and print the result of writes. Doc comments become `--help`;
-   write them for an agent who has never seen the code.
+   write them for an agent who has never seen the code. Add a step for it
+   to `tests/cli_json.rs` and run `make snapshots`.
 3. **GUI action**: declare it in `ui/actions.rs` under the right namespace,
    with a `///` doc comment (shown as its palette description and in
    `solilog keymap actions`). Use a struct with serde fields for parameters
@@ -229,7 +231,10 @@ One concept, one name, consistent across surfaces:
 ## CLI contract (agents depend on this)
 
 - `--json` on every command; JSON field names and enum keys are a stable API.
-  Add fields freely; don't rename or remove them.
+  Add fields freely; don't rename or remove them. `tests/cli_json.rs` runs
+  the main commands on a temporary database and compares their output with
+  snapshots: any change fails it, so an added field is a deliberate
+  `make snapshots` (check the diff: no field renamed or removed).
 - Default output is a compact, human-readable form.
 - Exit 0 on success. On failure exit non-zero with the message on stderr
   (`{"error": "..."}` with `--json`). Usage errors come from clap (exit 2).

@@ -1,0 +1,19 @@
+{
+  "command": "solilog decision add --label acme \"Keep the v1 API\" --json",
+  "output": {
+    "id": 1,
+    "owner": {
+      "kind": "label",
+      "name": "acme"
+    },
+    "text": "Keep the v1 API",
+    "author": "claude:contract-test",
+    "created_at": "<time>",
+    "state": "in_force",
+    "replaces": null,
+    "replaced_by": null,
+    "ended_at": null,
+    "ended_by": null,
+    "reviewed": false
+  }
+}

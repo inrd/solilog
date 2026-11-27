@@ -22,7 +22,7 @@ LINUX   := packaging/linux
 DESKTOP := $(DATA_DIR)/applications/$(APP_ID).desktop
 ICON    := $(DATA_DIR)/icons/hicolor/scalable/apps/$(APP_ID).svg
 
-.PHONY: help run demo screenshot test test-core clippy check release cut-release bundle install uninstall icon clean
+.PHONY: help run demo screenshot test test-core snapshots clippy check release cut-release bundle install uninstall icon clean
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -41,6 +41,9 @@ test: ## Run all tests
 
 test-core: ## Run the core tests only (fast, no gpui)
 	$(CARGO) test -p solilog-core
+
+snapshots: ## Update the CLI's JSON snapshots after an intended change (review the diff)
+	SOLILOG_UPDATE_SNAPSHOTS=1 $(CARGO) test -p solilog --test cli_json
 
 clippy: ## Lint, warnings as errors
 	$(CARGO) clippy --workspace --all-targets -- -D warnings

@@ -1,0 +1,27 @@
+{
+  "command": "solilog project list --all --json",
+  "output": [
+    {
+      "name": "Reverb v1",
+      "status": "active",
+      "description": "Ship it",
+      "labels": [
+        "acme/reverb"
+      ],
+      "paths": [],
+      "issue_count": 1,
+      "closed_issue_count": 0,
+      "created_at": "<time>"
+    },
+    {
+      "name": "Later",
+      "status": "planned",
+      "description": "Some day",
+      "labels": [],
+      "paths": [],
+      "issue_count": 0,
+      "closed_issue_count": 0,
+      "created_at": "<time>"
+    }
+  ]
+}

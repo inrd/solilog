@@ -1,0 +1,47 @@
+{
+  "command": "solilog statuses --json",
+  "output": [
+    {
+      "key": "backlog",
+      "label": "Backlog",
+      "closed": false,
+      "collapsed": false
+    },
+    {
+      "key": "todo",
+      "label": "Todo",
+      "closed": false,
+      "collapsed": false
+    },
+    {
+      "key": "in_progress",
+      "label": "In Progress",
+      "closed": false,
+      "collapsed": false
+    },
+    {
+      "key": "in_review",
+      "label": "In Review",
+      "closed": false,
+      "collapsed": false
+    },
+    {
+      "key": "blocked",
+      "label": "Blocked",
+      "closed": false,
+      "collapsed": false
+    },
+    {
+      "key": "done",
+      "label": "Done",
+      "closed": true,
+      "collapsed": false
+    },
+    {
+      "key": "cancelled",
+      "label": "Cancelled",
+      "closed": true,
+      "collapsed": false
+    }
+  ]
+}
