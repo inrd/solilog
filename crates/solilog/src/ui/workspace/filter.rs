@@ -106,7 +106,7 @@ impl Workspace {
 
     fn edit_filter(&mut self, edit: impl FnOnce(&mut IssueFilter), cx: &mut Context<Self>) {
         edit(&mut self.scope.filter);
-        self.error = None;
+        self.footer.error = None;
         self.reload(cx);
     }
 

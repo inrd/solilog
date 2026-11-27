@@ -107,7 +107,7 @@ impl Workspace {
             })
             .collect();
         if entries.is_empty() {
-            self.error = Some("No such decision here".into());
+            self.footer.error = Some("No such decision here".into());
             cx.notify();
             return;
         }
@@ -163,7 +163,8 @@ impl Workspace {
         } else if let Some(owner) = self.decision_target() {
             owner
         } else {
-            self.error = Some("Open an issue, a label or a project to record a decision".into());
+            self.footer.error =
+                Some("Open an issue, a label or a project to record a decision".into());
             cx.notify();
             return;
         };
@@ -293,7 +294,7 @@ impl Workspace {
                 .collect(),
         };
         if ids.is_empty() {
-            self.error = Some("No unreviewed decision here".into());
+            self.footer.error = Some("No unreviewed decision here".into());
             cx.notify();
             return;
         }

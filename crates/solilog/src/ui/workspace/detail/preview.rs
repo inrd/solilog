@@ -110,7 +110,7 @@ impl Workspace {
         let index = match found {
             Ok(index) => index,
             Err(err) => {
-                self.error = Some(err);
+                self.footer.error = Some(err);
                 cx.notify();
                 return;
             }

@@ -313,7 +313,7 @@ impl Workspace {
                 .and_then(|d| d.checklist.focused_item(window, cx))
         });
         if id.is_none() {
-            self.error = Some("No checklist item is being edited".into());
+            self.footer.error = Some("No checklist item is being edited".into());
             cx.notify();
         }
         id

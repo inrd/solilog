@@ -169,7 +169,7 @@ impl Workspace {
     ) {
         self.close_detail(cx);
         self.showing_archive = true;
-        self.error = None;
+        self.footer.error = None;
         self.reload(cx);
         window.focus(&self.list_focus);
     }

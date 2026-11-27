@@ -58,7 +58,7 @@ impl Workspace {
             return self.report(self.db.get_attachment(id), cx);
         }
         if attachments.is_empty() {
-            self.error = Some(format!("{issue} has no attachments"));
+            self.footer.error = Some(format!("{issue} has no attachments"));
             cx.notify();
             return None;
         }
@@ -128,7 +128,7 @@ impl Workspace {
                 }
             }
             None => {
-                self.error = Some("There are no files or image on the clipboard".into());
+                self.footer.error = Some("There are no files or image on the clipboard".into());
                 cx.notify();
             }
         }
@@ -158,7 +158,7 @@ impl Workspace {
         match &attachment.path {
             Some(path) if path.exists() => cx.reveal_path(path),
             Some(path) => {
-                self.error = Some(format!("{} is missing", path.display()));
+                self.footer.error = Some(format!("{} is missing", path.display()));
                 cx.notify();
             }
             None => {}

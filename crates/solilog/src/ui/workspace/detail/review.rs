@@ -109,8 +109,8 @@ impl Workspace {
             .filter(|i| i.status == Status::InReview)
             .map(|i| i.id)
             .collect();
-        if ids.is_empty() && self.error.is_none() {
-            self.error = Some("No issue in review selected".into());
+        if ids.is_empty() && self.footer.error.is_none() {
+            self.footer.error = Some("No issue in review selected".into());
             cx.notify();
         }
         ids
@@ -128,7 +128,7 @@ impl Workspace {
         }
         if self.report(self.db.approve_issues(&ids, ""), cx).is_some() {
             self.reload(cx);
-            self.notice = Some(match ids.as_slice() {
+            self.footer.notice = Some(match ids.as_slice() {
                 [id] => format!("Approved {id}"),
                 many => format!("Approved {} issues", many.len()),
             });
@@ -171,7 +171,7 @@ impl Workspace {
             .is_some()
         {
             self.reload(cx);
-            self.notice = Some(match ids.as_slice() {
+            self.footer.notice = Some(match ids.as_slice() {
                 [id] => format!("Sent {id} back"),
                 many => format!("Sent {} issues back", many.len()),
             });

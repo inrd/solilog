@@ -135,7 +135,7 @@ impl Workspace {
         let notes = &detail.notes.notes;
         let Some(id) = action.id else {
             if notes.is_empty() {
-                self.error = Some(format!("{} has no notes", detail.issue().id));
+                self.footer.error = Some(format!("{} has no notes", detail.issue().id));
                 cx.notify();
                 return;
             }

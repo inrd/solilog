@@ -52,7 +52,7 @@ impl Workspace {
         let Some(path) = self.report(path, cx) else {
             return;
         };
-        self.notice = Some("Backing up…".into());
+        self.footer.notice = Some("Backing up…".into());
         cx.notify();
         // In the background: attachments can take a while.
         let made = cx
@@ -62,13 +62,13 @@ impl Workspace {
             let made = made.await;
             this.update(cx, |this, cx| {
                 if let Some(backup) = this.report(made, cx) {
-                    this.notice = Some(format!(
+                    this.footer.notice = Some(format!(
                         "Backed up: {} ({})",
                         backup.name,
                         format_size(backup.size)
                     ));
                 } else {
-                    this.notice = None;
+                    this.footer.notice = None;
                 }
                 cx.notify();
             })
@@ -89,7 +89,7 @@ impl Workspace {
         if dir.path.is_dir() {
             cx.open_with_system(&dir.path);
         } else {
-            self.error = Some(format!(
+            self.footer.error = Some(format!(
                 "No backups yet ({} doesn't exist)",
                 dir.path.display()
             ));
@@ -153,7 +153,7 @@ impl Workspace {
                 change.not_moved
             ));
         }
-        self.notice = Some(notice);
+        self.footer.notice = Some(notice);
         cx.notify();
     }
 
@@ -190,7 +190,7 @@ impl Workspace {
         let restored = self.db.restore_backup(&backup.path.to_string_lossy());
         if let Some(restored) = self.report(restored, cx) {
             self.reload(cx);
-            self.notice = Some(format!(
+            self.footer.notice = Some(format!(
                 "Restored the backup from {date}. The data as it was is in {}",
                 restored.before_restore.name
             ));
@@ -203,7 +203,7 @@ impl Workspace {
             return;
         };
         if backups.is_empty() {
-            self.error = Some("No backups yet".into());
+            self.footer.error = Some("No backups yet".into());
             cx.notify();
             return;
         }

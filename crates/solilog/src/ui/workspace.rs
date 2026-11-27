@@ -187,6 +187,23 @@ impl Modal {
     }
 }
 
+/// What the footer says, instead of context about the list.
+#[derive(Default)]
+struct FooterMessages {
+    /// The last error; shown until the next successful operation.
+    error: Option<String>,
+    /// News about the last command (e.g. a backup made), shown until the
+    /// next error or successful operation.
+    notice: Option<String>,
+}
+
+impl FooterMessages {
+    fn clear(&mut self) {
+        self.error = None;
+        self.notice = None;
+    }
+}
+
 struct OpenModal {
     modal: Modal,
     /// Focus to restore when the modal closes.
@@ -229,10 +246,7 @@ pub struct Workspace {
     /// `decisions.rs`).
     scope_decisions: Vec<solilog_core::Decision>,
     modal: Option<OpenModal>,
-    error: Option<String>,
-    /// News about the last command (e.g. a backup made), shown in the
-    /// footer until the next error or successful operation.
-    notice: Option<String>,
+    footer: FooterMessages,
     _poll: Task<()>,
     _auto_backups: Task<()>,
     _skill_update: Task<()>,
@@ -308,8 +322,7 @@ impl Workspace {
             project_description: ProjectDescription::new(window, cx),
             scope_decisions: Vec::new(),
             modal: None,
-            error: None,
-            notice: None,
+            footer: FooterMessages::default(),
             _poll: poll,
             _auto_backups: Self::auto_backups(cx),
             _skill_update: Self::update_skills(cx),
@@ -332,12 +345,11 @@ impl Workspace {
     fn report<T>(&mut self, result: anyhow::Result<T>, cx: &mut Context<Self>) -> Option<T> {
         match result {
             Ok(value) => {
-                self.error = None;
-                self.notice = None;
+                self.footer.clear();
                 Some(value)
             }
             Err(err) => {
-                self.error = Some(format!("{err:#}"));
+                self.footer.error = Some(format!("{err:#}"));
                 cx.notify();
                 None
             }
@@ -384,7 +396,7 @@ impl Workspace {
         };
         self.list.set_issues(issues, prev_ix);
         if scope_error.is_some() {
-            self.error = scope_error;
+            self.footer.error = scope_error;
         }
         if !self.sidebar_items().contains(&self.sidebar.cursor) {
             self.sidebar.cursor = self.active_sidebar_item();
@@ -663,7 +675,7 @@ impl Workspace {
                 Relation::RemoveLabel => "no labels",
                 _ => "no projects",
             };
-            self.error = Some(match issues {
+            self.footer.error = Some(match issues {
                 [issue] => format!("{} has {what}", issue.id),
                 _ => format!("The selected issues have {what}"),
             });
@@ -708,7 +720,7 @@ impl Workspace {
             self.list.highlighted().cloned()
         };
         if issue.is_none() {
-            self.error = Some("No issue selected".into());
+            self.footer.error = Some("No issue selected".into());
             cx.notify();
         }
         issue
@@ -834,7 +846,7 @@ impl Workspace {
                 [] => None,
                 [issue] => Some(issue.clone()),
                 _ => {
-                    self.error = Some("Select a single issue to edit".into());
+                    self.footer.error = Some("Select a single issue to edit".into());
                     cx.notify();
                     None
                 }
@@ -958,8 +970,8 @@ impl Workspace {
         let ids: Vec<String> = issues.iter().map(|i| i.id.to_string()).collect();
         let ids = ids.join(", ");
         cx.write_to_clipboard(ClipboardItem::new_string(ids.clone()));
-        self.error = None;
-        self.notice = Some(format!("Copied {ids}"));
+        self.footer.error = None;
+        self.footer.notice = Some(format!("Copied {ids}"));
         cx.notify();
     }
 
@@ -983,7 +995,7 @@ impl Workspace {
             .is_some()
         {
             self.reload(cx);
-            self.notice = Some(match ids.as_slice() {
+            self.footer.notice = Some(match ids.as_slice() {
                 [id] => format!("Marked {id} reviewed"),
                 many => format!("Marked {} issues reviewed", many.len()),
             });
@@ -1036,7 +1048,7 @@ impl Workspace {
             .is_some()
         {
             self.reload(cx);
-            self.notice = Some(match ids.as_slice() {
+            self.footer.notice = Some(match ids.as_slice() {
                 [id] => format!("Marked {id} reviewed"),
                 many => format!("Marked {} issues reviewed", many.len()),
             });
@@ -2117,7 +2129,7 @@ impl Workspace {
     /// list (selected issues); the command palette shortcut on the right.
     fn render_footer(&self, window: &Window, cx: &App) -> impl IntoElement + use<> {
         let t = theme::current(cx);
-        let (text, color) = match (&self.error, &self.notice) {
+        let (text, color) = match (&self.footer.error, &self.footer.notice) {
             (Some(err), _) => (Some(err.clone()), t.colors.error),
             (None, Some(notice)) => (Some(notice.clone()), t.colors.text_muted),
             (None, None) => {

@@ -200,7 +200,7 @@ impl Workspace {
             autosave: None,
             _subscriptions: subscriptions,
         });
-        self.error = None;
+        self.footer.error = None;
         self.sync_checklist(window, cx);
         cx.notify();
     }
@@ -282,7 +282,7 @@ impl Workspace {
                 detail
                     .title
                     .update(cx, |input, cx| input.reset_text(saved, cx));
-                self.error = Some("An issue needs a title".into());
+                self.footer.error = Some("An issue needs a title".into());
                 cx.notify();
             }
         }
@@ -331,7 +331,7 @@ impl Workspace {
             Err(err) => {
                 // Not `report`: on success it would clear an error the
                 // reload found before this.
-                self.error = Some(format!("{err:#}"));
+                self.footer.error = Some(format!("{err:#}"));
                 return;
             }
         };

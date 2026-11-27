@@ -26,15 +26,15 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.error = None;
-        self.notice = Some("Installing the command line tool…".into());
+        self.footer.error = None;
+        self.footer.notice = Some("Installing the command line tool…".into());
         cx.notify();
         // In the background: the password prompt blocks until answered.
         let done = cx.background_executor().spawn(async { install() });
         cx.spawn(async move |this, cx| {
             let done = done.await;
             this.update(cx, |this, cx| {
-                this.notice = this.report(done, cx);
+                this.footer.notice = this.report(done, cx);
                 cx.notify();
             })
             .ok();

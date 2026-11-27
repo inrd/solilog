@@ -20,7 +20,7 @@ impl Workspace {
             [] => return,
             [issue] => issue.id,
             _ => {
-                self.error = Some("Select a single issue to see its history".into());
+                self.footer.error = Some("Select a single issue to see its history".into());
                 cx.notify();
                 return;
             }
@@ -34,7 +34,7 @@ impl Workspace {
             return;
         };
         if revisions.is_empty() {
-            self.notice = Some(format!("{issue} has no earlier text"));
+            self.footer.notice = Some(format!("{issue} has no earlier text"));
             cx.notify();
             return;
         }
@@ -68,7 +68,7 @@ impl Workspace {
         self.save_detail(false, cx);
         if let Some(issue) = self.report(self.db.restore_revision(id), cx) {
             self.reload(cx);
-            self.notice = Some(format!("Restored earlier text of {}", issue.id));
+            self.footer.notice = Some(format!("Restored earlier text of {}", issue.id));
             cx.notify();
         }
     }

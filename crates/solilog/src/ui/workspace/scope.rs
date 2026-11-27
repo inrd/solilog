@@ -241,7 +241,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.scope.filter = self.scope.source.filter();
-        self.error = None;
+        self.footer.error = None;
         self.reload(cx);
     }
 

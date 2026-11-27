@@ -20,7 +20,7 @@ impl Workspace {
                     cx,
                 );
                 if let Some(Some(notice)) = updated {
-                    this.notice = Some(notice);
+                    this.footer.notice = Some(notice);
                     cx.notify();
                 }
             })

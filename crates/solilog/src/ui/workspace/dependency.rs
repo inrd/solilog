@@ -91,7 +91,7 @@ impl Workspace {
                 on.sort();
                 on.dedup();
                 if on.is_empty() {
-                    self.error = Some(match issues.as_slice() {
+                    self.footer.error = Some(match issues.as_slice() {
                         [issue] => format!("{} depends on no issue", issue.id),
                         _ => "The selected issues depend on no issue".into(),
                     });
