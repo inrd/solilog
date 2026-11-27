@@ -23,6 +23,13 @@ the scheme in AGENTS.md ("Versions and releases").
 - An open issue with notes, a receipt or a review no longer scrolls past
   its end into empty space (or stops short of it) in wide windows.
 - The "In Review" status icon's dot is centered on non-retina displays.
+- An edit an agent (or the CLI) made to an open issue's title or
+  description while you were typing in it is no longer lost when your text
+  is saved over it: it's kept in the issue's history, and the open issue
+  says so, with a button to the history. Replacing text someone else wrote,
+  checklist items included, always keeps a revision of it now.
+- The open issue no longer closes on a database error other than the issue
+  being deleted; the error is shown instead.
 
 ## [0.2.5] - 2026-11-26
 

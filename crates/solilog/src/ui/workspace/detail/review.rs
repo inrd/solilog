@@ -53,7 +53,9 @@ pub(super) fn receipt_details(receipt: &Receipt, t: &theme::Theme) -> impl IntoE
         .children(files)
 }
 
-fn button(
+/// A small button in a panel above the description; `primary` is outlined
+/// in the review color.
+pub(super) fn button(
     id: &'static str,
     label: &'static str,
     primary: bool,

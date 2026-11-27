@@ -124,7 +124,9 @@ writing SQL or validation in `crates/solilog`, move it to core.
   (`revision.rs`): full copies, saved by the core write methods, so the GUI
   and the CLI both get them. A field gets no new revision while its last is
   under 10 minutes old, unless the edit is destructive (loses half the text
-  or 200 characters); each new one thins out the field's older ones (the
+  or 200 characters) or replaces text someone else wrote (an agent's edit
+  the user's autosave overwrites; the open issue then says so,
+  `workspace/detail/overwrite.rs`); each new one thins out the field's older ones (the
   `thinning.rs` helper backups use too). `Db::restore_revision` saves the
   current text first; a deleted item comes back with its id (checklist item
   ids are never reused) where it was. Deleting an issue deletes its

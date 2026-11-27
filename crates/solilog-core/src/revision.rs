@@ -5,7 +5,9 @@
 //! text is saved as a revision: a full copy, not a diff (issue text is
 //! small). Edits are coalesced: the GUI saves while typing, so a field gets
 //! no new revision while its last one is under [`COALESCE`] old, except
-//! before a destructive edit ([`is_destructive`]). Every new revision thins
+//! before a destructive edit ([`is_destructive`]) or when the text being
+//! replaced was written by someone else (an agent's edit, overwritten by the
+//! user, is always kept). Every new revision thins
 //! out the field's older ones ([`to_thin`]). Restoring saves the current
 //! text first, so a restore can be undone. Deleting an issue deletes its
 //! revisions; archiving keeps them.
@@ -404,20 +406,27 @@ impl Db {
         self.get_issue(issue.id)
     }
 
-    /// Before `old` is replaced with `new`: saves it as a revision, unless
-    /// the field has a recent one and the edit isn't destructive. Call
+    /// Before `old` (written by `old_author`) is replaced with `new`: saves
+    /// it as a revision, unless this connection's actor is replacing its
+    /// own text, the field has a recent revision by it, and the edit isn't
+    /// destructive. Text someone else wrote is always kept: an agent's edit
+    /// that the user's next autosave overwrites can be restored. Call
     /// inside a transaction.
     pub(crate) fn record_edit(
         &self,
         issue: IssueId,
         field: Field,
         old: &str,
+        old_author: &Actor,
         new: &str,
     ) -> Result<()> {
         if old == new || old.is_empty() {
             return Ok(());
         }
-        if !is_destructive(old, new) && self.has_recent_revision(issue, field)? {
+        if *old_author == self.actor
+            && !is_destructive(old, new)
+            && self.has_recent_revision(issue, field)?
+        {
             return Ok(());
         }
         self.save_revision(issue, field, old, RevisionReason::Edit, None)
@@ -573,6 +582,55 @@ mod tests {
         };
         db.edit_issue(id, &edit).unwrap();
         assert_eq!(texts(&db, id)[0], ("Title".into(), "x".into()));
+    }
+
+    #[test]
+    fn someone_elses_text_is_always_kept() {
+        let mut db = Db::open_in_memory().unwrap();
+        let user = db.actor.clone();
+        let agent = Actor::parse("claude:test").unwrap();
+        let issue = db
+            .create_issue(&NewIssue::new("x").description("one").checklist(["item"]))
+            .unwrap();
+        let item = issue.checklist[0].id;
+        // The user types (a revision of "one"), an agent edits within ten
+        // minutes, and the user's next autosave overwrites the agent's text.
+        edit_description(&db, issue.id, "one two");
+        db.actor = agent.clone();
+        edit_description(&db, issue.id, "agent's text");
+        db.actor = user.clone();
+        edit_description(&db, issue.id, "one two three");
+        assert_eq!(
+            texts(&db, issue.id),
+            [
+                ("Description".into(), "agent's text".into()),
+                ("Description".into(), "one two".into()),
+                ("Description".into(), "one".into()),
+            ]
+        );
+        // The user's own typing after that is coalesced again.
+        edit_description(&db, issue.id, "one two three four");
+        assert_eq!(texts(&db, issue.id).len(), 3);
+
+        // Titles and checklist items too.
+        let title = |text: &str| IssueEdit {
+            title: Some(text.into()),
+            ..Default::default()
+        };
+        db.edit_issue(issue.id, &title("y")).unwrap();
+        db.actor = agent;
+        db.edit_issue(issue.id, &title("agent's title")).unwrap();
+        db.edit_checklist_item(item, "agent's item").unwrap();
+        db.actor = user;
+        db.edit_checklist_item(item, "item 2").unwrap();
+        db.edit_issue(issue.id, &title("z")).unwrap();
+        let revisions = texts(&db, issue.id);
+        assert!(revisions.contains(&("Title".into(), "agent's title".into())));
+        assert!(
+            revisions
+                .iter()
+                .any(|(field, text)| field.starts_with("Checklist") && text == "agent's item")
+        );
     }
 
     #[test]

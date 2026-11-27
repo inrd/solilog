@@ -143,7 +143,12 @@ impl Db {
         let tx = self.conn.unchecked_transaction()?;
         let (issue, old) = self.checklist_item(item)?;
         if old != text {
-            self.record_edit(issue, Field::ChecklistItem(item), &old, &text)?;
+            let author: Actor = self.conn.query_row(
+                "SELECT author FROM checklist_items WHERE id = ?1",
+                [item],
+                |row| row.get(0),
+            )?;
+            self.record_edit(issue, Field::ChecklistItem(item), &old, &author, &text)?;
             self.conn.execute(
                 "UPDATE checklist_items SET text = ?2, author = ?3 WHERE id = ?1",
                 params![item, text, self.actor],

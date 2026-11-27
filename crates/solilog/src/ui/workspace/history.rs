@@ -27,6 +27,9 @@ impl Workspace {
         };
         // Edits not saved yet are the current text: what a restore replaces.
         self.save_detail(false, cx);
+        if let Some(detail) = &mut self.detail {
+            detail.dismiss_overwrites();
+        }
         let Some(revisions) = self.report(self.db.issue_revisions(issue), cx) else {
             return;
         };

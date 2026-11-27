@@ -18,6 +18,7 @@ mod attachments;
 mod checklist;
 mod dependencies;
 mod notes;
+mod overwrite;
 mod preview;
 mod review;
 
@@ -29,8 +30,8 @@ use gpui::{
     IntoElement, ScrollHandle, Subscription, Task, Window, div, prelude::*, px,
 };
 use solilog_core::{
-    Activity, Decision, DecisionOwner, Issue, IssueEdit, IssueId, format_age, issue_mentions,
-    normalize_description, web_links,
+    Activity, Db, Decision, DecisionOwner, Issue, IssueEdit, IssueId, Note, format_age,
+    issue_mentions, normalize_description, web_links,
 };
 
 use super::section::issue_section;
@@ -45,6 +46,7 @@ use crate::ui::text_input::{Changed, Link, Submit, TextInput};
 use crate::ui::theme;
 use checklist::Checklist;
 use notes::Notes;
+use overwrite::{Overwrites, TextField};
 use preview::ImagePreview;
 
 pub const CONTEXT: &str = "IssueDetail";
@@ -66,6 +68,8 @@ pub(super) struct IssueDetail {
     decisions: Vec<Decision>,
     /// The other issues that mention this one (`Db::mentioned_by`).
     mentioned_by: Vec<IssueId>,
+    /// Edits made elsewhere while the user typed (see `overwrite.rs`).
+    overwrites: Overwrites,
     /// The image attachment shown over the window, if any.
     preview: Option<ImagePreview>,
     focus: FocusHandle,
@@ -90,6 +94,12 @@ impl IssueDetail {
     pub(super) fn mentioned_by(&self) -> &[IssueId] {
         &self.mentioned_by
     }
+
+    /// The user opened the history: edits made elsewhere that their text
+    /// replaced are no longer shown.
+    pub(super) fn dismiss_overwrites(&mut self) {
+        self.overwrites.dismiss();
+    }
 }
 
 /// Whether the title field holds something other than `saved`.
@@ -101,9 +111,32 @@ pub(super) fn description_changed(text: &str, saved: &str) -> bool {
     normalize_description(text) != saved
 }
 
+/// What the detail shows besides the issue, read from the database.
+struct Extras {
+    unreviewed_activities: Vec<Activity>,
+    notes: Vec<Note>,
+    decisions: Vec<Decision>,
+    mentioned_by: Vec<IssueId>,
+}
+
+impl Extras {
+    fn read(db: &Db, id: IssueId) -> anyhow::Result<Self> {
+        Ok(Self {
+            unreviewed_activities: db.unreviewed_activities(id)?,
+            notes: db.issue_notes(id)?,
+            decisions: db.shown_decisions(&DecisionOwner::issue(id))?,
+            mentioned_by: db.mentioned_by(id)?,
+        })
+    }
+}
+
 impl Workspace {
     pub(super) fn open_issue(&mut self, id: IssueId, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(issue) = self.report(self.db.get_issue(id), cx) else {
+        let read = self
+            .db
+            .get_issue(id)
+            .and_then(|issue| Ok((issue, Extras::read(&self.db, id)?)));
+        let Some((issue, extras)) = self.report(read, cx) else {
             return;
         };
         self.close_detail(cx);
@@ -148,28 +181,19 @@ impl Workspace {
             }),
         ];
         let checklist = Checklist::new(window, cx);
-        let notes = Notes::new(
-            self.db.issue_notes(id).unwrap_or_default(),
-            scroll.clone(),
-            cx,
-        );
+        let notes = Notes::new(extras.notes, scroll.clone(), cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
-        let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
-        let decisions = self
-            .db
-            .shown_decisions(&DecisionOwner::issue(id))
-            .unwrap_or_default();
-        let mentioned_by = self.db.mentioned_by(id).unwrap_or_default();
         self.detail = Some(IssueDetail {
             issue,
-            unreviewed_activities,
+            unreviewed_activities: extras.unreviewed_activities,
             title,
             description,
             checklist,
             notes,
-            decisions,
-            mentioned_by,
+            decisions: extras.decisions,
+            mentioned_by: extras.mentioned_by,
+            overwrites: Overwrites::default(),
             preview: None,
             focus,
             scroll,
@@ -269,6 +293,12 @@ impl Workspace {
             };
             if let Some(detail) = &mut self.detail {
                 detail.issue = issue;
+                if edit.title.is_some() {
+                    detail.overwrites.saved(TextField::Title);
+                }
+                if edit.description.is_some() {
+                    detail.overwrites.saved(TextField::Description);
+                }
             }
             wrote = true;
         }
@@ -280,47 +310,61 @@ impl Workspace {
     /// After a reload: shows the issue as it now is. Fields with unsaved
     /// edits keep them, and so do fields that differ from the saved text
     /// only by the whitespace saving drops (a space just typed at the end
-    /// must stay). Closes the detail if the issue is gone.
+    /// must stay); one changed elsewhere meanwhile is noted (see
+    /// `overwrite.rs`). Closes the detail if the issue is gone; on other
+    /// errors, reports them and leaves the detail as it was.
     pub(super) fn refresh_detail(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.detail.as_ref().map(|d| d.issue.id) else {
             return;
         };
-        let Ok(issue) = self.db.get_issue(id) else {
-            // Deleted. Focus goes back to the list (see `Workspace::new`).
-            self.detail = None;
-            return;
+        let read = self.db.find_issue(id).and_then(|issue| match issue {
+            Some(issue) => Ok(Some((issue, Extras::read(&self.db, id)?))),
+            None => Ok(None),
+        });
+        let (issue, extras) = match read {
+            Ok(Some(read)) => read,
+            Ok(None) => {
+                // Deleted. Focus goes back to the list (see `Workspace::new`).
+                self.detail = None;
+                return;
+            }
+            Err(err) => {
+                // Not `report`: on success it would clear an error the
+                // reload found before this.
+                self.error = Some(format!("{err:#}"));
+                return;
+            }
         };
-        let unreviewed_activities = self.db.unreviewed_activities(id).unwrap_or_default();
-        let notes = self.db.issue_notes(id).unwrap_or_default();
-        let decisions = self
-            .db
-            .shown_decisions(&DecisionOwner::issue(id))
-            .unwrap_or_default();
-        let mentioned_by = self.db.mentioned_by(id).unwrap_or_default();
         let Some(detail) = &mut self.detail else {
             return;
         };
         let title = detail.title.read(cx).text();
-        if !title_changed(title, &detail.issue.title) && title_changed(title, &issue.title) {
+        let unsaved = title_changed(title, &detail.issue.title);
+        detail
+            .overwrites
+            .refresh(TextField::Title, unsaved, &detail.issue, &issue);
+        if !unsaved && title_changed(title, &issue.title) {
             let text = issue.title.clone();
             detail
                 .title
                 .update(cx, |input, cx| input.reset_text(text, cx));
         }
         let description = detail.description.read(cx).text();
-        if !description_changed(description, &detail.issue.description)
-            && description_changed(description, &issue.description)
-        {
+        let unsaved = description_changed(description, &detail.issue.description);
+        detail
+            .overwrites
+            .refresh(TextField::Description, unsaved, &detail.issue, &issue);
+        if !unsaved && description_changed(description, &issue.description) {
             let text = issue.description.clone();
             detail
                 .description
                 .update(cx, |input, cx| input.reset_text(text, cx));
         }
         detail.issue = issue;
-        detail.unreviewed_activities = unreviewed_activities;
-        detail.notes.set_notes(notes);
-        detail.decisions = decisions;
-        detail.mentioned_by = mentioned_by;
+        detail.unreviewed_activities = extras.unreviewed_activities;
+        detail.notes.set_notes(extras.notes);
+        detail.decisions = extras.decisions;
+        detail.mentioned_by = extras.mentioned_by;
     }
 
     /// Saves (adding the note being written) and closes the detail; the
@@ -605,6 +649,7 @@ impl Workspace {
         });
 
         let review_panel = self.render_review_panel(detail, &focus, &t);
+        let overwrites = overwrite::render_overwrites(detail, &focus, &t);
 
         let agent_description = !issue.description.is_empty() && issue.description_by.is_agent();
 
@@ -635,6 +680,7 @@ impl Workspace {
                 s.child(div().flex().flex_wrap().gap_1().children(chips))
             })
             .children(review_panel)
+            .children(overwrites)
             .children(unreviewed_banner)
             .child(
                 div()

@@ -537,7 +537,14 @@ impl Db {
     }
 
     pub fn get_issue(&self, id: IssueId) -> Result<Issue> {
-        let mut issue = self
+        self.find_issue(id)?
+            .with_context(|| format!("no issue {id}"))
+    }
+
+    /// [`Db::get_issue`], with `None` when there is no such issue (deleted),
+    /// so that it can be told apart from other errors.
+    pub fn find_issue(&self, id: IssueId) -> Result<Option<Issue>> {
+        let Some(mut issue) = self
             .conn
             .query_row(
                 &format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE id = ?1"),
@@ -545,7 +552,9 @@ impl Db {
                 issue_from_row,
             )
             .optional()?
-            .with_context(|| format!("no issue {id}"))?;
+        else {
+            return Ok(None);
+        };
         issue.labels = self
             .names_per_issue(ISSUE_LABELS_SQL, Some(id))?
             .remove(&id)
@@ -568,7 +577,7 @@ impl Db {
             .unwrap_or_default();
         issue.unreviewed = !issue.unreviewed_actors.is_empty();
         self.fill_dependencies(std::slice::from_mut(&mut issue), Some(id))?;
-        Ok(issue)
+        Ok(Some(issue))
     }
 
     /// Creates an issue (and any labels that don't exist yet), adds it to
@@ -625,7 +634,7 @@ impl Db {
         if let Some(title) = &edit.title {
             let title = normalize_title(title)?;
             if issue.title != title {
-                self.record_edit(id, Field::Title, &issue.title, title)?;
+                self.record_edit(id, Field::Title, &issue.title, &issue.title_by, title)?;
                 self.set_issue_column(id, "title", &title)?;
                 self.set_issue_column(id, "title_by", &self.actor)?;
                 self.record_activity(id, ActivityKind::TitleEdited, title)?;
@@ -634,7 +643,13 @@ impl Db {
         if let Some(description) = &edit.description {
             let description = normalize_description(description);
             if issue.description != description {
-                self.record_edit(id, Field::Description, &issue.description, &description)?;
+                self.record_edit(
+                    id,
+                    Field::Description,
+                    &issue.description,
+                    &issue.description_by,
+                    &description,
+                )?;
                 self.set_issue_column(id, "description", &description)?;
                 self.set_issue_column(id, "description_by", &self.actor)?;
                 let detail = if description.is_empty() {
@@ -1139,6 +1154,11 @@ mod tests {
         assert_eq!(db.get_issue(issue.id).unwrap().status, Status::Blocked);
         assert!(db.set_status(IssueId(999), Status::Done).is_err());
         assert!(db.get_issue(IssueId(999)).is_err());
+        assert_eq!(db.find_issue(IssueId(999)).unwrap(), None);
+        assert_eq!(
+            db.find_issue(issue.id).unwrap().unwrap().status,
+            Status::Blocked
+        );
     }
 
     #[test]
