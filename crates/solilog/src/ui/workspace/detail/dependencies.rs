@@ -1,5 +1,5 @@
 //! The open issue's dependencies: the issues it depends on and those that
-//! depend on it. Clicking one opens it; adding and removing go through
+//! depend on it, then the issues that mention it. Clicking one opens it; adding and removing go through
 //! `issue::AddDependency` / `issue::RemoveDependency`.
 
 use gpui::{
@@ -77,6 +77,7 @@ impl Workspace {
             .child(header)
             .children(group("Depends on", &issue.depends_on, true))
             .children(group("Needed by", &issue.dependents, false))
+            .children(group("Mentioned in", detail.mentioned_by(), false))
     }
 }
 

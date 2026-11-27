@@ -30,9 +30,9 @@ packaging/macos/       Solilog.icns (from icon.svg via icon.sh), Info.plist
 packaging/linux/       .desktop file (named after the app id, `APP_ID` in ui/mod.rs)
 Makefile               common tasks, install (macOS bundle; Linux desktop entry)
 CHANGELOG.md           user-visible changes per release; see "Versions and releases"
-scripts/               demo database, README screenshot, release.sh, upgrade-fixture.sh
+scripts/               demo database, README screenshots, release.sh, upgrade-fixture.sh
 docs/THEMES.md         user guide and schema reference for JSON themes
-docs/screenshot.png    README image, generated: see "Screenshot"
+docs/screenshot*.png   README images, generated: see "Screenshots"
 ```
 
 `solilog` with no args opens the GUI; `solilog <command>` runs the CLI.
@@ -367,11 +367,16 @@ make cut-release V=0.2.0               # version, commit and tag a release
 
 Keep the build free of warnings and clippy lints.
 
-## Screenshot
+## Screenshots
 
-The README image (`docs/screenshot.png`) is generated: `make screenshot`
-opens the app on a fresh demo database (`scripts/demo-db.sh`) and captures
-its window (the terminal needs the Screen Recording permission). After any
-visible UI change, regenerate it and commit it with the change. When a feature
-is worth showing, add it to the demo data. Keep that data fictional and
+The README images (`docs/screenshot*.png`) are generated: `make screenshot`
+(`scripts/screenshot.sh`) opens the app on a fresh demo database
+(`scripts/demo-db.sh`) and captures its window once per image (the terminal
+needs the Screen Recording permission): the issue list
+(`screenshot.png`), an open issue (`screenshot-detail.png`, the demo's
+showcase issue) and the list in the classic themes (`screenshot-8086.png`,
+`screenshot-mmx.png`). After any visible UI change, regenerate them and
+commit the ones that changed with it. When a feature is worth showing, add
+it to the demo data (the open issue's features to the showcase issue); a new
+image goes in the script and the README. Keep that data fictional and
 neutral: no real people, companies or projects.

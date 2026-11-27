@@ -63,6 +63,8 @@ pub(super) struct IssueDetail {
     /// The decisions that apply, then ended ones awaiting review (see
     /// `Db::shown_decisions`).
     decisions: Vec<Decision>,
+    /// The other issues that mention this one (`Db::mentioned_by`).
+    mentioned_by: Vec<IssueId>,
     /// The image attachment shown over the window, if any.
     preview: Option<ImagePreview>,
     focus: FocusHandle,
@@ -82,6 +84,10 @@ impl IssueDetail {
 
     pub(super) fn decisions(&self) -> &[Decision] {
         &self.decisions
+    }
+
+    pub(super) fn mentioned_by(&self) -> &[IssueId] {
+        &self.mentioned_by
     }
 }
 
@@ -153,6 +159,7 @@ impl Workspace {
             .db
             .shown_decisions(&DecisionOwner::issue(id))
             .unwrap_or_default();
+        let mentioned_by = self.db.mentioned_by(id).unwrap_or_default();
         self.detail = Some(IssueDetail {
             issue,
             unreviewed_activities,
@@ -161,6 +168,7 @@ impl Workspace {
             checklist,
             notes,
             decisions,
+            mentioned_by,
             preview: None,
             focus,
             scroll,
@@ -287,6 +295,7 @@ impl Workspace {
             .db
             .shown_decisions(&DecisionOwner::issue(id))
             .unwrap_or_default();
+        let mentioned_by = self.db.mentioned_by(id).unwrap_or_default();
         let Some(detail) = &mut self.detail else {
             return;
         };
@@ -310,6 +319,7 @@ impl Workspace {
         detail.unreviewed_activities = unreviewed_activities;
         detail.notes.set_notes(notes);
         detail.decisions = decisions;
+        detail.mentioned_by = mentioned_by;
     }
 
     /// Saves (adding the note being written) and closes the detail; the

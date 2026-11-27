@@ -25,7 +25,8 @@ This file covers the workflows. For commands and flags, run
 
 1. Read it first: `solilog issue context SOL-12 --json` (the issue with its
    projects, dependencies, any `SOL-n` issues mentioned in the
-   description, and its `notes`; use `issue show` when you only want the
+   description, the issues that mention it (`mentioned_by`), and its
+   `notes`; use `issue show` when you only want the
    issue). Read its `decisions` first: settled points that apply to the
    issue (its own, its projects' and its labels'); follow them, and don't
    reopen one without asking the user. Then the notes: they hold what

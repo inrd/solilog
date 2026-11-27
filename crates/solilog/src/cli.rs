@@ -328,8 +328,10 @@ pub enum IssueCommand {
     },
     /// Show one issue, with its description, checklist and attachments.
     Show { id: IssueId },
-    /// Show an issue together with its projects, dependencies, and any
-    /// `SOL-n` issues referenced in its description, in one call.
+    /// Show an issue together with its projects, dependencies, the `SOL-n`
+    /// issues referenced in its description (`referenced_issues`), the
+    /// issues whose description, checklist or notes mention it
+    /// (`mentioned_by`), its notes and decisions, in one call.
     Context { id: IssueId },
     /// Create an issue and print it.
     #[command(visible_alias = "new")]
@@ -1790,6 +1792,13 @@ impl Output {
             if !ctx.referenced_issues.is_empty() {
                 text.push_str("\n\nReferenced:");
                 for i in &ctx.referenced_issues {
+                    text.push('\n');
+                    text.push_str(&issue_summary_line(i));
+                }
+            }
+            if !ctx.mentioned_by.is_empty() {
+                text.push_str("\n\nMentioned by:");
+                for i in &ctx.mentioned_by {
                     text.push('\n');
                     text.push_str(&issue_summary_line(i));
                 }

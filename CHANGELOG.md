@@ -6,6 +6,12 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Added
+
+- Backlinks: `issue context` lists the issues that mention it (`SOL-12`) in
+  their description, checklist or notes (`mentioned_by` in `--json`), and
+  the open issue shows them under "Mentioned in" in the app.
+
 ### Fixed
 
 - An open issue with notes, a receipt or a review no longer scrolls past

@@ -99,6 +99,8 @@ issue in_progress 3 "Rate limiting on /v2/events" -l feature -l repo/api -p "v2.
     -i "Token bucket store" -i "Retry-After header on 429" -i "Integration tests" \
     -d "Enforce per-token limits on POST /v2/events with a Retry-After header on 429, keeping existing webhook delivery unaffected (see SOL-2)."
 q issue add-dependency 16 2
+# A mention from another issue, shown under "Mentioned in".
+q note add 9 "Cover the new 429 responses and Retry-After header from SOL-16."
 q --actor codex:load-test note add 16 \
     "Benchmarked the in-memory limiter at 12k req/s; sliding window had 3x higher lock contention than a token bucket."
 # Decisions: one on the API codebase, applying to its issues, and one an

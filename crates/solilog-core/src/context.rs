@@ -31,14 +31,17 @@ pub struct IssueSummary {
     pub summary: String,
 }
 
-/// An issue together with its projects, dependencies, referenced issues,
-/// notes and the decisions that apply to it.
+/// An issue together with its projects, dependencies, the issues it
+/// mentions and those that mention it, notes and the decisions that apply to it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct IssueContext {
     pub issue: Issue,
     pub projects: Vec<ProjectSummary>,
     pub depends_on: Vec<IssueSummary>,
     pub referenced_issues: Vec<IssueSummary>,
+    /// The other issues that mention this one (`SOL-n`) in their
+    /// description, checklist or notes (see `Db::mentioned_by`).
+    pub mentioned_by: Vec<IssueSummary>,
     /// The issue's worklog, oldest first.
     pub notes: Vec<Note>,
     /// The decisions in force that apply to the issue: its own, its
@@ -61,8 +64,8 @@ fn brief_summary(description: &str) -> String {
 
 impl Db {
     /// Returns an issue together with its projects, `depends_on` issues, and
-    /// any existing `SOL-n` issues referenced in its description, its
-    /// notes and the decisions that apply to it.
+    /// any existing `SOL-n` issues referenced in its description, the
+    /// issues that mention it, its notes and the decisions that apply to it.
     pub fn issue_context(&self, id: IssueId) -> Result<IssueContext> {
         let issue = self.get_issue(id)?;
 
@@ -93,6 +96,13 @@ impl Db {
             }
         }
 
+        let mut mentioned_by = Vec::new();
+        for other in self.mentioned_by(id)? {
+            if let Some(summary) = self.issue_summary(other)? {
+                mentioned_by.push(summary);
+            }
+        }
+
         let notes = self.issue_notes(id)?;
         let decisions = self.inherited_decisions(&DecisionOwner::issue(id))?;
         Ok(IssueContext {
@@ -100,9 +110,37 @@ impl Db {
             projects,
             depends_on,
             referenced_issues,
+            mentioned_by,
             notes,
             decisions,
         })
+    }
+
+    /// The other issues (archived ones too) that mention `id` as `SOL-n`
+    /// in their description, a checklist item or a note, by id.
+    pub fn mentioned_by(&self, id: IssueId) -> Result<Vec<IssueId>> {
+        // `LIKE` narrows it down (it ignores ASCII case, like mentions);
+        // `issue_mentions` then rules out `SOL-120` for `SOL-12` and the like.
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT issue_id, text FROM (
+                 SELECT id AS issue_id, description AS text FROM issues
+                 UNION ALL SELECT issue_id, text FROM checklist_items
+                 UNION ALL SELECT issue_id, text FROM notes
+             )
+             WHERE issue_id != ?1 AND text LIKE '%SOL-' || ?1 || '%'
+             ORDER BY issue_id",
+        )?;
+        let rows = stmt.query_map([id], |row| {
+            Ok((row.get::<_, IssueId>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut ids: Vec<IssueId> = Vec::new();
+        for row in rows {
+            let (issue, text) = row?;
+            if ids.last() != Some(&issue) && issue_mentions(&text).iter().any(|&(_, m)| m == id) {
+                ids.push(issue);
+            }
+        }
+        Ok(ids)
     }
 
     fn issue_summary(&self, id: IssueId) -> Result<Option<IssueSummary>> {
@@ -212,6 +250,45 @@ mod tests {
             .record_decision(&DecisionOwner::project("alpha"), "No unsafe code.")
             .unwrap();
         assert_eq!(db.issue_context(main.id).unwrap().decisions, [decision]);
+    }
+
+    #[test]
+    fn mentioned_by_finds_descriptions_checklists_and_notes() {
+        let db = Db::open_in_memory().unwrap();
+        let target = db.create_issue(&NewIssue::new("Target")).unwrap();
+        let t = target.id;
+        let by_description = db
+            .create_issue(&NewIssue::new("A").description(format!("After {t}, and {t} again.")))
+            .unwrap();
+        let by_checklist = db
+            .create_issue(&NewIssue::new("B").checklist([format!("wait for sol-{}", t.0)]))
+            .unwrap();
+        let by_note = db.create_issue(&NewIssue::new("C")).unwrap();
+        db.add_note(by_note.id, &format!("Handed off to {t}."))
+            .unwrap();
+        db.update_issues(&[by_note.id], &crate::IssueChange::SetArchived(true))
+            .unwrap();
+        // Not mentions of `t`: a longer id, and the issue itself.
+        db.create_issue(&NewIssue::new("D").description(format!("{t}0 and XSOL-{}", t.0)))
+            .unwrap();
+        db.edit_issue(
+            t,
+            &crate::IssueEdit {
+                description: Some(format!("This is {t}.")),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            db.mentioned_by(t).unwrap(),
+            [by_description.id, by_checklist.id, by_note.id]
+        );
+        let ctx = db.issue_context(t).unwrap();
+        let ids: Vec<_> = ctx.mentioned_by.iter().map(|i| i.id).collect();
+        assert_eq!(ids, [by_description.id, by_checklist.id, by_note.id]);
+        assert_eq!(ctx.mentioned_by[0].title, "A");
+        assert!(db.mentioned_by(by_description.id).unwrap().is_empty());
     }
 
     #[test]
