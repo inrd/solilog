@@ -15,6 +15,7 @@ mod detail;
 mod filter;
 mod history;
 mod label_header;
+mod list;
 mod manage;
 mod path_chips;
 mod project_header;
@@ -25,7 +26,7 @@ mod sidebar;
 mod skill_update;
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -56,6 +57,7 @@ use super::{SHOW_IN_FILE_MANAGER, assets, theme};
 use archive::ArchiveItem;
 use chip_row::chip_row;
 use detail::IssueDetail;
+use list::ListState;
 use project_header::ProjectDescription;
 use scope::Scope;
 use sidebar::SidebarItem;
@@ -194,14 +196,9 @@ struct OpenModal {
 
 pub struct Workspace {
     db: Db,
-    /// Cache of the database; reloaded whenever it changes. The listed
-    /// issues, as shown: grouped by status, without collapsed sections.
-    issues: Vec<Issue>,
-    /// The list's status sections, in list order, with their number of
-    /// issues; `issues` leaves out those of collapsed sections.
-    sections: Vec<(Status, usize)>,
-    /// Statuses whose issue list section is collapsed.
-    collapsed_statuses: Vec<Status>,
+    /// Cache of the database (like the fields below); reloaded whenever it
+    /// changes.
+    list: ListState,
     /// Every issue but archived ones, for the sidebar's counts.
     all_issues: Vec<Issue>,
     /// Newest first.
@@ -217,17 +214,8 @@ pub struct Workspace {
     /// What the issue list shows. Re-read on every reload, so outside
     /// edits (e.g. from the CLI) apply.
     scope: Scope,
-    /// The highlighted issue (the keyboard cursor).
-    selected: Option<IssueId>,
-    /// Issues selected for commands, which act on these when there are any
-    /// and on the highlighted issue otherwise. Only ever listed issues:
-    /// reloads drop the others.
-    selection: HashSet<IssueId>,
-    /// Where the range being selected (shift + move or click) started.
-    selection_anchor: Option<IssueId>,
     input: Entity<TextInput>,
     list_focus: FocusHandle,
-    list_scroll: ScrollHandle,
     sidebar_visible: bool,
     sidebar_focus: FocusHandle,
     /// What had focus when the footer was last rendered.
@@ -269,10 +257,10 @@ impl Workspace {
             if let Some(issue) = this.report(this.db.create_issue(&this.new_issue(title)), cx) {
                 input.update(cx, |input, cx| input.clear(cx));
                 // Show it, even if its section was collapsed.
-                if this.collapsed_statuses.contains(&issue.status) {
+                if this.list.collapsed_statuses.contains(&issue.status) {
                     this.report(this.db.set_status_collapsed(issue.status, false), cx);
                 }
-                this.selected = Some(issue.id);
+                this.list.selected = Some(issue.id);
                 this.reload(cx);
             }
         })
@@ -309,9 +297,7 @@ impl Workspace {
 
         let mut this = Self {
             db,
-            issues: Vec::new(),
-            sections: Vec::new(),
-            collapsed_statuses: Vec::new(),
+            list: ListState::default(),
             all_issues: Vec::new(),
             archived_issues: Vec::new(),
             id_width: px(0.),
@@ -320,12 +306,8 @@ impl Workspace {
             labels: Vec::new(),
             data_version: 0,
             scope: Scope::default(),
-            selected: None,
-            selection: HashSet::new(),
-            selection_anchor: None,
             input,
             list_focus: cx.focus_handle(),
-            list_scroll: ScrollHandle::new(),
             sidebar_visible: true,
             sidebar_focus: cx.focus_handle(),
             footer_focus: None,
@@ -350,7 +332,7 @@ impl Workspace {
             .and_then(|raw| raw.parse::<IssueId>().ok())
         {
             this.open_issue(id, window, cx);
-        } else if this.issues.is_empty() {
+        } else if this.list.issues.is_empty() {
             window.focus(&this.input.focus_handle(cx));
         } else {
             window.focus(&this.list_focus);
@@ -377,7 +359,7 @@ impl Workspace {
     /// Re-reads everything from the database (the source of truth).
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.data_version = self.db.data_version().unwrap_or_default();
-        let prev_ix = self.selected_index();
+        let prev_ix = self.list.selected_index();
         let prev_archive_ix = self.archive_index();
         let scope_error = self.refresh_scope();
         let filter = self.scope.filter.clone();
@@ -397,7 +379,7 @@ impl Workspace {
         if let Some((all_issues, archived_issues, views, projects, labels, collapsed)) =
             self.report(sidebar_data, cx)
         {
-            self.collapsed_statuses = collapsed;
+            self.list.collapsed_statuses = collapsed;
             self.all_issues = all_issues;
             self.archived_issues = archived_issues;
             self.views = views;
@@ -408,68 +390,23 @@ impl Workspace {
         self.refresh_detail(cx);
         self.refresh_project_description(cx);
         self.refresh_scope_decisions();
-        let Some(mut issues) = self.report(self.db.list_issues(&filter), cx) else {
-            self.issues.clear();
-            self.sections.clear();
+        let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
+            self.list.clear();
             return;
         };
-        // Grouped by status, keeping the saved order within a group.
-        issues.sort_by_key(|i| i.status.list_rank());
-        self.sections = issues
-            .chunk_by(|a, b| a.status == b.status)
-            .map(|group| (group[0].status, group.len()))
-            .collect();
-        issues.retain(|i| !self.collapsed_statuses.contains(&i.status));
-        self.issues = issues;
-        let listed: HashSet<IssueId> = self.issues.iter().map(|i| i.id).collect();
-        self.selection.retain(|id| listed.contains(id));
-        self.selection_anchor = self.selection_anchor.filter(|id| listed.contains(id));
+        self.list.set_issues(issues, prev_ix);
         if scope_error.is_some() {
             self.error = scope_error;
         }
         if !self.sidebar_items().contains(&self.sidebar_cursor) {
             self.sidebar_cursor = self.active_sidebar_item();
         }
-        // Keep the selection on the same issue, or on the same row if it vanished.
-        if self.selected_index().is_none() {
-            let ix = prev_ix
-                .unwrap_or(0)
-                .min(self.issues.len().saturating_sub(1));
-            self.selected = self.issues.get(ix).map(|i| i.id);
-        }
         cx.notify();
-    }
-
-    fn selected_index(&self) -> Option<usize> {
-        let id = self.selected?;
-        self.issues.iter().position(|i| i.id == id)
-    }
-
-    /// The issue list's child element showing the issue at `ix`: rows are
-    /// preceded by one header per status section, up to and including
-    /// theirs (collapsed sections have a header too).
-    fn list_child_index(&self, ix: usize) -> usize {
-        let Some(issue) = self.issues.get(ix) else {
-            return ix;
-        };
-        let headers = self
-            .sections
-            .iter()
-            .take_while(|(s, _)| s.list_rank() <= issue.status.list_rank())
-            .count();
-        ix + headers
     }
 
     /// Highlights the issue at `ix`; a later range selection starts there.
     fn select_index(&mut self, ix: usize, cx: &mut Context<Self>) {
-        self.selection_anchor = None;
-        self.highlight_index(ix, cx);
-    }
-
-    fn highlight_index(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if let Some(issue) = self.issues.get(ix) {
-            self.selected = Some(issue.id);
-            self.list_scroll.scroll_to_item(self.list_child_index(ix));
+        if self.list.select(ix) {
             cx.notify();
         }
     }
@@ -477,23 +414,9 @@ impl Workspace {
     /// Moves the highlight to `ix`, selecting the issues from the anchor
     /// (where the range started) to it, instead of the previous range.
     fn extend_selection_to(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(cursor) = self.selected_index() else {
-            return self.select_index(ix, cx);
-        };
-        let anchor = self
-            .selection_anchor
-            .and_then(|id| self.issues.iter().position(|i| i.id == id))
-            .unwrap_or(cursor);
-        let ix = ix.min(self.issues.len().saturating_sub(1));
-        let range = |end: usize| anchor.min(end)..=anchor.max(end);
-        for issue in &self.issues[range(cursor)] {
-            self.selection.remove(&issue.id);
+        if self.list.extend_selection_to(ix) {
+            cx.notify();
         }
-        for issue in &self.issues[range(ix)] {
-            self.selection.insert(issue.id);
-        }
-        self.selection_anchor = Some(self.issues[anchor].id);
-        self.highlight_index(ix, cx);
     }
 
     // ---- modals ---------------------------------------------------------
@@ -794,7 +717,7 @@ impl Workspace {
         } else if self.showing_archive {
             self.archive_selected_issue()
         } else {
-            self.selected_index().map(|ix| self.issues[ix].clone())
+            self.list.highlighted().cloned()
         };
         if issue.is_none() {
             self.error = Some("No issue selected".into());
@@ -808,11 +731,12 @@ impl Workspace {
     /// the highlighted archived issue). Empty, with an error shown, when
     /// there is none.
     fn target_issues(&mut self, cx: &mut Context<Self>) -> Vec<Issue> {
-        if self.detail.is_none() && !self.showing_archive && !self.selection.is_empty() {
+        if self.detail.is_none() && !self.showing_archive && !self.list.selection.is_empty() {
             return self
+                .list
                 .issues
                 .iter()
-                .filter(|i| self.selection.contains(&i.id))
+                .filter(|i| self.list.selection.contains(&i.id))
                 .cloned()
                 .collect();
         }
@@ -959,7 +883,7 @@ impl Workspace {
         let Some(first) = issues.first() else {
             return;
         };
-        let highlighted = self.selected.unwrap_or(first.id);
+        let highlighted = self.list.selected.unwrap_or(first.id);
         let mut entries: Vec<MenuEntry> = Vec::new();
         if let [issue] = issues.as_slice() {
             if self.detail.is_none() {
@@ -1241,14 +1165,14 @@ impl Workspace {
     }
 
     fn select_next(&mut self, _: &issue_list::SelectNext, _: &mut Window, cx: &mut Context<Self>) {
-        let ix = self.selected_index().map_or(0, |ix| ix + 1);
-        self.select_index(ix.min(self.issues.len().saturating_sub(1)), cx);
+        let ix = self.list.selected_index().map_or(0, |ix| ix + 1);
+        self.select_index(ix.min(self.list.last_index()), cx);
     }
 
     /// Moves the highlighted issue past its neighbor with the same status:
     /// the previous one (`down` false) or the next one.
     fn move_highlighted_issue(&mut self, down: bool, cx: &mut Context<Self>) {
-        let Some(ix) = self.selected_index() else {
+        let Some(ix) = self.list.selected_index() else {
             return;
         };
         let neighbor = if down {
@@ -1256,8 +1180,10 @@ impl Workspace {
         } else {
             ix.checked_sub(1)
         };
-        let (issue, Some(neighbor)) = (&self.issues[ix], neighbor.and_then(|n| self.issues.get(n)))
-        else {
+        let (issue, Some(neighbor)) = (
+            &self.list.issues[ix],
+            neighbor.and_then(|n| self.list.issues.get(n)),
+        ) else {
             return;
         };
         if neighbor.status != issue.status {
@@ -1271,9 +1197,7 @@ impl Workspace {
         let moved = self.db.move_issue(issue.id, &placement);
         if self.report(moved, cx).is_some() {
             self.reload(cx);
-            if let Some(ix) = self.selected_index() {
-                self.list_scroll.scroll_to_item(self.list_child_index(ix));
-            }
+            self.list.scroll_to_selected();
         }
     }
 
@@ -1304,7 +1228,10 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let ix = self.selected_index().map_or(0, |ix| ix.saturating_sub(1));
+        let ix = self
+            .list
+            .selected_index()
+            .map_or(0, |ix| ix.saturating_sub(1));
         self.select_index(ix, cx);
     }
 
@@ -1318,7 +1245,7 @@ impl Workspace {
     }
 
     fn select_last(&mut self, _: &issue_list::SelectLast, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_index(self.issues.len().saturating_sub(1), cx);
+        self.select_index(self.list.last_index(), cx);
     }
 
     // ---- status sections ----------------------------------------------------
@@ -1332,7 +1259,7 @@ impl Workspace {
         let Some(status) = action.status else {
             return self.open_section_picker(window, cx);
         };
-        let collapsed = !self.collapsed_statuses.contains(&status);
+        let collapsed = !self.list.collapsed_statuses.contains(&status);
         if self
             .report(self.db.set_status_collapsed(status, collapsed), cx)
             .is_some()
@@ -1344,21 +1271,23 @@ impl Workspace {
     /// Asks which section to collapse or expand, starting from the
     /// highlighted issue's.
     fn open_section_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.sections.is_empty() {
+        if self.list.sections.is_empty() {
             self.report::<()>(Err(anyhow::anyhow!("No sections to collapse")), cx);
             return;
         }
-        let current = self.selected_index().map(|ix| self.issues[ix].status);
+        let current = self.list.highlighted().map(|i| i.status);
         let highlighted = self
+            .list
             .sections
             .iter()
             .position(|(s, _)| Some(*s) == current)
             .unwrap_or(0);
         let entries = self
+            .list
             .sections
             .iter()
             .map(|&(s, _)| {
-                let verb = if self.collapsed_statuses.contains(&s) {
+                let verb = if self.list.collapsed_statuses.contains(&s) {
                     "Expand"
                 } else {
                     "Collapse"
@@ -1401,18 +1330,13 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = self.selected else {
-            return;
-        };
-        if !self.selection.remove(&id) {
-            self.selection.insert(id);
+        if self.list.toggle_selected() {
+            cx.notify();
         }
-        self.selection_anchor = Some(id);
-        cx.notify();
     }
 
     fn select_all(&mut self, _: &issue_list::SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.selection = self.issues.iter().map(|i| i.id).collect();
+        self.list.select_all();
         cx.notify();
     }
 
@@ -1422,13 +1346,12 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selection.is_empty() {
+        if self.list.clear_selection() {
+            cx.notify();
+        } else {
             // Leave the key to other bindings.
-            return cx.propagate();
+            cx.propagate();
         }
-        self.selection.clear();
-        self.selection_anchor = None;
-        cx.notify();
     }
 
     fn extend_selection_down(
@@ -1437,7 +1360,7 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let ix = self.selected_index().map_or(0, |ix| ix + 1);
+        let ix = self.list.selected_index().map_or(0, |ix| ix + 1);
         self.extend_selection_to(ix, cx);
     }
 
@@ -1447,7 +1370,10 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let ix = self.selected_index().map_or(0, |ix| ix.saturating_sub(1));
+        let ix = self
+            .list
+            .selected_index()
+            .map_or(0, |ix| ix.saturating_sub(1));
         self.extend_selection_to(ix, cx);
     }
 
@@ -1461,8 +1387,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let issue_id = issue.id;
-        let selected = self.selected == Some(issue_id);
-        let in_selection = self.selection.contains(&issue_id);
+        let selected = self.list.selected == Some(issue_id);
+        let in_selection = self.list.selection.contains(&issue_id);
         let menu_open = matches!(
             &self.modal,
             Some(OpenModal {
@@ -1735,11 +1661,12 @@ impl Workspace {
     /// cleared so that only this issue is.
     fn point_at(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self
+            .list
             .issues
             .get(ix)
-            .is_some_and(|i| !self.selection.contains(&i.id))
+            .is_some_and(|i| !self.list.selection.contains(&i.id))
         {
-            self.selection.clear();
+            self.list.selection.clear();
         }
         self.select_index(ix, cx);
         window.focus(&self.list_focus);
@@ -2206,7 +2133,7 @@ impl Workspace {
             (Some(err), _) => (Some(err.clone()), t.colors.error),
             (None, Some(notice)) => (Some(notice.clone()), t.colors.text_muted),
             (None, None) => {
-                let n = self.selection.len();
+                let n = self.list.selection.len();
                 let text = (n > 0 && self.detail.is_none() && !self.showing_archive)
                     .then(|| format!("{n} selected"));
                 (text, t.colors.text_muted)
@@ -2289,7 +2216,7 @@ impl Workspace {
             (Box::new(SetStatus::default()), "Status"),
             (Box::new(issue_list::ToggleSelected), "Select"),
         ];
-        if !self.selection.is_empty() {
+        if !self.list.selection.is_empty() {
             hints.push((Box::new(issue_list::ClearSelection), "Deselect"));
         }
         hints.extend([
@@ -2317,8 +2244,8 @@ impl Workspace {
         // can find a row.
         let mut rows = Vec::new();
         let mut ix = 0;
-        for &(status, count) in &self.sections {
-            let collapsed = self.collapsed_statuses.contains(&status);
+        for &(status, count) in &self.list.sections {
+            let collapsed = self.list.collapsed_statuses.contains(&status);
             rows.push(
                 self.status_header(status, count, collapsed, cx)
                     .into_any_element(),
@@ -2326,7 +2253,7 @@ impl Workspace {
             if collapsed {
                 continue;
             }
-            while let Some(issue) = self.issues.get(ix).filter(|i| i.status == status) {
+            while let Some(issue) = self.list.issues.get(ix).filter(|i| i.status == status) {
                 rows.push(
                     self.render_issue(ix, issue, list_focused, cx)
                         .into_any_element(),
@@ -2334,7 +2261,7 @@ impl Workspace {
                 ix += 1;
             }
         }
-        let empty = self.sections.is_empty();
+        let empty = self.list.sections.is_empty();
         let project_header = self
             .shown_project()
             .map(|project| self.render_project_header(project, window, cx));
@@ -2407,7 +2334,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .overflow_y_scroll()
-                    .track_scroll(&self.list_scroll)
+                    .track_scroll(&self.list.scroll)
                     .py_1()
                     .children(rows)
                     .when(empty, |s| {

@@ -403,17 +403,18 @@ impl Workspace {
             })
             .children(chips)
             .child(status_bar(&self.scope.filter, cx))
-            .when(!self.selection.is_empty(), |s| {
+            .when(!self.list.selection.is_empty(), |s| {
                 s.child(
                     div()
                         .flex_none()
                         .text_color(t.colors.accent)
-                        .child(format!("{} selected", self.selection.len())),
+                        .child(format!("{} selected", self.list.selection.len())),
                 )
             })
             .child(
                 div().flex_none().text_color(t.colors.text_muted).child(
-                    self.sections
+                    self.list
+                        .sections
                         .iter()
                         .map(|(_, n)| n)
                         .sum::<usize>()
