@@ -10,6 +10,7 @@ the scheme in AGENTS.md ("Versions and releases").
 
 - An open issue with notes, a receipt or a review no longer scrolls past
   its end into empty space (or stops short of it) in wide windows.
+- The "In Review" status icon's dot is centered on non-retina displays.
 
 ## [0.2.5] - 2026-11-26
 

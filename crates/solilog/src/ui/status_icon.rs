@@ -34,10 +34,12 @@ pub fn status_icon(status: Status, theme: &Theme) -> impl IntoElement + use<> {
                 .when(!pixel, |s| s.rounded_full())
                 .bg(color),
         ),
-        // Almost full: one step from done.
+        // Almost full: one step from done. Dot sizes keep an even gap in the
+        // 12px inside the border, so the dot stays centered on 1x displays
+        // (a 9px dot left 1.5px gaps, rounded to one side).
         Status::InReview => base.border_1().border_color(color).child(
             div()
-                .size(px(9.))
+                .size(px(8.))
                 .when(!pixel, |s| s.rounded_full())
                 .bg(color),
         ),
