@@ -194,7 +194,7 @@ impl Db {
         text: &str,
         kind: &NoteKind,
     ) -> Result<NoteId> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         self.conn.execute(
             "INSERT INTO notes (issue_id, text, author, kind, data) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![issue, text, self.actor, kind.key(), kind.data()?],
@@ -228,7 +228,7 @@ impl Db {
 
     /// An issue's notes, oldest first.
     pub fn issue_notes(&self, issue: IssueId) -> Result<Vec<Note>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         Ok(self
             .conn
             .prepare_cached(&format!(

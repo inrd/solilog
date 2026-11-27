@@ -504,6 +504,19 @@ impl Db {
         self.list_issues_where(filter, true)
     }
 
+    /// The issues of `issues` that match `filter`, in the same order: what
+    /// [`Db::list_issues`] would return from them, without loading them
+    /// again (for a caller that already holds every issue). Fails like
+    /// `list_issues` on unknown labels or projects.
+    pub fn filter_issues(&self, issues: &[Issue], filter: &IssueFilter) -> Result<Vec<Issue>> {
+        let filter = self.resolve_filter(filter)?;
+        Ok(issues
+            .iter()
+            .filter(|i| filter.matches(i))
+            .cloned()
+            .collect())
+    }
+
     fn list_issues_where(&self, filter: &IssueFilter, archived: bool) -> Result<Vec<Issue>> {
         let filter = self.resolve_filter(filter)?;
         let order = if archived {
@@ -693,7 +706,7 @@ impl Db {
     pub(crate) fn apply_change(&self, id: IssueId, change: &IssueChange) -> Result<()> {
         match change {
             IssueChange::SetStatus(status) => {
-                let old = self.get_issue(id)?.status;
+                let (old, _) = self.issue_state(id)?;
                 if old != *status {
                     self.set_issue_column(id, "status", status)?;
                     let top = self.first_position(Ordered::Issues)?;
@@ -707,7 +720,7 @@ impl Db {
                 Ok(())
             }
             IssueChange::SetArchived(archived) => {
-                let was_archived = self.get_issue(id)?.archived;
+                let (_, was_archived) = self.issue_state(id)?;
                 self.set_issue_column(id, "archived", archived)?;
                 if was_archived != *archived {
                     let kind = if *archived {
@@ -720,7 +733,7 @@ impl Db {
                 Ok(())
             }
             IssueChange::AddLabels(labels) => {
-                self.get_issue(id)?;
+                self.issue_state(id)?;
                 let added = self.attach_labels(id, labels)?;
                 if !added.is_empty() {
                     self.record_activity(id, ActivityKind::LabelsAdded, &added.join(", "))?;
@@ -728,7 +741,7 @@ impl Db {
                 Ok(())
             }
             IssueChange::RemoveLabels(labels) => {
-                self.get_issue(id)?;
+                self.issue_state(id)?;
                 let removed = self.detach_labels(id, labels)?;
                 if !removed.is_empty() {
                     self.record_activity(id, ActivityKind::LabelsRemoved, &removed.join(", "))?;
@@ -736,7 +749,7 @@ impl Db {
                 Ok(())
             }
             IssueChange::AddToProjects(projects) => {
-                self.get_issue(id)?;
+                self.issue_state(id)?;
                 let joined = self.join_projects(id, projects)?;
                 if !joined.is_empty() {
                     self.record_activity(id, ActivityKind::ProjectsAdded, &joined.join(", "))?;
@@ -744,7 +757,7 @@ impl Db {
                 Ok(())
             }
             IssueChange::RemoveFromProjects(projects) => {
-                self.get_issue(id)?;
+                self.issue_state(id)?;
                 let left = self.leave_projects(id, projects)?;
                 if !left.is_empty() {
                     self.record_activity(id, ActivityKind::ProjectsRemoved, &left.join(", "))?;
@@ -776,6 +789,19 @@ impl Db {
                 Ok(())
             }
         }
+    }
+
+    /// An issue's status and whether it is archived: a light existence
+    /// check for writes (no related rows). Fails if there is no such issue.
+    pub(crate) fn issue_state(&self, id: IssueId) -> Result<(Status, bool)> {
+        self.conn
+            .query_row(
+                "SELECT status, archived FROM issues WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .with_context(|| format!("no issue {id}"))
     }
 
     pub(crate) fn set_issue_column(
@@ -1179,6 +1205,47 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(titles(&db, &done), ["b"]);
+    }
+
+    #[test]
+    fn filter_issues_matches_list_issues() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_project(&crate::NewProject::new("p")).unwrap();
+        db.create_issue(&NewIssue::new("a").labels(["acme/reverb"]))
+            .unwrap();
+        db.create_issue(&NewIssue::new("b").projects(["p"]))
+            .unwrap();
+        db.create_issue(&NewIssue::new("c").status(Status::Done).labels(["acme"]))
+            .unwrap();
+        let all = db.list_issues(&IssueFilter::default()).unwrap();
+        for filter in [
+            IssueFilter::default(),
+            IssueFilter {
+                open_only: true,
+                ..Default::default()
+            },
+            // Other spellings resolve to the stored ones.
+            IssueFilter {
+                labels: vec!["ACME".into()],
+                ..Default::default()
+            },
+            IssueFilter {
+                projects: vec!["P".into()],
+                ..Default::default()
+            },
+        ] {
+            let ids = |issues: Vec<Issue>| issues.into_iter().map(|i| i.id).collect::<Vec<_>>();
+            assert_eq!(
+                ids(db.filter_issues(&all, &filter).unwrap()),
+                ids(db.list_issues(&filter).unwrap()),
+                "{filter:?}"
+            );
+        }
+        let unknown = IssueFilter {
+            labels: vec!["nope".into()],
+            ..Default::default()
+        };
+        assert!(db.filter_issues(&all, &unknown).is_err());
     }
 
     #[test]

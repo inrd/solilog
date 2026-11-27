@@ -105,7 +105,7 @@ impl Db {
             .map(|t| normalize_item_text(t))
             .collect::<Result<Vec<_>>>()?;
         let tx = self.conn.unchecked_transaction()?;
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         self.insert_checklist_items(issue, &texts)?;
         if !texts.is_empty() {
             let detail = if texts.len() == 1 {

@@ -216,38 +216,40 @@ impl ActivityKind {
         }
     }
 
+    /// Every kind, in declaration order.
+    pub(crate) const ALL: &[Self] = &[
+        Self::Created,
+        Self::TitleEdited,
+        Self::DescriptionEdited,
+        Self::StatusChanged,
+        Self::Archived,
+        Self::Unarchived,
+        Self::LabelsAdded,
+        Self::LabelsRemoved,
+        Self::ProjectsAdded,
+        Self::ProjectsRemoved,
+        Self::DependenciesAdded,
+        Self::DependenciesRemoved,
+        Self::ChecklistAdded,
+        Self::ChecklistEdited,
+        Self::ChecklistChecked,
+        Self::ChecklistUnchecked,
+        Self::ChecklistDeleted,
+        Self::AttachmentAdded,
+        Self::AttachmentRemoved,
+        Self::RevisionRestored,
+        Self::NoteAdded,
+        Self::NoteDeleted,
+        Self::ReviewRequested,
+        Self::Approved,
+        Self::SentBack,
+        Self::DecisionRecorded,
+        Self::DecisionReplaced,
+        Self::DecisionWithdrawn,
+    ];
+
     fn from_key(key: &str) -> Option<Self> {
-        const ALL: &[ActivityKind] = &[
-            ActivityKind::Created,
-            ActivityKind::TitleEdited,
-            ActivityKind::DescriptionEdited,
-            ActivityKind::StatusChanged,
-            ActivityKind::Archived,
-            ActivityKind::Unarchived,
-            ActivityKind::LabelsAdded,
-            ActivityKind::LabelsRemoved,
-            ActivityKind::ProjectsAdded,
-            ActivityKind::ProjectsRemoved,
-            ActivityKind::DependenciesAdded,
-            ActivityKind::DependenciesRemoved,
-            ActivityKind::ChecklistAdded,
-            ActivityKind::ChecklistEdited,
-            ActivityKind::ChecklistChecked,
-            ActivityKind::ChecklistUnchecked,
-            ActivityKind::ChecklistDeleted,
-            ActivityKind::AttachmentAdded,
-            ActivityKind::AttachmentRemoved,
-            ActivityKind::RevisionRestored,
-            ActivityKind::NoteAdded,
-            ActivityKind::NoteDeleted,
-            ActivityKind::ReviewRequested,
-            ActivityKind::Approved,
-            ActivityKind::SentBack,
-            ActivityKind::DecisionRecorded,
-            ActivityKind::DecisionReplaced,
-            ActivityKind::DecisionWithdrawn,
-        ];
-        ALL.iter().copied().find(|k| k.key() == key)
+        Self::ALL.iter().copied().find(|k| k.key() == key)
     }
 
     /// Consecutive edits of the same kind by the same actor within
@@ -397,7 +399,7 @@ impl Db {
 
     /// All recorded activities on an issue, newest first.
     pub fn issue_activities(&self, issue: IssueId) -> Result<Vec<Activity>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         Ok(self
             .conn
             .prepare_cached(
@@ -416,7 +418,7 @@ impl Db {
     /// `created_at` is the time of the latest edit.
     pub fn activities(&self, query: &ActivityQuery) -> Result<Vec<Activity>> {
         if let Some(issue) = query.issue {
-            self.get_issue(issue)?;
+            self.issue_state(issue)?;
         }
         let issues: Option<std::collections::HashSet<IssueId>> = match &query.issues {
             Some(filter) => Some(
@@ -490,7 +492,7 @@ impl Db {
     /// Non-user activities on an issue since it was last marked reviewed,
     /// newest first.
     pub fn unreviewed_activities(&self, issue: IssueId) -> Result<Vec<Activity>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         Ok(self
             .conn
             .prepare_cached(
@@ -989,5 +991,143 @@ mod tests {
         assert!(archived_list[0].unreviewed);
 
         assert!(db.mark_all_issues_reviewed().unwrap().is_empty());
+    }
+
+    /// Every kind of activity has a write that records it, and that write
+    /// does record it. The match has no catch-all arm: a new kind doesn't
+    /// compile until it has a step here.
+    #[test]
+    fn every_activity_kind_is_recorded_by_its_write() {
+        use crate::{DecisionOwner, Receipt};
+
+        let dir = std::env::temp_dir().join(format!("solilog-activities-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("file.txt");
+        std::fs::write(&file, "content").unwrap();
+        let db = Db::open(&dir.join("test.db")).unwrap();
+        let other = db.create_issue(&NewIssue::new("other")).unwrap().id;
+        let mut id = IssueId(0);
+        let (mut item, mut attachment, mut note, mut decision) = (None, None, None, None);
+        let review = |db: &Db, id| db.request_review(id, "done", &Receipt::default()).unwrap();
+
+        // The id of the newest activity on `id` (0 before it exists).
+        let newest = |db: &Db, id| {
+            db.issue_activities(id)
+                .map(|a| a.first().map_or(0, |a| a.id.0))
+                .unwrap_or(0)
+        };
+
+        for &kind in ActivityKind::ALL {
+            let before = newest(&db, id);
+            match kind {
+                ActivityKind::Created => id = db.create_issue(&NewIssue::new("a")).unwrap().id,
+                ActivityKind::TitleEdited => {
+                    let edit = IssueEdit {
+                        title: Some("b".into()),
+                        ..Default::default()
+                    };
+                    db.edit_issue(id, &edit).unwrap();
+                }
+                ActivityKind::DescriptionEdited => {
+                    let edit = IssueEdit {
+                        description: Some("text".into()),
+                        ..Default::default()
+                    };
+                    db.edit_issue(id, &edit).unwrap();
+                }
+                ActivityKind::StatusChanged => drop(db.set_status(id, Status::Blocked).unwrap()),
+                ActivityKind::Archived => drop(db.set_archived(id, true).unwrap()),
+                ActivityKind::Unarchived => drop(db.set_archived(id, false).unwrap()),
+                ActivityKind::LabelsAdded => {
+                    db.update_issue(id, &IssueChange::AddLabels(vec!["x".into()]))
+                        .unwrap();
+                }
+                ActivityKind::LabelsRemoved => {
+                    db.update_issue(id, &IssueChange::RemoveLabels(vec!["x".into()]))
+                        .unwrap();
+                }
+                ActivityKind::ProjectsAdded => {
+                    db.create_project(&crate::NewProject::new("p")).unwrap();
+                    db.update_issue(id, &IssueChange::AddToProjects(vec!["p".into()]))
+                        .unwrap();
+                }
+                ActivityKind::ProjectsRemoved => {
+                    db.update_issue(id, &IssueChange::RemoveFromProjects(vec!["p".into()]))
+                        .unwrap();
+                }
+                ActivityKind::DependenciesAdded => drop(db.add_dependencies(id, &[other]).unwrap()),
+                ActivityKind::DependenciesRemoved => {
+                    db.update_issue(id, &IssueChange::RemoveDependencies(vec![other]))
+                        .unwrap();
+                }
+                ActivityKind::ChecklistAdded => {
+                    let issue = db.add_checklist_items(id, &["item".into()]).unwrap();
+                    item = Some(issue.checklist[0].id);
+                }
+                ActivityKind::ChecklistEdited => {
+                    db.edit_checklist_item(item.unwrap(), "edited").unwrap();
+                }
+                ActivityKind::ChecklistChecked => {
+                    db.set_checklist_item_done(item.unwrap(), true).unwrap();
+                }
+                ActivityKind::ChecklistUnchecked => {
+                    db.set_checklist_item_done(item.unwrap(), false).unwrap();
+                }
+                ActivityKind::ChecklistDeleted => {
+                    db.delete_checklist_item(item.unwrap()).unwrap();
+                }
+                ActivityKind::AttachmentAdded => {
+                    attachment =
+                        Some(db.add_attachments(id, std::slice::from_ref(&file)).unwrap()[0].id);
+                }
+                ActivityKind::AttachmentRemoved => {
+                    db.delete_attachment(attachment.unwrap()).unwrap();
+                }
+                ActivityKind::RevisionRestored => {
+                    let revision = db.issue_revisions(id).unwrap()[0].id;
+                    db.restore_revision(revision).unwrap();
+                }
+                ActivityKind::NoteAdded => note = Some(db.add_note(id, "note").unwrap().id),
+                ActivityKind::NoteDeleted => drop(db.delete_note(note.unwrap()).unwrap()),
+                ActivityKind::ReviewRequested => drop(review(&db, id)),
+                ActivityKind::Approved => drop(db.approve_issues(&[id], "").unwrap()),
+                ActivityKind::SentBack => {
+                    db.set_status(id, Status::InProgress).unwrap();
+                    review(&db, id);
+                    db.send_back_issues(&[id], "again").unwrap();
+                }
+                ActivityKind::DecisionRecorded => {
+                    let owner = DecisionOwner::Issue { id };
+                    decision = Some(db.record_decision(&owner, "keep it").unwrap().id);
+                }
+                ActivityKind::DecisionReplaced => {
+                    decision = Some(
+                        db.replace_decision(decision.unwrap(), "change it")
+                            .unwrap()
+                            .id,
+                    );
+                }
+                ActivityKind::DecisionWithdrawn => {
+                    db.withdraw_decision(decision.unwrap()).unwrap();
+                }
+            }
+            // A write may record more than one (requesting a review also
+            // changes the status).
+            let recorded: Vec<ActivityKind> = db
+                .issue_activities(id)
+                .unwrap()
+                .into_iter()
+                .take_while(|a| a.id.0 > before)
+                .map(|a| a.kind)
+                .collect();
+            assert!(
+                recorded.contains(&kind),
+                "the write for {} recorded {recorded:?}",
+                kind.key()
+            );
+        }
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

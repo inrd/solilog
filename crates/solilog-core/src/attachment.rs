@@ -230,7 +230,7 @@ impl Db {
         issue: IssueId,
         sources: Vec<(String, Source)>,
     ) -> Result<Vec<Attachment>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         let dir = self.issue_attachments_dir(issue)?;
         crate::db::ensure_dir(&dir)?;
         let mut written: Vec<(String, PathBuf, u64)> = Vec::new();
@@ -336,7 +336,7 @@ impl Db {
 
     /// An issue's attachments, in the order they were added.
     pub fn list_attachments(&self, issue: IssueId) -> Result<Vec<Attachment>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         Ok(self
             .attachments_per_issue(Some(issue))?
             .remove(&issue)

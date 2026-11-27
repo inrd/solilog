@@ -362,7 +362,6 @@ impl Workspace {
         let prev_ix = self.list.selected_index();
         let prev_archive_ix = self.archive_index();
         let scope_error = self.refresh_scope();
-        let filter = self.scope.filter.clone();
         let sidebar_data = self
             .db
             .list_issues(&IssueFilter::default())
@@ -376,9 +375,9 @@ impl Workspace {
                     self.db.collapsed_statuses()?,
                 ))
             });
-        if let Some((all_issues, archived_issues, views, projects, labels, collapsed)) =
-            self.report(sidebar_data, cx)
-        {
+        let loaded = self.report(sidebar_data, cx);
+        let loaded_ok = loaded.is_some();
+        if let Some((all_issues, archived_issues, views, projects, labels, collapsed)) = loaded {
             self.list.collapsed_statuses = collapsed;
             self.all_issues = all_issues;
             self.archive.issues = archived_issues;
@@ -390,7 +389,15 @@ impl Workspace {
         self.refresh_detail(cx);
         self.refresh_project_description(cx);
         self.refresh_scope_decisions();
-        let Some(issues) = self.report(self.db.list_issues(&filter), cx) else {
+        // The scope's issues come from all of them (loaded once, above);
+        // after a failed load they would be stale.
+        let scope_issues = if loaded_ok {
+            let filtered = self.db.filter_issues(&self.all_issues, &self.scope.filter);
+            self.report(filtered, cx)
+        } else {
+            None
+        };
+        let Some(issues) = scope_issues else {
             self.list.clear();
             return;
         };

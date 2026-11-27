@@ -311,7 +311,7 @@ fn revision_from_row(row: &Row) -> rusqlite::Result<(Revision, Option<i64>)> {
 impl Db {
     /// An issue's revisions, newest first.
     pub fn issue_revisions(&self, issue: IssueId) -> Result<Vec<Revision>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         Ok(self
             .conn
             .prepare_cached(&format!(

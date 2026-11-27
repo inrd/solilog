@@ -78,10 +78,10 @@ impl Db {
         issue: IssueId,
         on: &[IssueId],
     ) -> Result<Vec<IssueId>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         let mut added = Vec::new();
         for &on in on {
-            self.get_issue(on)?;
+            self.issue_state(on)?;
             anyhow::ensure!(on != issue, "{issue} can't depend on itself");
             if let Some(path) = self.dependency_path(on, issue)? {
                 anyhow::bail!(
@@ -107,10 +107,10 @@ impl Db {
         issue: IssueId,
         on: &[IssueId],
     ) -> Result<Vec<IssueId>> {
-        self.get_issue(issue)?;
+        self.issue_state(issue)?;
         let mut removed = Vec::new();
         for &on in on {
-            self.get_issue(on)?;
+            self.issue_state(on)?;
             let deleted = self.conn.execute(
                 "DELETE FROM issue_dependencies WHERE issue_id = ?1 AND depends_on_id = ?2",
                 params![issue, on],
