@@ -6,6 +6,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ## [Unreleased]
 
+### Fixed
+
+- An open issue with notes, a receipt or a review no longer scrolls past
+  its end into empty space (or stops short of it) in wide windows.
+
 ## [0.2.5] - 2026-11-26
 
 ### Added

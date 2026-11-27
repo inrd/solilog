@@ -603,7 +603,6 @@ impl Workspace {
             .gap_3()
             .flex_1()
             .min_w_0()
-            .max_w(px(760.))
             .px_6()
             .py_5()
             .child(
@@ -721,15 +720,20 @@ impl Workspace {
                     // - a flex column stretches the row to the area's width
                     //   (as a plain block, it was sized from an unwrapped
                     //   pass: too short to reach the bottom);
-                    // - the body is a flex item of the row, so its max
-                    //   width applies when its wrapped text is measured
-                    //   (stretched or `w_full`, it was measured wider than
-                    //   drawn, too short, and ran into what follows it);
+                    // - the row, not the body, has the max width, so the
+                    //   row's width is known (the area's, capped) whenever
+                    //   its height is measured (with the cap on the body,
+                    //   the height came from passes at other widths:
+                    //   unwrapped, or zero with one character per line,
+                    //   thousands of pixels too long);
+                    // - the body is a flex item of the row, so it fills the
+                    //   row (stretched or `w_full`, it was measured wider
+                    //   than drawn, too short, and ran into what follows it);
                     // - `flex_shrink_0` keeps the row from shrinking to the
                     //   area's height.
                     .flex()
                     .flex_col()
-                    .child(div().flex().flex_shrink_0().child(body)),
+                    .child(div().flex().flex_shrink_0().max_w(px(760.)).child(body)),
             )
     }
 }
