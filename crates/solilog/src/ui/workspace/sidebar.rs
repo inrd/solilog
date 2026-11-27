@@ -10,7 +10,7 @@
 //! context menu (right click, or `sidebar::ShowContextMenu`).
 
 use gpui::{
-    Action, ClickEvent, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent,
+    Action, ClickEvent, Context, FocusHandle, FontWeight, IntoElement, MouseButton, MouseDownEvent,
     SharedString, Window, div, prelude::*, px,
 };
 use solilog_core::{IssueFilter, LABEL_SEPARATOR, Placement, ProjectStatus};
@@ -36,6 +36,36 @@ pub enum SidebarItem {
     /// Expands or collapses the done projects.
     ClosedProjects,
     Label(String),
+}
+
+/// The sidebar's own state. What it lists comes from the workspace's
+/// views, projects and labels (`Workspace::sidebar_items`).
+pub struct SidebarState {
+    pub visible: bool,
+    pub focus: FocusHandle,
+    /// The keyboard cursor.
+    pub cursor: SidebarItem,
+    /// Whether the done projects' section is expanded.
+    pub show_closed_projects: bool,
+}
+
+impl SidebarState {
+    pub fn new(focus: FocusHandle) -> Self {
+        Self {
+            visible: true,
+            focus,
+            cursor: SidebarItem::AllIssues,
+            show_closed_projects: false,
+        }
+    }
+
+    /// Moves the cursor `delta` places among `items` (the sidebar's, in
+    /// display order: never empty), staying within them.
+    fn move_cursor(&mut self, items: &[SidebarItem], delta: isize) {
+        let current = items.iter().position(|i| *i == self.cursor).unwrap_or(0);
+        let ix = (current as isize + delta).clamp(0, items.len() as isize - 1) as usize;
+        self.cursor = items[ix].clone();
+    }
 }
 
 impl SidebarItem {
@@ -214,7 +244,7 @@ impl Workspace {
                 label: format!("Done ({})", closed.len()).into(),
                 depth: 0,
                 count: 0,
-                trailing: Some(if self.show_closed_projects {
+                trailing: Some(if self.sidebar.show_closed_projects {
                     "▾"
                 } else {
                     "▸"
@@ -223,7 +253,7 @@ impl Workspace {
                 color: None,
                 collapsed: None,
             });
-            if self.show_closed_projects {
+            if self.sidebar.show_closed_projects {
                 rows.extend(closed.into_iter().map(|p| match project_row(p) {
                     Row::Item {
                         item,
@@ -290,9 +320,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let name = match (&action.name, &self.sidebar_cursor) {
+        let name = match (&action.name, &self.sidebar.cursor) {
             (Some(name), _) => name.clone(),
-            (None, SidebarItem::Label(name)) if self.sidebar_focus.is_focused(window) => {
+            (None, SidebarItem::Label(name)) if self.sidebar.focus.is_focused(window) => {
                 name.clone()
             }
             _ => match &self.scope.source {
@@ -311,11 +341,11 @@ impl Workspace {
             return;
         };
         // The cursor can't stay on a row that is now hidden.
-        if let SidebarItem::Label(cursor) = &self.sidebar_cursor
+        if let SidebarItem::Label(cursor) = &self.sidebar.cursor
             && label.collapsed
             && solilog_core::label_matches(cursor, &label.name)
         {
-            self.sidebar_cursor = SidebarItem::Label(label.name);
+            self.sidebar.cursor = SidebarItem::Label(label.name);
         }
         self.reload(cx);
     }
@@ -344,12 +374,7 @@ impl Workspace {
 
     fn move_sidebar_cursor(&mut self, delta: isize, cx: &mut Context<Self>) {
         let items = self.sidebar_items();
-        let current = items
-            .iter()
-            .position(|i| *i == self.sidebar_cursor)
-            .unwrap_or(0);
-        let ix = (current as isize + delta).clamp(0, items.len() as isize - 1) as usize;
-        self.sidebar_cursor = items[ix].clone();
+        self.sidebar.move_cursor(&items, delta);
         cx.notify();
     }
 
@@ -359,8 +384,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.sidebar_visible = !self.sidebar_visible;
-        if !self.sidebar_visible && self.sidebar_focus.contains_focused(window, cx) {
+        self.sidebar.visible = !self.sidebar.visible;
+        if !self.sidebar.visible && self.sidebar.focus.contains_focused(window, cx) {
             window.focus(&self.list_focus);
         }
         cx.notify();
@@ -372,9 +397,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.sidebar_visible = true;
-        self.sidebar_cursor = self.active_sidebar_item();
-        window.focus(&self.sidebar_focus);
+        self.sidebar.visible = true;
+        self.sidebar.cursor = self.active_sidebar_item();
+        window.focus(&self.sidebar.focus);
         cx.notify();
     }
 
@@ -397,7 +422,7 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.show_closed_projects = !self.show_closed_projects;
+        self.sidebar.show_closed_projects = !self.sidebar.show_closed_projects;
         cx.notify();
     }
 
@@ -462,7 +487,7 @@ impl Workspace {
 
     /// Moves the highlighted project or label past its neighbor in its group.
     fn move_highlighted(&mut self, down: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(row) = self.reorderable(&self.sidebar_cursor) else {
+        let Some(row) = self.reorderable(&self.sidebar.cursor) else {
             return;
         };
         let members = self.group_members(&row.group);
@@ -520,7 +545,7 @@ impl Workspace {
     }
 
     fn on_sidebar_open(&mut self, _: &sidebar::Open, window: &mut Window, cx: &mut Context<Self>) {
-        window.dispatch_action(self.sidebar_cursor.action(), cx);
+        window.dispatch_action(self.sidebar.cursor.action(), cx);
     }
 
     /// Makes a project or label row draggable, and a drop target for the
@@ -629,11 +654,11 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        if !self.sidebar_visible {
+        if !self.sidebar.visible {
             return None;
         }
         let t = theme::current(cx);
-        let focused = self.sidebar_focus.is_focused(window);
+        let focused = self.sidebar.focus.is_focused(window);
         // Nothing in the sidebar is being shown while the archive is.
         let active = (!self.showing_archive).then(|| self.active_sidebar_item());
         let menu_item = match &self.modal {
@@ -675,7 +700,7 @@ impl Workspace {
                     color,
                     collapsed,
                 } => {
-                    let is_primary = (focused && item == self.sidebar_cursor)
+                    let is_primary = (focused && item == self.sidebar.cursor)
                         || menu_item.as_ref() == Some(&item);
                     let is_active = active.as_ref() == Some(&item);
                     let highlight = if is_primary {
@@ -713,14 +738,14 @@ impl Workspace {
                         .when(is_primary || is_active, |s| {
                             s.children(t.glass_selection_overlay())
                         })
-                        .when(focused && item == self.sidebar_cursor, |s| {
+                        .when(focused && item == self.sidebar.cursor, |s| {
                             s.children(t.dotted_focus(t.colors.highlight_text))
                         })
                         .when(highlight.is_none(), |s| s.hover(|s| s.bg(t.colors.hover)))
                         .on_mouse_down(MouseButton::Right, {
                             let item = item.clone();
                             cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                                this.sidebar_cursor = item.clone();
+                                this.sidebar.cursor = item.clone();
                                 this.show_context_menu(Some(event.position), window, cx);
                             })
                         })
@@ -731,8 +756,8 @@ impl Workspace {
                             // goes up from the element focused when it is dispatched,
                             // in the last rendered frame, where the list is missing
                             // while an issue is open.
-                            this.sidebar_cursor = item.clone();
-                            window.focus(&this.sidebar_focus);
+                            this.sidebar.cursor = item.clone();
+                            window.focus(&this.sidebar.focus);
                             window.dispatch_action(action.boxed_clone(), cx);
                             window.focus(&this.list_focus);
                         }))
@@ -787,7 +812,7 @@ impl Workspace {
                 .id("sidebar")
                 .relative()
                 .key_context(CONTEXT)
-                .track_focus(&self.sidebar_focus)
+                .track_focus(&self.sidebar.focus)
                 .on_action(cx.listener(Self::on_sidebar_next))
                 .on_action(cx.listener(Self::on_sidebar_previous))
                 .on_action(cx.listener(Self::on_sidebar_open))

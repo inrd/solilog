@@ -219,7 +219,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let item = self.sidebar_cursor.clone();
+        let item = self.sidebar.cursor.clone();
         let title = match &item {
             SidebarItem::View(name) | SidebarItem::Project(name) | SidebarItem::Label(name) => {
                 name.clone()
@@ -341,7 +341,7 @@ impl Workspace {
         }
         for name in [
             source_name(kind, &mut self.scope.source),
-            item_name(kind, &mut self.sidebar_cursor),
+            item_name(kind, &mut self.sidebar.cursor),
         ]
         .into_iter()
         .flatten()

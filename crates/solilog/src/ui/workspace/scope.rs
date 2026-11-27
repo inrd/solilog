@@ -136,7 +136,7 @@ impl Workspace {
         self.list.selection.clear();
         self.reload(cx);
         self.select_index(0, cx);
-        self.sidebar_cursor = self.active_sidebar_item();
+        self.sidebar.cursor = self.active_sidebar_item();
     }
 
     /// Opens a picker whose items each dispatch an action.
@@ -189,7 +189,7 @@ impl Workspace {
         if let Some(view) = self.report(saved, cx) {
             self.scope = Scope::new(Source::View(view));
             self.reload(cx);
-            self.sidebar_cursor = self.active_sidebar_item();
+            self.sidebar.cursor = self.active_sidebar_item();
         }
     }
 

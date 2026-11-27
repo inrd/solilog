@@ -60,7 +60,7 @@ use detail::IssueDetail;
 use list::ListState;
 use project_header::ProjectDescription;
 use scope::Scope;
-use sidebar::SidebarItem;
+use sidebar::{SidebarItem, SidebarState};
 
 /// How often to check the database (and keymap file) for outside changes.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -215,13 +215,9 @@ pub struct Workspace {
     scope: Scope,
     input: Entity<TextInput>,
     list_focus: FocusHandle,
-    sidebar_visible: bool,
-    sidebar_focus: FocusHandle,
+    sidebar: SidebarState,
     /// What had focus when the footer was last rendered.
     footer_focus: Option<FocusHandle>,
-    /// Keyboard cursor in the sidebar.
-    sidebar_cursor: SidebarItem,
-    show_closed_projects: bool,
     /// The archive is shown in place of the issue list; `scope` is kept for
     /// when it closes.
     showing_archive: bool,
@@ -305,11 +301,8 @@ impl Workspace {
             scope: Scope::default(),
             input,
             list_focus: cx.focus_handle(),
-            sidebar_visible: true,
-            sidebar_focus: cx.focus_handle(),
+            sidebar: SidebarState::new(cx.focus_handle()),
             footer_focus: None,
-            sidebar_cursor: SidebarItem::AllIssues,
-            show_closed_projects: false,
             showing_archive: false,
             detail: None,
             project_description: ProjectDescription::new(window, cx),
@@ -393,8 +386,8 @@ impl Workspace {
         if scope_error.is_some() {
             self.error = scope_error;
         }
-        if !self.sidebar_items().contains(&self.sidebar_cursor) {
-            self.sidebar_cursor = self.active_sidebar_item();
+        if !self.sidebar_items().contains(&self.sidebar.cursor) {
+            self.sidebar.cursor = self.active_sidebar_item();
         }
         cx.notify();
     }
