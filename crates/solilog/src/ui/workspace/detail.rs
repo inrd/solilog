@@ -1,6 +1,7 @@
 //! The issue detail: one issue, in place of the issue list (or the archive),
-//! with its title, description and checklist editable in place, its
-//! links, attachments, dependencies and notes. Opened with
+//! with its title, description and checklist editable in place and its
+//! notes in the main column; its facts, projects, labels, links,
+//! attachments and dependencies in a side pane (`aside.rs`). Opened with
 //! `issue::Open` (Enter or double click in the list), left with
 //! `issue_detail::Close` (Escape).
 //!
@@ -14,6 +15,7 @@
 //! their titles except while the cursor is on them; web addresses open in
 //! the browser.
 
+mod aside;
 mod attachments;
 mod checklist;
 mod dependencies;
@@ -35,8 +37,8 @@ use solilog_core::{
     issue_mentions, normalize_description, web_links,
 };
 
+use super::Workspace;
 use super::section::issue_section;
-use super::{Workspace, chip, project_chip};
 use crate::ui::actions::{
     attachment,
     issue::{self, SetStatus},
@@ -464,9 +466,17 @@ impl Workspace {
     pub(super) fn render_detail(
         &self,
         detail: &IssueDetail,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let t = theme::current(cx);
+        let sidebar = if self.sidebar.visible {
+            super::sidebar::WIDTH
+        } else {
+            0.
+        };
+        let available = f32::from(window.viewport_size().width) - sidebar;
+        let two_columns = available >= aside::MIN_MAIN_WIDTH + aside::WIDTH;
         let issue = &detail.issue;
         let focus = detail.focus.clone();
         let back = div()
@@ -517,9 +527,6 @@ impl Workspace {
                         .child(format!("by {}", issue.title_by)),
                 )
             })
-            .when(issue.archived, |s| {
-                s.child(chip("archived".into(), t.colors.text_muted, &t).ml_3())
-            })
             .child(
                 div()
                     .ml_auto()
@@ -552,16 +559,6 @@ impl Workspace {
                     window.dispatch_action(SetStatus::default().boxed_clone(), cx);
                 }
             });
-        let chips: Vec<_> = issue
-            .projects
-            .iter()
-            .map(|project| project_chip(project.clone(), &t).into_any_element())
-            .chain(issue.labels.iter().map(|label| {
-                chip(label.clone(), self.label_chip_color(label, &t), &t).into_any_element()
-            }))
-            .collect();
-        let has_chips = !chips.is_empty();
-
         let unreviewed_banner = issue.unreviewed.then(|| {
             const MAX_SHOWN: usize = 5;
             let focus = focus.clone();
@@ -677,9 +674,6 @@ impl Workspace {
                         .child(detail.title.clone()),
                 ),
             )
-            .when(has_chips, |s| {
-                s.child(div().flex().flex_wrap().gap_1().children(chips))
-            })
             .children(review_panel)
             .children(overwrites)
             .children(unreviewed_banner)
@@ -717,15 +711,49 @@ impl Workspace {
                     .child(detail.description.clone())
                     .children(t.sunken_bevel()),
             )
+            .when(!two_columns, |s| {
+                let sections = self.render_aside_sections(detail, cx);
+                s.children(sections.into_iter().map(|s| issue_section(s, &t)))
+            })
             .children(
                 self.render_decisions(&detail.decisions, &DecisionOwner::issue(issue.id), true, cx)
                     .map(|d| issue_section(d, &t)),
             )
-            .child(issue_section(self.render_links(detail, &t), &t))
-            .child(issue_section(self.render_attachments(detail, &t), &t))
-            .child(issue_section(self.render_dependencies(detail, &t), &t))
             .child(issue_section(self.render_checklist(detail, cx), &t))
             .child(issue_section(self.render_notes(detail, cx), &t));
+
+        let aside = two_columns.then(|| {
+            div()
+                .id("issue-detail-aside")
+                .flex_none()
+                .w(px(aside::WIDTH))
+                .min_h_0()
+                .overflow_y_scroll()
+                .border_l_1()
+                .border_color(t.colors.divider)
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_shrink_0()
+                        .px_4()
+                        .py_5()
+                        .children(
+                            self.render_aside_sections(detail, cx)
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, s)| {
+                                    if i == 0 {
+                                        s
+                                    } else {
+                                        issue_section(s, &t).into_any_element()
+                                    }
+                                }),
+                        ),
+                )
+        });
 
         let drag_bg = t.colors.selection;
         div()
@@ -772,27 +800,39 @@ impl Workspace {
                     })
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&detail.scroll)
-                    // The scroll range is the height of the row below, so
-                    // it must be measured at the width the text is drawn:
-                    // - a flex column stretches the row to the area's width
-                    //   (as a plain block, it was sized from an unwrapped
-                    //   pass: too short to reach the bottom);
-                    // - the row, not the body, has the max width, so the
-                    //   row's width is known (the area's, capped) whenever
-                    //   its height is measured (with the cap on the body,
-                    //   the height came from passes at other widths:
-                    //   unwrapped, or zero with one character per line,
-                    //   thousands of pixels too long);
-                    // - the body is a flex item of the row, so it fills the
-                    //   row (stretched or `w_full`, it was measured wider
-                    //   than drawn, too short, and ran into what follows it);
-                    // - `flex_shrink_0` keeps the row from shrinking to the
-                    //   area's height.
                     .flex()
-                    .flex_col()
-                    .child(div().flex().flex_shrink_0().max_w(px(760.)).child(body)),
+                    .child(self.render_detail_main(body, detail))
+                    .children(aside),
             )
+    }
+
+    /// The main column's scroll area.
+    fn render_detail_main(&self, body: gpui::Div, detail: &IssueDetail) -> impl IntoElement {
+        div()
+            .id("issue-detail-main")
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&detail.scroll)
+            // The scroll range is the height of the row below, so
+            // it must be measured at the width the text is drawn:
+            // - a flex column stretches the row to the area's width
+            //   (as a plain block, it was sized from an unwrapped
+            //   pass: too short to reach the bottom);
+            // - the row, not the body, has the max width, so the
+            //   row's width is known (the area's, capped) whenever
+            //   its height is measured (with the cap on the body,
+            //   the height came from passes at other widths:
+            //   unwrapped, or zero with one character per line,
+            //   thousands of pixels too long);
+            // - the body is a flex item of the row, so it fills the
+            //   row (stretched or `w_full`, it was measured wider
+            //   than drawn, too short, and ran into what follows it);
+            // - `flex_shrink_0` keeps the row from shrinking to the
+            //   area's height.
+            .flex()
+            .flex_col()
+            .child(div().flex().flex_shrink_0().max_w(px(760.)).child(body))
     }
 }

@@ -12,6 +12,7 @@ use super::super::{CreateAction, Workspace};
 use super::IssueDetail;
 use crate::ui::actions::issue::{Approve, SendBack};
 use crate::ui::theme;
+use crate::ui::tooltip::truncated_text;
 
 /// The checks, commits and files of a receipt, one per line.
 pub(super) fn receipt_details(receipt: &Receipt, t: &theme::Theme) -> impl IntoElement + use<> {
@@ -67,6 +68,7 @@ pub(super) fn button(
     div()
         .id(id)
         .relative()
+        .flex_none()
         .px_2()
         .py(px(1.))
         .when(!t.is_bevel(), |s| {
@@ -205,16 +207,20 @@ impl Workspace {
             .gap_2()
             .child(
                 div()
+                    .flex_none()
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(t.colors.review)
                     .child("Ready for review"),
             )
+            // Gives way first when the column is narrow.
             .children(byline.map(|b| {
                 div()
+                    .min_w_0()
+                    .truncate()
                     .text_size(px(12.))
                     .text_color(t.colors.text_muted)
-                    .child(b)
+                    .child(truncated_text("review-byline", b))
             }))
             .child(div().flex_1())
             .child(button(

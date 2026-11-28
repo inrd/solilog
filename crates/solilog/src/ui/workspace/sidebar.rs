@@ -24,7 +24,7 @@ use crate::ui::theme;
 use crate::ui::tooltip::truncated_text;
 
 pub const CONTEXT: &str = "Sidebar";
-const WIDTH: f32 = 220.;
+pub(super) const WIDTH: f32 = 220.;
 
 /// A selectable sidebar row.
 #[derive(Clone, Debug, PartialEq, Eq)]

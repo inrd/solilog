@@ -1,5 +1,6 @@
-//! The links of the open issue, below its decisions: where its work lives
-//! outside Solilog (a branch, a pull request, other pages), one row each.
+//! The links of the open issue, in its side pane: where its work lives
+//! outside Solilog (a branch, a pull request, other pages), one row each
+//! (a titled one with its target below).
 //! Clicking a URL opens it in the browser; clicking a branch copies its
 //! name (`link::Open`). Adding and removing go through `link::Add` /
 //! `link::Remove`, which act on the target issues, so a link can be added
@@ -225,25 +226,52 @@ impl Workspace {
                         window.dispatch_action(Remove { id: Some(id) }.boxed_clone(), cx);
                     }
                 });
-            // Titled links show their target too, muted.
+            // Titled links show their target too, muted, below the title
+            // (lined up with it): the pane is too narrow for both on a line.
             let target = link.title.is_some().then(|| {
-                div()
-                    .flex_shrink()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(12.))
-                    .text_color(t.colors.text_muted)
-                    .child(truncated_text(
-                        ("link-target", id.0 as u64),
-                        link.target.clone(),
-                    ))
+                div().flex().pl(px(44. + 8.)).child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .text_color(t.colors.text_muted)
+                        .child(truncated_text(
+                            ("link-target", id.0 as u64),
+                            link.target.clone(),
+                        )),
+                )
             });
+            let line = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(44.))
+                        .text_size(px(12.))
+                        .text_color(t.colors.text_muted)
+                        .child(kind_tag(link.kind)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .when(link.is_url(), |s| s.text_color(t.colors.accent))
+                        .child(truncated_text(
+                            ("link-text", id.0 as u64),
+                            link.display_text().to_owned(),
+                        )),
+                )
+                .child(remove);
             div()
                 .id(("link", id.0 as u64))
                 .group("link")
                 .flex()
-                .items_center()
-                .gap_2()
+                .flex_col()
                 .px_1()
                 .py(px(2.))
                 .rounded(t.radius_sm())
@@ -256,29 +284,8 @@ impl Workspace {
                         window.dispatch_action(Open { id: Some(id) }.boxed_clone(), cx);
                     }
                 })
-                .child(
-                    div()
-                        .flex_none()
-                        .w(px(44.))
-                        .text_size(px(12.))
-                        .text_color(t.colors.text_muted)
-                        .child(kind_tag(link.kind)),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(360.))
-                        .min_w_0()
-                        .truncate()
-                        .when(link.is_url(), |s| s.text_color(t.colors.accent))
-                        .child(truncated_text(
-                            ("link-text", id.0 as u64),
-                            link.display_text().to_owned(),
-                        )),
-                )
+                .child(line)
                 .children(target)
-                .child(div().flex_1())
-                .child(remove)
         });
 
         div()

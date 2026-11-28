@@ -2103,7 +2103,7 @@ impl Render for Workspace {
             .child({
                 let t = theme::current(cx);
                 let content = if let Some(detail) = &self.detail {
-                    self.render_detail(detail, cx).into_any_element()
+                    self.render_detail(detail, window, cx).into_any_element()
                 } else if self.showing_archive {
                     self.render_archive(list_focused, cx).into_any_element()
                 } else {

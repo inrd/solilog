@@ -21,6 +21,11 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Changed
 
+- The open issue has a side pane for its details: status, when and by whom
+  it was created and last changed, projects, labels, links, attachments and
+  dependencies. It scrolls on its own, leaving the main column to the
+  description, decisions, checklist and notes. In a narrow window, its
+  sections go below the description instead.
 - The open issue's sections (decisions, attachments, dependencies,
   checklist, notes) are set apart by space and a rule, with the same header
   everywhere: title, count, and actions on the right.
