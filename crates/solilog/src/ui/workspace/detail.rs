@@ -1,6 +1,6 @@
 //! The issue detail: one issue, in place of the issue list (or the archive),
 //! with its title, description and checklist editable in place, its
-//! attachments, its dependencies and its notes. Opened with
+//! links, attachments, dependencies and notes. Opened with
 //! `issue::Open` (Enter or double click in the list), left with
 //! `issue_detail::Close` (Escape).
 //!
@@ -17,6 +17,7 @@
 mod attachments;
 mod checklist;
 mod dependencies;
+mod links;
 mod notes;
 mod overwrite;
 mod preview;
@@ -720,6 +721,7 @@ impl Workspace {
                 self.render_decisions(&detail.decisions, &DecisionOwner::issue(issue.id), true, cx)
                     .map(|d| issue_section(d, &t)),
             )
+            .child(issue_section(self.render_links(detail, &t), &t))
             .child(issue_section(self.render_attachments(detail, &t), &t))
             .child(issue_section(self.render_dependencies(detail, &t), &t))
             .child(issue_section(self.render_checklist(detail, cx), &t))

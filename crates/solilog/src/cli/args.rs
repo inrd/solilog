@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use solilog_core::{
     Actor, Agent, AttachmentId, ChecklistItemId, Db, DecisionId, DecisionOwner, IssueFilter,
-    IssueId, LabelColor, NoteId, ProjectStatus, RevisionId, Status,
+    IssueId, LabelColor, LinkId, LinkKind, NoteId, ProjectStatus, RevisionId, Status,
 };
 
 use super::run::current_dir;
@@ -78,6 +78,20 @@ pub enum Command {
     /// `path`). Deleting an issue deletes its attachments.
     #[command(subcommand, visible_alias = "a")]
     Attachment(AttachmentCommand),
+    /// Manage issue links: where an issue's work lives outside Solilog.
+    ///
+    /// A link is a `branch` (by name), a `pr` (a pull or merge request, by
+    /// URL) or a `url` (any other page: an upstream bug, a design, docs),
+    /// with an optional title. Record the branch and the PR as soon as they
+    /// exist, so the next session and the user find the work. Commits and
+    /// changed files aren't links: `issue request-review` records them.
+    ///
+    /// Links have ids of their own (shown by `issue show`, and in its JSON
+    /// as `links[]`: `id`, `kind`, `target`, `title`, `author`,
+    /// `created_at`). `issue context` includes them. Every command prints
+    /// the issue.
+    #[command(subcommand, visible_alias = "k")]
+    Link(LinkCommand),
     /// Manage issue notes: an issue's worklog.
     ///
     /// Notes are timestamped entries, each attributed to who wrote it (see
@@ -383,6 +397,13 @@ pub enum IssueCommand {
         /// Make it no longer depend on this issue (repeatable).
         #[arg(long, value_name = "ID", group = "fields")]
         remove_dependency: Vec<IssueId>,
+        /// Add a link, its kind inferred from the target (repeatable; see
+        /// `link add`).
+        #[arg(long, value_name = "TARGET", group = "fields")]
+        add_link: Vec<String>,
+        /// Remove this link, by id (repeatable).
+        #[arg(long, value_name = "LINK_ID", group = "fields")]
+        remove_link: Vec<LinkId>,
     },
     /// List the revisions of an issue's text, newest first: earlier titles,
     /// descriptions and checklist item texts, including deleted items.
@@ -619,6 +640,36 @@ pub enum AttachmentCommand {
     /// Delete an attachment and its file, and print it as it was.
     #[command(visible_alias = "rm")]
     Delete { attachment: AttachmentId },
+}
+
+#[derive(Subcommand)]
+pub enum LinkCommand {
+    /// Add a link to an issue and print the issue. Adding a link the issue
+    /// already has (same kind and target) changes nothing.
+    ///
+    /// Examples: `solilog link add SOL-12 fix/reverb-tail` (a branch),
+    /// `solilog link add SOL-12 https://github.com/acme/reverb/pull/31` (a
+    /// PR), `solilog link add SOL-12 https://example.com/spec -t "Spec"`.
+    /// Without `--kind`, a URL to a pull or merge request (GitHub, GitLab,
+    /// Gitea, Bitbucket) is a `pr`, any other URL a `url`, anything else a
+    /// `branch` (it must be a valid branch name).
+    Add {
+        id: IssueId,
+        /// The branch name, or the URL.
+        target: String,
+        /// `branch`, `pr` or `url`; inferred from the target when left out.
+        #[arg(long, short)]
+        kind: Option<LinkKind>,
+        /// What it is, in a few words (shown instead of the target).
+        #[arg(long, short)]
+        title: Option<String>,
+    },
+    /// List an issue's links, in the order they were added.
+    #[command(visible_alias = "ls")]
+    List { id: IssueId },
+    /// Remove a link, by id, and print the issue it was on.
+    #[command(visible_alias = "rm")]
+    Delete { link: LinkId },
 }
 
 #[derive(Subcommand)]

@@ -68,6 +68,9 @@ s project add-path "Website v2" /srv/solilog-fixture/website-v2
 s decision add --label web "Keep the header under 80px."
 s --actor claude:fix-header decision add --issue SOL-2 "The logo scales down below 600px."
 s decision replace 1 "Keep the header under 64px."
+# Links (after 0.2.5): a branch by an agent, and a titled URL.
+s --actor claude:fix-header link add SOL-2 fix/header-height
+s link add SOL-2 https://example.com/header-mockup -t "Header mockup"
 
 mkdir -p "$(dirname "$out")"
 # A single file: every connection is closed, so the WAL has been merged.

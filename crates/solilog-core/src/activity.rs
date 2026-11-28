@@ -180,6 +180,8 @@ pub enum ActivityKind {
     DecisionRecorded,
     DecisionReplaced,
     DecisionWithdrawn,
+    LinkAdded,
+    LinkRemoved,
 }
 
 impl ActivityKind {
@@ -213,6 +215,8 @@ impl ActivityKind {
             Self::DecisionRecorded => "decision_recorded",
             Self::DecisionReplaced => "decision_replaced",
             Self::DecisionWithdrawn => "decision_withdrawn",
+            Self::LinkAdded => "link_added",
+            Self::LinkRemoved => "link_removed",
         }
     }
 
@@ -246,6 +250,8 @@ impl ActivityKind {
         Self::DecisionRecorded,
         Self::DecisionReplaced,
         Self::DecisionWithdrawn,
+        Self::LinkAdded,
+        Self::LinkRemoved,
     ];
 
     fn from_key(key: &str) -> Option<Self> {
@@ -327,6 +333,8 @@ impl Activity {
             ActivityKind::DecisionRecorded => with_detail("recorded decision"),
             ActivityKind::DecisionReplaced => with_detail("replaced decision"),
             ActivityKind::DecisionWithdrawn => with_detail("withdrew decision"),
+            ActivityKind::LinkAdded => with_detail("added link"),
+            ActivityKind::LinkRemoved => with_detail("removed link"),
         }
     }
 }
@@ -1008,7 +1016,8 @@ mod tests {
         let db = Db::open(&dir.join("test.db")).unwrap();
         let other = db.create_issue(&NewIssue::new("other")).unwrap().id;
         let mut id = IssueId(0);
-        let (mut item, mut attachment, mut note, mut decision) = (None, None, None, None);
+        let (mut item, mut attachment, mut note, mut decision, mut link) =
+            (None, None, None, None, None);
         let review = |db: &Db, id| db.request_review(id, "done", &Receipt::default()).unwrap();
 
         // The id of the newest activity on `id` (0 before it exists).
@@ -1111,6 +1120,11 @@ mod tests {
                 ActivityKind::DecisionWithdrawn => {
                     db.withdraw_decision(decision.unwrap()).unwrap();
                 }
+                ActivityKind::LinkAdded => {
+                    let issue = db.add_link(id, &crate::NewLink::new("main")).unwrap();
+                    link = Some(issue.links[0].id);
+                }
+                ActivityKind::LinkRemoved => drop(db.remove_link(link.unwrap()).unwrap()),
             }
             // A write may record more than one (requesting a review also
             // changes the status).

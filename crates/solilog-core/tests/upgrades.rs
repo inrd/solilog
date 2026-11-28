@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 use solilog_core::{
     BackupReason, Check, Db, DecisionId, DecisionOwner, DecisionState, IssueFilter, IssueId,
-    LabelColor, NoteKind, PathOwnerKind, ProjectStatus, Receipt, RevisionField, Status, Verdict,
+    LabelColor, LinkKind, NoteKind, PathOwnerKind, ProjectStatus, Receipt, RevisionField, Status, Verdict,
 };
 
 fn fixtures() -> Vec<PathBuf> {
@@ -74,6 +74,9 @@ fn every_release_upgrades() {
         }
         if before >= DECISIONS_SCHEMA {
             check_decisions(&db);
+        }
+        if before >= LINKS_SCHEMA {
+            check_links(&db);
         }
         assert_eq!(user_version(&path), current, "{name}: not upgraded");
         let upgrade_backups = db
@@ -361,6 +364,36 @@ fn check_decisions(db: &Db) {
     assert_eq!(
         db.get_decision(DecisionId(3)).unwrap().replaces,
         Some(DecisionId(1))
+    );
+}
+
+/// Links: `user_version` from migration 25 on.
+const LINKS_SCHEMA: i64 = 25;
+
+fn check_links(db: &Db) {
+    let links: Vec<(LinkKind, String, Option<String>, String)> = db
+        .get_issue(IssueId(2))
+        .unwrap()
+        .links
+        .into_iter()
+        .map(|l| (l.kind, l.target, l.title, l.author.to_string()))
+        .collect();
+    assert_eq!(
+        links,
+        [
+            (
+                LinkKind::Branch,
+                "fix/header-height".into(),
+                None,
+                "claude:fix-header".into()
+            ),
+            (
+                LinkKind::Url,
+                "https://example.com/header-mockup".into(),
+                Some("Header mockup".into()),
+                "user".into()
+            ),
+        ]
     );
 }
 

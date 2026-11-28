@@ -13,6 +13,7 @@ use crate::activity::Actor;
 use crate::attachment::Attachment;
 use crate::checklist::{ChecklistItem, ChecklistProgress, checklist_progress};
 use crate::db::Db;
+use crate::link::{Link, LinkId, NewLink};
 
 /// Prefix of human-facing issue ids (`SOL-12`).
 pub const ISSUE_PREFIX: &str = "SOL";
@@ -94,6 +95,9 @@ pub struct Issue {
     pub checklist: Vec<ChecklistItem>,
     /// Attached files, in the order they were added.
     pub attachments: Vec<Attachment>,
+    /// Where the work lives outside Solilog (branch, pull request, URLs),
+    /// in the order they were added.
+    pub links: Vec<Link>,
     /// The issues this one depends on (to be done first), sorted.
     pub depends_on: Vec<IssueId>,
     /// The issues that depend on this one, sorted.
@@ -275,6 +279,11 @@ pub enum IssueChange {
     AddDependencies(Vec<IssueId>),
     /// Issues to no longer depend on; missing dependencies are ignored.
     RemoveDependencies(Vec<IssueId>),
+    /// Links to add; those the issue has (same kind and target) are
+    /// skipped. Invalid targets are an error (see `normalize_link`).
+    AddLinks(Vec<NewLink>),
+    /// Links to remove; each must be on the issue.
+    RemoveLinks(Vec<LinkId>),
 }
 
 /// Changes to one issue, for [`Db::edit_issue`](crate::Db::edit_issue);

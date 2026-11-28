@@ -101,7 +101,7 @@ writing SQL or validation in `crates/solilog`, move it to core.
 
 ## Data model
 
-- **Issue**: title, description, status, labels, projects, checklist, attachments, notes. The description is
+- **Issue**: title, description, status, labels, projects, checklist, attachments, links, notes. The description is
   plain text, stored as written apart from whitespace cleanup
   (`normalize_description`), so it can be rendered as Markdown later. An issue can be archived: it
   keeps everything but is left out of listings, views and counts
@@ -144,6 +144,14 @@ writing SQL or validation in `crates/solilog`, move it to core.
   files are never overwritten. Deleting an issue deletes its directory;
   archiving keeps it. In-memory databases can't have attachments: tests use
   a temporary database file.
+- **Link**: where an issue's work lives outside Solilog (`link.rs`): a
+  `branch` (by name), a `pr` or a `url` (by URL), with an optional title;
+  the kind is inferred from the target when not given (`LinkKind::infer`).
+  Unique per issue by kind and target (adding one again changes nothing),
+  never edited. Added and removed through `IssueChange::AddLinks` /
+  `RemoveLinks` (activities). Commits and changed files aren't links: a
+  receipt records them. Deleting an issue deletes its links; archiving
+  keeps them.
 - **Label**: a free-form, hierarchical tag. The name is a `/`-separated path
   (`acme/reverb`). Every ancestor exists as a label of its own and is created
   on demand. An issue may carry any number of labels. Filtering by a label

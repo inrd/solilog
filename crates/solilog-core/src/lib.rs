@@ -15,6 +15,7 @@ mod dependency;
 mod filter;
 mod issue;
 mod label;
+mod link;
 mod note;
 mod order;
 mod path_map;
@@ -53,6 +54,7 @@ pub use issue::{
 pub use label::{
     LABEL_SEPARATOR, Label, LabelColor, label_matches, normalize_label_name, renamed_label,
 };
+pub use link::{Link, LinkId, LinkKind, NewLink, normalize_link};
 pub use note::{Note, NoteId, NoteKind, normalize_note_text};
 pub use order::Placement;
 pub use path_map::{MappedPath, PathMapping, PathOwnerKind, normalize_mapped_path};

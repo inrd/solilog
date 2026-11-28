@@ -33,7 +33,10 @@ This file covers the workflows. For commands and flags, run
    earlier sessions tried, and steering from the user. If `waiting_on` isn't empty,
    issues it depends on are still open: tell the user before starting.
 2. When you start: `solilog issue set-status SOL-12 in_progress`
-   (`solilog statuses` lists the keys).
+   (`solilog statuses` lists the keys). Link the issue to where the work
+   lives as soon as each exists: `solilog link add SOL-12 <branch>`, then
+   `solilog link add SOL-12 <PR URL>` (and other pages worth keeping, with
+   `-t "<title>"`). The next session starts from them.
 3. Tick checklist items as you finish them: `solilog checklist check <id>`.
    Item ids are global numbers from `checklist[].id`, not positions: the
    third item of SOL-12 may be 41.

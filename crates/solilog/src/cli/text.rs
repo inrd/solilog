@@ -8,10 +8,10 @@ use serde::Serialize;
 use serde_json::json;
 use solilog_core::{
     Activity, Actor, Agent, Attachment, Backup, BackupDir, BackupDirChange, CompactIssue, Decision,
-    DecisionState, Handoff, Issue, IssueContext, IssueId, IssueSummary, Label, MappedPath, Note,
-    NoteKind, PathMapping, Project, ProjectSummary, Restored, Revision, SKILL_NAME, SKILL_VERSION,
-    SearchField, SearchHit, SkillChange, SkillState, SkillStatus, Status, Verdict, View,
-    format_age, format_size, format_utc,
+    DecisionState, Handoff, Issue, IssueContext, IssueId, IssueSummary, Label, Link, MappedPath,
+    Note, NoteKind, PathMapping, Project, ProjectSummary, Restored, Revision, SKILL_NAME,
+    SKILL_VERSION, SearchField, SearchHit, SkillChange, SkillState, SkillStatus, Status, Verdict,
+    View, format_age, format_size, format_utc,
 };
 
 pub struct Output {
@@ -179,6 +179,12 @@ impl Output {
                 .map(attachment_line)
                 .collect::<Vec<_>>()
                 .join("\n")
+        })
+    }
+
+    pub fn links(&self, links: &[Link]) -> Result<()> {
+        self.print(links, || {
+            links.iter().map(link_line).collect::<Vec<_>>().join("\n")
         })
     }
 
@@ -473,6 +479,13 @@ fn issue_text(issue: &Issue) -> String {
     if !issue.dependents.is_empty() {
         text.push_str(&format!("\nNeeded by: {}", id_list(&issue.dependents)));
     }
+    if !issue.links.is_empty() {
+        text.push('\n');
+        for link in &issue.links {
+            text.push('\n');
+            text.push_str(&link_line(link));
+        }
+    }
     if !issue.checklist.is_empty() {
         text.push('\n');
         for item in &issue.checklist {
@@ -651,6 +664,15 @@ fn attachment_line(attachment: &Attachment) -> String {
     );
     if let Some(path) = &attachment.path {
         line.push_str(&format!("  {}", path.display()));
+    }
+    line
+}
+
+/// Id, kind, target and title.
+fn link_line(link: &Link) -> String {
+    let mut line = format!("{:<4} {:<6} {}", link.id.0, link.kind.key(), link.target);
+    if let Some(title) = &link.title {
+        line.push_str(&format!("  ({title})"));
     }
     line
 }

@@ -46,6 +46,26 @@
           "path": "<tmp>/solilog-attachments/SOL-1/crash.log"
         }
       ],
+      "links": [
+        {
+          "id": 1,
+          "issue_id": "SOL-1",
+          "kind": "branch",
+          "target": "fix/reverb-tail",
+          "title": "The fix",
+          "author": "claude:contract-test",
+          "created_at": "<time>"
+        },
+        {
+          "id": 2,
+          "issue_id": "SOL-1",
+          "kind": "pr",
+          "target": "https://git.example.com/acme/reverb/pull/31",
+          "title": null,
+          "author": "claude:contract-test",
+          "created_at": "<time>"
+        }
+      ],
       "depends_on": [],
       "dependents": [
         "SOL-2"
@@ -73,6 +93,7 @@
       "projects": [],
       "checklist": [],
       "attachments": [],
+      "links": [],
       "depends_on": [
         "SOL-1"
       ],

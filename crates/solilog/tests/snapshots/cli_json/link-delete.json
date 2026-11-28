@@ -1,0 +1,74 @@
+{
+  "command": "solilog link delete 3 --json",
+  "output": {
+    "id": "SOL-1",
+    "title": "Fix the reverb tail",
+    "description": "It clicks.",
+    "status": "in_progress",
+    "created_at": "<time>",
+    "archived": false,
+    "labels": [
+      "acme/reverb",
+      "bug"
+    ],
+    "projects": [
+      "Reverb v1"
+    ],
+    "checklist": [
+      {
+        "id": 1,
+        "text": "Reproduce",
+        "done": true,
+        "author": "claude:contract-test"
+      },
+      {
+        "id": 2,
+        "text": "Fix",
+        "done": false,
+        "author": "claude:contract-test"
+      },
+      {
+        "id": 3,
+        "text": "Add a test",
+        "done": false,
+        "author": "claude:contract-test"
+      }
+    ],
+    "attachments": [],
+    "links": [
+      {
+        "id": 1,
+        "issue_id": "SOL-1",
+        "kind": "branch",
+        "target": "fix/reverb-tail",
+        "title": "The fix",
+        "author": "claude:contract-test",
+        "created_at": "<time>"
+      },
+      {
+        "id": 2,
+        "issue_id": "SOL-1",
+        "kind": "pr",
+        "target": "https://git.example.com/acme/reverb/pull/31",
+        "title": null,
+        "author": "claude:contract-test",
+        "created_at": "<time>"
+      }
+    ],
+    "depends_on": [],
+    "dependents": [
+      "SOL-2"
+    ],
+    "waiting_on": [],
+    "created_by": "claude:contract-test",
+    "title_by": "claude:contract-test",
+    "description_by": "claude:contract-test",
+    "updated_by": "claude:contract-test",
+    "updated_at": "<time>",
+    "reviewed_at": null,
+    "unreviewed": true,
+    "unreviewed_actors": [
+      "claude:contract-test"
+    ]
+  }
+}

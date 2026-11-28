@@ -321,6 +321,19 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     CREATE INDEX decisions_by_issue ON decisions (issue_id);
     CREATE INDEX decisions_by_label ON decisions (label_id);
     CREATE INDEX decisions_by_project ON decisions (project_id);",
+    // 25: links (see `link.rs`): where an issue's work lives (a branch, a
+    // pull request, a URL). `kind` is a `LinkKind` key, checked in the
+    // code; unique per issue by kind and target. Ids are never reused.
+    "CREATE TABLE links (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id   INTEGER NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+        kind       TEXT    NOT NULL,
+        target     TEXT    NOT NULL,
+        title      TEXT,
+        author     TEXT    NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE (issue_id, kind, target)
+    );",
 ];
 
 /// The schema version of a database with every migration applied.
@@ -535,12 +548,14 @@ impl Db {
         let mut projects = self.names_per_issue(ISSUE_PROJECTS_SQL, None)?;
         let mut checklists = self.checklists_per_issue(None)?;
         let mut attachments = self.attachments_per_issue(None)?;
+        let mut links = self.links_per_issue(None)?;
         let mut unreviewed = self.unreviewed_actors_per_issue(None)?;
         for issue in &mut issues {
             issue.labels = labels.remove(&issue.id).unwrap_or_default();
             issue.projects = projects.remove(&issue.id).unwrap_or_default();
             issue.checklist = checklists.remove(&issue.id).unwrap_or_default();
             issue.attachments = attachments.remove(&issue.id).unwrap_or_default();
+            issue.links = links.remove(&issue.id).unwrap_or_default();
             issue.unreviewed_actors = unreviewed.remove(&issue.id).unwrap_or_default();
             issue.unreviewed = !issue.unreviewed_actors.is_empty();
         }
@@ -582,6 +597,10 @@ impl Db {
             .unwrap_or_default();
         issue.attachments = self
             .attachments_per_issue(Some(id))?
+            .remove(&id)
+            .unwrap_or_default();
+        issue.links = self
+            .links_per_issue(Some(id))?
             .remove(&id)
             .unwrap_or_default();
         issue.unreviewed_actors = self
@@ -788,6 +807,14 @@ impl Db {
                 }
                 Ok(())
             }
+            IssueChange::AddLinks(links) => {
+                let added = self.insert_links(id, links)?;
+                self.record_links_activity(id, ActivityKind::LinkAdded, &added)
+            }
+            IssueChange::RemoveLinks(links) => {
+                let removed = self.delete_links(id, links)?;
+                self.record_links_activity(id, ActivityKind::LinkRemoved, &removed)
+            }
         }
     }
 
@@ -931,6 +958,7 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         projects: Vec::new(),
         checklist: Vec::new(),
         attachments: Vec::new(),
+        links: Vec::new(),
         depends_on: Vec::new(),
         dependents: Vec::new(),
         waiting_on: Vec::new(),

@@ -20,6 +20,7 @@ From any project, mentioning an issue ("work on SOL-16") or your backlog ("what 
 
 - **Read in one call:** agents scan ready work with `issue ls --ready --compact --json` and pull an issue together with its projects, dependencies, referenced `SOL-n` issues, and notes via `issue context`.
 - **Decisions that stick:** settled points ("keep the v1 API") are recorded on an issue, a label or a project, and apply below it: a label's decisions reach its sublabels and their issues. Agents get them with `issue context` and `where` before starting, so a new session doesn't reopen them. Decisions are never edited, only replaced or withdrawn, and one an agent records waits for you to confirm it.
+- **Where the work is:** agents link an issue to its branch and pull request as soon as they exist (`link add`), so the next session, and you, find the work from the issue; other pages (an upstream bug, a design) can be linked too.
 - **Worklog, not spec:** as an agent works, it ticks checklist items and logs progress, decisions, and handoffs in append-only **notes**, leaving your description alone. If text is ever overwritten by mistake, revision history (`shift-h` / `issue history`) lets you restore it.
 - **Authorship and review tracking:** agents identify themselves with `--actor` or `SOLILOG_ACTOR` (e.g. `claude:fix-auth`). Changes made outside the app are attributed, marked subtly in the UI, recorded in an activity log, and collected in the sidebar's **Unreviewed** view until you clear them (`r` / `shift-r`).
 - **Review handoff with receipts:** when finished, the agent doesn't close the issue — it hands it to you (`In Review`, at the top of the list) with a receipt of the checks it ran (pass or fail) and the commits and files it changed. You approve it in the app (`cmd-enter`, marking it done) or send it back to Todo with a note (`cmd-backspace`).
@@ -59,6 +60,7 @@ solilog checklist add SOL-1 "Write tests" "Update docs"
 solilog checklist check 1                    # item ids are shown by `issue show`
 solilog attachment add SOL-1 crash.log       # copied next to the database
 solilog note add SOL-1 "Tried X, fails on Y" # the issue's worklog
+solilog link add SOL-1 fix/thing             # its branch; a pull request or page by URL
 solilog decision add --label acme/reverb "Keep the v1 preset format"   # applies to its issues
 solilog issue request-review SOL-1 -m "Fixed X" --pass "cargo test" --commit a1b2c3d
 solilog issue create "Crash on load" -l acme/reverb -l bug
@@ -149,6 +151,8 @@ An issue an agent handed off for review shows its latest receipt above the descr
 | `cmd-z` / `cmd-shift-z` | Undo / redo while editing text (also `ctrl-y` on Linux) |
 
 An issue id in the description (`SOL-12`) links to that issue and shows its title; a web address (`https://…`) links to that page. Click a link to open it (the issue, or the page in your browser); while editing, `cmd`-click it or press `alt-enter` with the cursor on it.
+
+Its links are listed under "Links": click a pull request or page to open it in your browser, or a branch to copy its name.
 
 The issues it depends on, and those that depend on it, are listed under "Dependencies": click one to open it. An issue is *waiting* (a clock in the list, with the number of open dependencies) until every issue it depends on is done or cancelled; nothing changes its status by itself.
 

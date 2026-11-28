@@ -8,6 +8,13 @@ the scheme in AGENTS.md ("Versions and releases").
 
 ### Added
 
+- Links: an issue can link to where its work lives, its branch, its pull
+  request and other pages (`solilog link add SOL-12 fix/reverb-tail`, or a
+  URL; a pull request URL is recognized as one). `issue show` and `issue
+  context` list them (`links` in `--json`), and the open issue shows them
+  under "Links": click one to open it, or to copy a branch's name. The agent
+  skill asks agents to link the branch and pull request as soon as they
+  exist.
 - Backlinks: `issue context` lists the issues that mention it (`SOL-12`) in
   their description, checklist or notes (`mentioned_by` in `--json`), and
   the open issue shows them under "Mentioned in" in the app.

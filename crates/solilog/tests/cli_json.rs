@@ -355,6 +355,30 @@ fn json_output_matches_snapshots() {
         .to_string();
     cli.check("checklist-check", &["checklist", "check", &first_item]);
 
+    // Links.
+    cli.check(
+        "link-add",
+        &["link", "add", &dep, "fix/reverb-tail", "-t", "The fix"],
+    );
+    let edited = cli.check(
+        "issue-edit-add-link",
+        &[
+            "issue",
+            "edit",
+            &dep,
+            "--add-link",
+            "https://git.example.com/acme/reverb/pull/31",
+            "--add-link",
+            "https://example.com/tail-spec",
+        ],
+    );
+    let spec = edited["links"][2]["id"]
+        .as_i64()
+        .expect("link id")
+        .to_string();
+    cli.check("link-delete", &["link", "delete", &spec]);
+    cli.check("link-list", &["link", "list", &dep]);
+
     // Notes, decisions, review.
     cli.check(
         "note-add",

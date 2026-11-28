@@ -892,6 +892,60 @@ pub mod attachment {
     }
 }
 
+/// Links on issues: where their work lives outside Solilog (a branch, a
+/// pull request, other pages), shown with the open issue. Without an `id`,
+/// commands pick one of the target issues' links.
+pub mod link {
+    use gpui::Action;
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use solilog_core::LinkId;
+
+    /// Add a link to the selected (else the highlighted or open) issues:
+    /// the given `target` (a branch name or a URL; a URL to a pull request
+    /// is a PR link), else one typed in, or taken from the clipboard.
+    ///
+    /// Keymap example: `"g l": ["link::Add", { "target": "main" }]`
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = link)]
+    #[serde(deny_unknown_fields)]
+    pub struct Add {
+        #[serde(default)]
+        pub target: Option<String>,
+    }
+
+    /// Open a link: a URL in the browser; a branch's name is copied.
+    /// Clicking a link does this.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = link)]
+    #[serde(deny_unknown_fields)]
+    pub struct Open {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<LinkId>,
+    }
+
+    /// Copy a link's target (the URL or the branch name).
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = link)]
+    #[serde(deny_unknown_fields)]
+    pub struct Copy {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<LinkId>,
+    }
+
+    /// Remove a link from its issue.
+    #[derive(Clone, Default, PartialEq, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = link)]
+    #[serde(deny_unknown_fields)]
+    pub struct Remove {
+        #[serde(default)]
+        #[schemars(with = "Option<i64>")]
+        pub id: Option<LinkId>,
+    }
+}
+
 /// The image preview (see `attachment::Preview`).
 pub mod image_preview {
     use gpui::actions;

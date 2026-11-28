@@ -8,13 +8,13 @@ use anyhow::{Context as _, Result};
 use serde_json::json;
 use solilog_core::{
     ActivityQuery, Actor, BackupReason, Check, Db, IssueChange, IssueEdit, IssueFilter, NewIssue,
-    NewProject, Placement, ProjectUpdate, Receipt, SearchQuery, SkillEnv,
+    NewLink, NewProject, Placement, ProjectUpdate, Receipt, SearchQuery, SkillEnv,
 };
 
 use super::args::{
     AttachmentCommand, BackupCommand, ChecklistCommand, Command, DecisionCommand, IssueCommand,
-    KeymapCommand, LabelCommand, NoteCommand, ProjectCommand, SkillCommand, StatusesCommand,
-    ViewCommand,
+    KeymapCommand, LabelCommand, LinkCommand, NoteCommand, ProjectCommand, SkillCommand,
+    StatusesCommand, ViewCommand,
 };
 use super::text::Output;
 
@@ -30,6 +30,7 @@ pub fn command(
         Command::Issue(cmd) => issue(out, open_db(opened, actor)?, cmd),
         Command::Checklist(cmd) => checklist(out, open_db(opened, actor)?, cmd),
         Command::Attachment(cmd) => attachment(out, open_db(opened, actor)?, cmd),
+        Command::Link(cmd) => link(out, open_db(opened, actor)?, cmd),
         Command::Search {
             query,
             include_closed,
@@ -141,6 +142,8 @@ fn issue(out: &Output, db: &Db, cmd: IssueCommand) -> Result<()> {
             remove_from_project,
             add_dependency,
             remove_dependency,
+            add_link,
+            remove_link,
         } => {
             check_one_stdin([&title, &description].into_iter().flatten())?;
             // Projects first, so that `--remove-label` can drop a
@@ -155,6 +158,10 @@ fn issue(out: &Output, db: &Db, cmd: IssueCommand) -> Result<()> {
                     .then_some(IssueChange::AddDependencies(add_dependency)),
                 (!remove_dependency.is_empty())
                     .then_some(IssueChange::RemoveDependencies(remove_dependency)),
+                (!remove_link.is_empty()).then_some(IssueChange::RemoveLinks(remove_link)),
+                (!add_link.is_empty()).then_some(IssueChange::AddLinks(
+                    add_link.into_iter().map(NewLink::new).collect(),
+                )),
                 status.map(IssueChange::SetStatus),
             ];
             let edit = IssueEdit {
@@ -309,6 +316,26 @@ fn attachment(out: &Output, db: &Db, cmd: AttachmentCommand) -> Result<()> {
         AttachmentCommand::Delete { attachment } => {
             out.attachment(&db.delete_attachment(attachment)?)
         }
+    }
+}
+
+fn link(out: &Output, db: &Db, cmd: LinkCommand) -> Result<()> {
+    match cmd {
+        LinkCommand::Add {
+            id,
+            target,
+            kind,
+            title,
+        } => out.issue(&db.add_link(
+            id,
+            &NewLink {
+                target,
+                kind,
+                title,
+            },
+        )?),
+        LinkCommand::List { id } => out.links(&db.get_issue(id)?.links),
+        LinkCommand::Delete { link } => out.issue(&db.remove_link(link)?),
     }
 }
 
