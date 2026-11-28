@@ -24,6 +24,7 @@ From any project, mentioning an issue ("work on SOL-16") or your backlog ("what 
 - **Worklog, not spec:** as an agent works, it ticks checklist items and logs progress, decisions, and handoffs in append-only **notes**, leaving your description alone. If text is ever overwritten by mistake, revision history (`shift-h` / `issue history`) lets you restore it.
 - **Authorship and review tracking:** agents identify themselves with `--actor` or `SOLILOG_ACTOR` (e.g. `claude:fix-auth`). Changes made outside the app are attributed, marked subtly in the UI, recorded in an activity log, and collected in the sidebar's **Unreviewed** view until you clear them (`r` / `shift-r`).
 - **Review handoff with receipts:** when finished, the agent doesn't close the issue — it hands it to you (`In Review`, at the top of the list) with a receipt of the checks it ran (pass or fail) and the commits and files it changed. You approve it in the app (`cmd-enter`, marking it done) or send it back to Todo with a note (`cmd-backspace`).
+- **Triage of what agents file:** agents file the bugs and follow-ups they find without stopping to ask. Each new one waits for you, left out of ready work, until you accept it (`r`) or decline it (`cmd-shift-backspace`: it is cancelled but kept, so it isn't filed again).
 
 ![Issue detail with review receipt and unreviewed changes](docs/screenshot-detail.png)
 
@@ -126,6 +127,7 @@ Commands act on the selected issues, or on the highlighted one when none is sele
 | `y` | Copy the issue id (`SOL-12`) |
 | `r` / `shift-r` | Mark agent or CLI changes as reviewed / mark all reviewed (in the Unreviewed view) |
 | `cmd-enter` / `cmd-backspace` | Approve an issue in review (it becomes done) / send it back to Todo with a note |
+| `cmd-shift-backspace` | Decline an issue an agent filed (it is cancelled); `r` accepts it |
 | `shift-h` | Earlier text of the issue's title, description and checklist, to restore it |
 | `alt-up` / `alt-down` | Reorder |
 | `z` / `shift-z` | Collapse or expand a status section (or click its header) / expand all sections |

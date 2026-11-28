@@ -260,6 +260,13 @@ fn issue(out: &Output, db: &Db, cmd: IssueCommand) -> Result<()> {
             let message = read_arg(message, "message")?;
             out.handoffs(&db.send_back_issues(&ids, &message)?)
         }
+        IssueCommand::Decline { ids, message } => {
+            let message = message
+                .map(|m| read_arg(m, "message"))
+                .transpose()?
+                .unwrap_or_default();
+            out.handoffs(&db.decline_issues(&ids, &message)?)
+        }
         IssueCommand::SetStatus { id, status } => out.issue(&db.set_status(id, status)?),
         IssueCommand::Move { id, before, after } => {
             out.issue(&db.move_issue(id, &Placement::from_options(before, after)?)?)

@@ -915,7 +915,10 @@ impl Workspace {
             entries.push(("Approve", Box::new(issue::Approve)));
             entries.push(("Send Back…", Box::new(issue::SendBack::default())));
         }
-        if issues.iter().any(|i| i.unreviewed) {
+        if issues.iter().any(|i| i.awaiting_triage) {
+            entries.push(("Accept", Box::new(issue::MarkReviewed)));
+            entries.push(("Decline", Box::new(issue::Decline)));
+        } else if issues.iter().any(|i| i.unreviewed) {
             entries.push(("Mark Reviewed", Box::new(issue::MarkReviewed)));
         }
         entries.push(("Set Status…", Box::new(SetStatus::default())));
@@ -991,7 +994,7 @@ impl Workspace {
         let ids: Vec<IssueId> = self
             .target_issues(cx)
             .into_iter()
-            .filter(|i| i.unreviewed)
+            .filter(|i| i.unreviewed || i.awaiting_triage)
             .map(|i| i.id)
             .collect();
         if ids.is_empty() {
@@ -2047,6 +2050,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::on_mark_reviewed))
             .on_action(cx.listener(Self::on_approve))
             .on_action(cx.listener(Self::on_send_back))
+            .on_action(cx.listener(Self::on_decline))
             .on_action(cx.listener(Self::on_clear_filter))
             .on_action(cx.listener(Self::on_all_statuses))
             .on_action(cx.listener(Self::on_save_view))

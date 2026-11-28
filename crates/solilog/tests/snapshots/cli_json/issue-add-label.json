@@ -30,6 +30,7 @@
     "unreviewed": true,
     "unreviewed_actors": [
       "claude:contract-test"
-    ]
+    ],
+    "awaiting_triage": true
   }
 }

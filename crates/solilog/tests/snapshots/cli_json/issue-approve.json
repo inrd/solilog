@@ -81,10 +81,11 @@
         "unreviewed": true,
         "unreviewed_actors": [
           "claude:contract-test"
-        ]
+        ],
+        "awaiting_triage": false
       },
       "note": {
-        "id": 3,
+        "id": 4,
         "issue_id": "SOL-1",
         "text": "",
         "kind": "review",

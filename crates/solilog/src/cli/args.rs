@@ -307,8 +307,9 @@ pub enum IssueCommand {
         archived: bool,
         /// Return lightweight JSON summaries (`id`, `title`, `status`,
         /// `labels`, `projects`, `checklist_progress`, `waiting_on`,
-        /// `unreviewed`, `updated_at`, `archived`), omitting descriptions, full
-        /// checklists, attachments and authorship details.
+        /// `unreviewed`, `awaiting_triage`, `updated_at`, `archived`),
+        /// omitting descriptions, full checklists, attachments and
+        /// authorship details.
         #[arg(long)]
         compact: bool,
         /// Only the issues of the label or project mapped to the current
@@ -515,6 +516,20 @@ pub enum IssueCommand {
         /// What to change; `-` reads it from stdin.
         #[arg(short, long)]
         message: String,
+    },
+    /// Decline issues awaiting triage (`awaiting_triage`: filed by an agent
+    /// or an unidentified `cli` write, and never marked reviewed): cancel
+    /// them and print them with the review note added. All or nothing.
+    /// They are kept, not archived, so `search --include-closed` still
+    /// finds them. To accept one instead, mark it reviewed (`issue
+    /// review`). Meant for the user: an agent should only record a decision
+    /// the user gave it.
+    Decline {
+        #[arg(required = true)]
+        ids: Vec<IssueId>,
+        /// Why, optionally; `-` reads it from stdin.
+        #[arg(short, long)]
+        message: Option<String>,
     },
     /// Change an issue's status and print it. The issue goes first in the
     /// order of its new status (unless it already had that status). To hand
@@ -890,9 +905,9 @@ pub struct FilterArgs {
     /// Only issues that are in no project.
     #[arg(long)]
     no_project: bool,
-    /// Only issues that can be started: open, not in review (`in_review`
-    /// waits for the user), and every issue they depend on is done or
-    /// cancelled (see `issue add-dependency`).
+    /// Only issues that can be started: open, not waiting for the user (in
+    /// review, or awaiting triage), and every issue they depend on is done
+    /// or cancelled (see `issue add-dependency`).
     #[arg(long, conflicts_with = "waiting")]
     ready: bool,
     /// Only open issues that depend on an issue still open.
@@ -901,6 +916,12 @@ pub struct FilterArgs {
     /// Only issues with unreviewed non-user changes.
     #[arg(long)]
     unreviewed: bool,
+    /// Only issues awaiting the user's triage: open, filed by an agent (or
+    /// an unidentified `cli` write) and never marked reviewed. The user
+    /// accepts one by marking it reviewed (`issue review`) or declines it
+    /// (`issue decline`).
+    #[arg(long)]
+    awaiting_triage: bool,
 }
 
 impl From<FilterArgs> for IssueFilter {
@@ -915,6 +936,7 @@ impl From<FilterArgs> for IssueFilter {
             ready: args.ready,
             waiting: args.waiting,
             unreviewed: args.unreviewed,
+            awaiting_triage: args.awaiting_triage,
             updated_since: None,
         }
     }

@@ -423,6 +423,23 @@ fn json_output_matches_snapshots() {
         ],
     );
 
+    // Triage: the agent's issues wait for the user, who accepts one
+    // (marks it reviewed) and declines another.
+    let stray = cli.check(
+        "issue-create-stray",
+        &["issue", "create", "Tail clicks on mono input"],
+    );
+    let stray = id(&stray);
+    cli.check(
+        "issue-list-awaiting-triage",
+        &["issue", "list", "--awaiting-triage", "--compact"],
+    );
+    cli.check("issue-review", &["issue", "review", &issue]);
+    cli.check(
+        "issue-decline",
+        &["issue", "decline", &stray, "-m", "Same as the tail fix."],
+    );
+
     // Attachments.
     // Relative to the current directory, so the command line is the same
     // on every run.

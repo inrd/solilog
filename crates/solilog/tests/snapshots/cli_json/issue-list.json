@@ -2,6 +2,33 @@
   "command": "solilog issue list --json",
   "output": [
     {
+      "id": "SOL-3",
+      "title": "Tail clicks on mono input",
+      "description": "",
+      "status": "cancelled",
+      "created_at": "<time>",
+      "archived": false,
+      "labels": [],
+      "projects": [],
+      "checklist": [],
+      "attachments": [],
+      "links": [],
+      "depends_on": [],
+      "dependents": [],
+      "waiting_on": [],
+      "created_by": "claude:contract-test",
+      "title_by": "claude:contract-test",
+      "description_by": "claude:contract-test",
+      "updated_by": "claude:contract-test",
+      "updated_at": "<time>",
+      "reviewed_at": null,
+      "unreviewed": true,
+      "unreviewed_actors": [
+        "claude:contract-test"
+      ],
+      "awaiting_triage": false
+    },
+    {
       "id": "SOL-1",
       "title": "Fix the reverb tail",
       "description": "It clicks.",
@@ -80,7 +107,8 @@
       "unreviewed": true,
       "unreviewed_actors": [
         "claude:contract-test"
-      ]
+      ],
+      "awaiting_triage": true
     },
     {
       "id": "SOL-2",
@@ -108,11 +136,10 @@
       "description_by": "claude:contract-test",
       "updated_by": "claude:contract-test",
       "updated_at": "<time>",
-      "reviewed_at": null,
-      "unreviewed": true,
-      "unreviewed_actors": [
-        "claude:contract-test"
-      ]
+      "reviewed_at": "<time>",
+      "unreviewed": false,
+      "unreviewed_actors": [],
+      "awaiting_triage": false
     }
   ]
 }

@@ -18,6 +18,16 @@ the scheme in AGENTS.md ("Versions and releases").
 - Backlinks: `issue context` lists the issues that mention it (`SOL-12`) in
   their description, checklist or notes (`mentioned_by` in `--json`), and
   the open issue shows them under "Mentioned in" in the app.
+- Triage of issues agents file: an open issue an agent (or an unidentified
+  CLI write) created waits for you until you accept or decline it, and
+  agents leave it alone meanwhile (`issue ls --ready` leaves it out). Accept
+  it by marking it reviewed (`r`, or "Accept" on the open issue); decline it
+  with `cmd-shift-backspace` or "Decline", which cancels it with a note and
+  keeps it, so agents searching closed issues don't file it again.
+  `solilog issue decline SOL-12 [-m reason]` and `issue ls
+  --awaiting-triage` do the same from the CLI (`awaiting_triage` in
+  `--json`). The agent skill now asks agents to file what they find without
+  asking first.
 
 ### Changed
 

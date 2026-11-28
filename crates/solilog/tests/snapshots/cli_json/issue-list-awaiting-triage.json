@@ -1,0 +1,56 @@
+{
+  "command": "solilog issue list --awaiting-triage --compact --json",
+  "output": [
+    {
+      "id": "SOL-3",
+      "title": "Tail clicks on mono input",
+      "status": "todo",
+      "labels": [],
+      "projects": [],
+      "checklist_progress": null,
+      "waiting_on": [],
+      "unreviewed": true,
+      "awaiting_triage": true,
+      "updated_at": "<time>",
+      "archived": false
+    },
+    {
+      "id": "SOL-1",
+      "title": "Fix the reverb tail",
+      "status": "in_review",
+      "labels": [
+        "acme/reverb",
+        "bug"
+      ],
+      "projects": [
+        "Reverb v1"
+      ],
+      "checklist_progress": {
+        "done": 1,
+        "total": 3
+      },
+      "waiting_on": [],
+      "unreviewed": true,
+      "awaiting_triage": true,
+      "updated_at": "<time>",
+      "archived": false
+    },
+    {
+      "id": "SOL-2",
+      "title": "Release",
+      "status": "todo",
+      "labels": [
+        "release"
+      ],
+      "projects": [],
+      "checklist_progress": null,
+      "waiting_on": [
+        "SOL-1"
+      ],
+      "unreviewed": true,
+      "awaiting_triage": true,
+      "updated_at": "<time>",
+      "archived": false
+    }
+  ]
+}

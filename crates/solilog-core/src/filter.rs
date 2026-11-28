@@ -27,14 +27,16 @@ pub struct IssueFilter {
     pub projects: Vec<String>,
     /// The issue is in no project. Incompatible with `projects`.
     pub no_project: bool,
-    /// The issue is open and has no open dependency (see
-    /// [`Issue::is_ready`]). Incompatible with `waiting`.
+    /// The issue can be started: open, not waiting for the user, and no
+    /// open dependency (see [`Issue::is_ready`]). Incompatible with `waiting`.
     pub ready: bool,
     /// The issue is open and has open dependencies (see
     /// [`Issue::is_waiting`]).
     pub waiting: bool,
     /// The issue has unreviewed non-user changes.
     pub unreviewed: bool,
+    /// The issue awaits the user's triage (see [`Issue::awaiting_triage`]).
+    pub awaiting_triage: bool,
     /// The issue changed at or after this Unix time (its `updated_at`: any
     /// recorded activity, by anyone). Not meant for views: an absolute time
     /// goes stale.
@@ -60,6 +62,7 @@ impl IssueFilter {
             && (!self.ready || issue.is_ready())
             && (!self.waiting || issue.is_waiting())
             && (!self.unreviewed || issue.unreviewed)
+            && (!self.awaiting_triage || issue.awaiting_triage)
             && self
                 .updated_since
                 .is_none_or(|since| issue.updated_at >= since)
@@ -125,6 +128,9 @@ impl fmt::Display for IssueFilter {
         }
         if self.unreviewed {
             parts.push("unreviewed".to_string());
+        }
+        if self.awaiting_triage {
+            parts.push("awaiting triage".to_string());
         }
         if let Some(since) = self.updated_since {
             parts.push(format!("changed since {}", format_utc(since)));

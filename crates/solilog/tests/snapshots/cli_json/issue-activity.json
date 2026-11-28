@@ -2,7 +2,7 @@
   "command": "solilog issue activity SOL-1 --json",
   "output": [
     {
-      "id": 15,
+      "id": 18,
       "issue_id": "SOL-1",
       "actor": "claude:contract-test",
       "kind": "attachment_added",

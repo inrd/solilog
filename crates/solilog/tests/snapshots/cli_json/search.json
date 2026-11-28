@@ -19,6 +19,7 @@
         },
         "waiting_on": [],
         "unreviewed": true,
+        "awaiting_triage": true,
         "updated_at": "<time>",
         "archived": false
       },

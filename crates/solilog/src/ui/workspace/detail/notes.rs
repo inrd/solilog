@@ -231,6 +231,9 @@ impl Workspace {
                 NoteKind::Review {
                     verdict: Verdict::ChangesRequested,
                 } => (Some("sent back"), t.colors.error),
+                NoteKind::Review {
+                    verdict: Verdict::Declined,
+                } => (Some("declined"), t.colors.text_muted),
             };
             let details = match &note.kind {
                 NoteKind::Receipt(receipt) => Some(receipt_details(receipt, &t)),

@@ -76,7 +76,20 @@ To triage or suggest what to work on next, start from
 `solilog issue ls --ready --compact --json` (or `solilog issue ls --compact --json`
 for the full backlog): lightweight summaries without descriptions or full
 checklists, then drill into the few issues you need with `issue context`.
-`--ready` leaves out issues in review: they wait for the user, not for you.
+`--ready` leaves out what waits for the user, not for you: issues in
+review, and issues awaiting triage (`awaiting_triage`, below).
+
+## Filing what you find
+
+When you come across something worth doing outside your task (a bug, a
+TODO, a follow-up, a flaky test), file it rather than fixing it on the side
+or only mentioning it: search first (below), then `solilog issue create
+--here` with what you saw and where. Don't ask first, and don't start on
+it: an issue an agent files is `awaiting_triage` until the user accepts it
+(marks it reviewed) or declines it (`cancelled`, with a review note saying
+`declined`). Mention what you filed in your session. Only work on one
+awaiting triage when the user asks you to, and never accept or decline one
+yourself (`issue review`, `issue decline` are for the user).
 
 ## Decisions
 

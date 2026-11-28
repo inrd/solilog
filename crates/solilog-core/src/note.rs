@@ -78,8 +78,9 @@ pub enum NoteKind {
     /// Work handed to the user for review, with what was checked and
     /// changed; the note's text is its summary.
     Receipt(Receipt),
-    /// The user's answer to a receipt; the note's text is the reason
-    /// (required to send work back, optional to approve it).
+    /// The user's answer to a receipt, or to an issue awaiting triage; the
+    /// note's text is the reason (required to send work back, optional to
+    /// approve or decline).
     Review { verdict: Verdict },
 }
 
@@ -209,6 +210,9 @@ impl Db {
             NoteKind::Review {
                 verdict: Verdict::ChangesRequested,
             } => ActivityKind::SentBack,
+            NoteKind::Review {
+                verdict: Verdict::Declined,
+            } => ActivityKind::Declined,
         };
         self.record_activity(issue, activity, &note_excerpt(text))?;
         Ok(id)

@@ -582,42 +582,51 @@ impl Workspace {
                         .gap_2()
                         .child(
                             div()
+                                .flex_none()
                                 .text_size(px(12.))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(t.colors.accent)
-                                .child("Unreviewed changes"),
-                        )
-                        .child(
-                            div()
-                                .id("detail-mark-reviewed")
-                                .relative()
-                                .ml_auto()
-                                .px_2()
-                                .py(px(1.))
-                                .when(!t.is_bevel(), |s| {
-                                    s.rounded(t.radius_sm())
-                                        .border_1()
-                                        .border_color(t.colors.border)
-                                })
-                                .when(t.is_bevel(), |s| s.bg(t.colors.surface))
-                                .text_size(px(12.))
-                                .text_color(t.colors.text)
-                                .cursor_pointer()
-                                .hover(|s| {
-                                    if t.is_bevel() {
-                                        s.bg(t.colors.hover)
-                                    } else {
-                                        s.bg(t.colors.highlight)
-                                    }
-                                })
-                                .child("Mark reviewed")
-                                .children(t.raised_bevel())
-                                .children(t.gloss_overlay())
-                                .on_click(move |_: &ClickEvent, window, cx| {
-                                    window.focus(&focus);
-                                    window.dispatch_action(issue::MarkReviewed.boxed_clone(), cx);
+                                .child(if issue.awaiting_triage {
+                                    "Awaiting triage"
+                                } else {
+                                    "Unreviewed changes"
                                 }),
-                        ),
+                        )
+                        // An agent filed it: accepting is marking it
+                        // reviewed; declining cancels it.
+                        .when(issue.awaiting_triage, |s| {
+                            s.child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(12.))
+                                    .text_color(t.colors.text_muted)
+                                    .child(format!("filed by {}", issue.created_by)),
+                            )
+                        })
+                        .child(div().flex_1())
+                        .when(issue.awaiting_triage, |s| {
+                            s.child(review::button(
+                                "detail-decline",
+                                "Decline",
+                                false,
+                                &focus,
+                                &t,
+                                Box::new(issue::Decline),
+                            ))
+                        })
+                        .child(review::button(
+                            "detail-mark-reviewed",
+                            if issue.awaiting_triage {
+                                "Accept"
+                            } else {
+                                "Mark reviewed"
+                            },
+                            false,
+                            &focus,
+                            &t,
+                            Box::new(issue::MarkReviewed),
+                        )),
                 )
                 .children(shown.map(|a| {
                     div()

@@ -15,7 +15,8 @@
         "no_project": false,
         "ready": false,
         "waiting": false,
-        "unreviewed": false
+        "unreviewed": false,
+        "awaiting_triage": false
       }
     }
   ]

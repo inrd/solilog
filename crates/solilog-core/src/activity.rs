@@ -182,6 +182,7 @@ pub enum ActivityKind {
     DecisionWithdrawn,
     LinkAdded,
     LinkRemoved,
+    Declined,
 }
 
 impl ActivityKind {
@@ -217,6 +218,7 @@ impl ActivityKind {
             Self::DecisionWithdrawn => "decision_withdrawn",
             Self::LinkAdded => "link_added",
             Self::LinkRemoved => "link_removed",
+            Self::Declined => "declined",
         }
     }
 
@@ -252,6 +254,7 @@ impl ActivityKind {
         Self::DecisionWithdrawn,
         Self::LinkAdded,
         Self::LinkRemoved,
+        Self::Declined,
     ];
 
     fn from_key(key: &str) -> Option<Self> {
@@ -335,6 +338,7 @@ impl Activity {
             ActivityKind::DecisionWithdrawn => with_detail("withdrew decision"),
             ActivityKind::LinkAdded => with_detail("added link"),
             ActivityKind::LinkRemoved => with_detail("removed link"),
+            ActivityKind::Declined => with_detail("declined"),
         }
     }
 }
@@ -1013,7 +1017,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("file.txt");
         std::fs::write(&file, "content").unwrap();
-        let db = Db::open(&dir.join("test.db")).unwrap();
+        let mut db = Db::open(&dir.join("test.db")).unwrap();
         let other = db.create_issue(&NewIssue::new("other")).unwrap().id;
         let mut id = IssueId(0);
         let (mut item, mut attachment, mut note, mut decision, mut link) =
@@ -1125,6 +1129,13 @@ mod tests {
                     link = Some(issue.links[0].id);
                 }
                 ActivityKind::LinkRemoved => drop(db.remove_link(link.unwrap()).unwrap()),
+                ActivityKind::Declined => {
+                    // Only an issue an agent filed can be declined.
+                    db.set_actor(Actor::parse("claude:x").unwrap());
+                    id = db.create_issue(&NewIssue::new("filed")).unwrap().id;
+                    db.set_actor(Actor::user());
+                    db.decline_issues(&[id], "").unwrap();
+                }
             }
             // A write may record more than one (requesting a review also
             // changes the status).

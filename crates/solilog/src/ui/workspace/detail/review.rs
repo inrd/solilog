@@ -1,6 +1,7 @@
 //! The review handoff in the GUI: approving issues in review or sending
-//! them back (`issue::Approve`, `issue::SendBack`), and the panel an open
-//! issue in review shows above its description, with its latest receipt.
+//! them back (`issue::Approve`, `issue::SendBack`), declining issues
+//! awaiting triage (`issue::Decline`), and the panel an open issue in
+//! review shows above its description, with its latest receipt.
 
 use gpui::{
     Action, AnyElement, ClickEvent, Context, FocusHandle, FontWeight, Hsla, IntoElement,
@@ -10,7 +11,7 @@ use solilog_core::{IssueId, Receipt, Status, format_age, latest_receipt};
 
 use super::super::{CreateAction, Workspace};
 use super::IssueDetail;
-use crate::ui::actions::issue::{Approve, SendBack};
+use crate::ui::actions::issue::{Approve, Decline, SendBack};
 use crate::ui::theme;
 use crate::ui::tooltip::truncated_text;
 
@@ -133,6 +134,35 @@ impl Workspace {
             self.footer.notice = Some(match ids.as_slice() {
                 [id] => format!("Approved {id}"),
                 many => format!("Approved {} issues", many.len()),
+            });
+            cx.notify();
+        }
+    }
+
+    pub(in crate::ui::workspace) fn on_decline(
+        &mut self,
+        _: &Decline,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ids: Vec<IssueId> = self
+            .target_issues(cx)
+            .into_iter()
+            .filter(|i| i.awaiting_triage)
+            .map(|i| i.id)
+            .collect();
+        if ids.is_empty() {
+            if self.footer.error.is_none() {
+                self.footer.error = Some("No issue awaiting triage selected".into());
+                cx.notify();
+            }
+            return;
+        }
+        if self.report(self.db.decline_issues(&ids, ""), cx).is_some() {
+            self.reload(cx);
+            self.footer.notice = Some(match ids.as_slice() {
+                [id] => format!("Declined {id}"),
+                many => format!("Declined {} issues", many.len()),
             });
             cx.notify();
         }

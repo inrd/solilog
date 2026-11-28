@@ -427,6 +427,9 @@ fn issue_line(issue: &Issue) -> String {
         let actors: Vec<&str> = issue.unreviewed_actors.iter().map(Actor::as_str).collect();
         line.push_str(&format!("  unreviewed ({})", actors.join(", ")));
     }
+    if issue.awaiting_triage {
+        line.push_str("  awaiting triage");
+    }
     if issue.archived {
         line.push_str("  (archived)");
     }
@@ -446,6 +449,9 @@ fn compact_issue_line(issue: &CompactIssue) -> String {
     }
     if !issue.projects.is_empty() {
         line.push_str(&format!("  in: {}", issue.projects.join(", ")));
+    }
+    if issue.awaiting_triage {
+        line.push_str("  awaiting triage");
     }
     if issue.archived {
         line.push_str("  (archived)");
@@ -567,6 +573,9 @@ fn note_text(note: &Note) -> String {
         NoteKind::Review {
             verdict: Verdict::ChangesRequested,
         } => "  sent back",
+        NoteKind::Review {
+            verdict: Verdict::Declined,
+        } => "  declined",
     };
     let mut text = format!(
         "{:<4} {:<12} {}{kind}",

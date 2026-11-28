@@ -123,6 +123,17 @@ pub struct Issue {
     /// Distinct non-user actors with unreviewed writes on this issue, newest
     /// first.
     pub unreviewed_actors: Vec<Actor>,
+    /// `true` for an open issue a non-user created that the user has never
+    /// marked reviewed: it waits for the user to accept it (mark it
+    /// reviewed) or decline it ([`Db::decline_issues`](crate::Db::decline_issues)),
+    /// and isn't ready meanwhile.
+    pub awaiting_triage: bool,
+}
+
+/// Whether an issue with these fields awaits the user's triage (see
+/// [`Issue::awaiting_triage`]).
+pub(crate) fn awaits_triage(status: Status, created_by: &Actor, reviewed_at: Option<i64>) -> bool {
+    !status.is_closed() && !created_by.is_user() && reviewed_at.is_none()
 }
 
 impl Issue {
@@ -132,9 +143,13 @@ impl Issue {
     }
 
     /// Open, without dependencies still open, and not waiting for the
-    /// user's review: it can be started.
+    /// user (in review, or filed by an agent and not yet accepted): it can
+    /// be started.
     pub fn is_ready(&self) -> bool {
-        !self.status.is_closed() && self.status != Status::InReview && self.waiting_on.is_empty()
+        !self.status.is_closed()
+            && self.status != Status::InReview
+            && !self.awaiting_triage
+            && self.waiting_on.is_empty()
     }
 
     /// Done and total checklist items, or `None` without a checklist.
@@ -156,6 +171,7 @@ pub struct CompactIssue {
     pub checklist_progress: Option<ChecklistProgress>,
     pub waiting_on: Vec<IssueId>,
     pub unreviewed: bool,
+    pub awaiting_triage: bool,
     pub updated_at: i64,
     pub archived: bool,
 }
@@ -173,6 +189,7 @@ impl From<&Issue> for CompactIssue {
                 .map(|(done, total)| ChecklistProgress { done, total }),
             waiting_on: issue.waiting_on.clone(),
             unreviewed: issue.unreviewed,
+            awaiting_triage: issue.awaiting_triage,
             updated_at: issue.updated_at,
             archived: issue.archived,
         }
@@ -193,6 +210,7 @@ impl From<Issue> for CompactIssue {
             checklist_progress,
             waiting_on: issue.waiting_on,
             unreviewed: issue.unreviewed,
+            awaiting_triage: issue.awaiting_triage,
             updated_at: issue.updated_at,
             archived: issue.archived,
         }
@@ -706,6 +724,7 @@ mod tests {
             keys,
             [
                 "archived",
+                "awaiting_triage",
                 "checklist_progress",
                 "id",
                 "labels",
@@ -728,6 +747,7 @@ mod tests {
         );
         assert_eq!(json["waiting_on"], serde_json::json!([dep.id.to_string()]));
         assert_eq!(json["unreviewed"], true);
+        assert_eq!(json["awaiting_triage"], true);
         assert_eq!(json["updated_at"], issue.updated_at);
 
         let no_checklist = CompactIssue::from(&dep);

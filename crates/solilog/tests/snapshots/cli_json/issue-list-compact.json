@@ -2,6 +2,19 @@
   "command": "solilog issue list --compact --json",
   "output": [
     {
+      "id": "SOL-3",
+      "title": "Tail clicks on mono input",
+      "status": "cancelled",
+      "labels": [],
+      "projects": [],
+      "checklist_progress": null,
+      "waiting_on": [],
+      "unreviewed": true,
+      "awaiting_triage": false,
+      "updated_at": "<time>",
+      "archived": false
+    },
+    {
       "id": "SOL-1",
       "title": "Fix the reverb tail",
       "status": "in_review",
@@ -18,6 +31,7 @@
       },
       "waiting_on": [],
       "unreviewed": true,
+      "awaiting_triage": true,
       "updated_at": "<time>",
       "archived": false
     },
@@ -33,7 +47,8 @@
       "waiting_on": [
         "SOL-1"
       ],
-      "unreviewed": true,
+      "unreviewed": false,
+      "awaiting_triage": false,
       "updated_at": "<time>",
       "archived": false
     }

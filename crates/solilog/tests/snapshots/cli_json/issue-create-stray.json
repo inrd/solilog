@@ -1,0 +1,30 @@
+{
+  "command": "solilog issue create \"Tail clicks on mono input\" --json",
+  "output": {
+    "id": "SOL-3",
+    "title": "Tail clicks on mono input",
+    "description": "",
+    "status": "todo",
+    "created_at": "<time>",
+    "archived": false,
+    "labels": [],
+    "projects": [],
+    "checklist": [],
+    "attachments": [],
+    "links": [],
+    "depends_on": [],
+    "dependents": [],
+    "waiting_on": [],
+    "created_by": "claude:contract-test",
+    "title_by": "claude:contract-test",
+    "description_by": "claude:contract-test",
+    "updated_by": "claude:contract-test",
+    "updated_at": "<time>",
+    "reviewed_at": null,
+    "unreviewed": true,
+    "unreviewed_actors": [
+      "claude:contract-test"
+    ],
+    "awaiting_triage": true
+  }
+}

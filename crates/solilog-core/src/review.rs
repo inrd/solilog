@@ -48,7 +48,7 @@ impl Receipt {
     }
 }
 
-/// The user's answer to a receipt.
+/// The user's answer to a receipt, or to an issue a non-user filed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
@@ -56,6 +56,9 @@ pub enum Verdict {
     Approved,
     /// The work goes back to `todo`, with the reason in the note.
     ChangesRequested,
+    /// An issue awaiting triage is declined: it is cancelled, with the
+    /// reason (optional) in the note.
+    Declined,
 }
 
 /// The result of a review step: the issue as it now is, and the note the
@@ -149,6 +152,19 @@ impl Db {
         self.answer_reviews(ids, &reason, Verdict::ChangesRequested, Status::Todo)
     }
 
+    /// Declines issues awaiting triage ([`Issue::awaiting_triage`]: filed
+    /// by an agent, never accepted), all or nothing: adds a review note
+    /// (`reason` may be empty) and cancels them. They are kept (not
+    /// archived), so a search of closed issues still finds them and the
+    /// same issue isn't filed again. When the user does it, the issues are
+    /// also marked reviewed. Returns them in the order given.
+    ///
+    /// Accepting one is marking it reviewed ([`Db::mark_issues_reviewed`]).
+    pub fn decline_issues(&self, ids: &[IssueId], reason: &str) -> Result<Vec<Handoff>> {
+        let reason = crate::issue::normalize_description(reason);
+        self.answer_reviews(ids, &reason, Verdict::Declined, Status::Cancelled)
+    }
+
     fn answer_reviews(
         &self,
         ids: &[IssueId],
@@ -162,11 +178,19 @@ impl Db {
         // status (as `update_issues` does).
         for &id in ids.iter().rev() {
             let issue = self.get_issue(id)?;
-            anyhow::ensure!(
-                issue.status == Status::InReview,
-                "{id} isn't in review (it is {})",
-                issue.status
-            );
+            if verdict == Verdict::Declined {
+                anyhow::ensure!(
+                    issue.awaiting_triage,
+                    "{id} isn't awaiting triage (only open issues an agent filed \
+                     and the user never reviewed are)"
+                );
+            } else {
+                anyhow::ensure!(
+                    issue.status == Status::InReview,
+                    "{id} isn't in review (it is {})",
+                    issue.status
+                );
+            }
             notes.push(self.insert_note(id, reason, &NoteKind::Review { verdict })?);
             self.apply_change(id, &IssueChange::SetStatus(status))?;
             if self.actor.is_user() {
@@ -296,6 +320,86 @@ mod tests {
             db.request_review(issue.id, "again", &Receipt::default())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn issues_agents_file_await_triage() {
+        let mut db = Db::open_in_memory().unwrap();
+        let ready = IssueFilter {
+            ready: true,
+            ..Default::default()
+        };
+        let triage = IssueFilter {
+            awaiting_triage: true,
+            ..Default::default()
+        };
+        let ids = |filter: &IssueFilter, db: &Db| -> Vec<IssueId> {
+            db.list_issues(filter)
+                .unwrap()
+                .into_iter()
+                .map(|i| i.id)
+                .collect()
+        };
+        let mine = db.create_issue(&NewIssue::new("mine")).unwrap();
+        assert!(!mine.awaiting_triage);
+
+        db.set_actor(Actor::parse("claude:x").unwrap());
+        let filed = db.create_issue(&NewIssue::new("filed")).unwrap();
+        let other = db.create_issue(&NewIssue::new("other")).unwrap();
+        let unnamed = {
+            db.set_actor(Actor::cli());
+            db.create_issue(&NewIssue::new("unnamed")).unwrap()
+        };
+        assert!(filed.awaiting_triage && unnamed.awaiting_triage);
+        // An agent's write on the user's issue doesn't put it in triage.
+        db.add_note(mine.id, "looked at it").unwrap();
+        let mine = db.get_issue(mine.id).unwrap();
+        assert!(mine.unreviewed && !mine.awaiting_triage);
+        assert_eq!(ids(&ready, &db), [mine.id]);
+        assert_eq!(ids(&triage, &db), [unnamed.id, other.id, filed.id]);
+
+        // Accepting is marking reviewed: it stays out of triage after
+        // later agent writes.
+        db.set_actor(Actor::user());
+        db.mark_issue_reviewed(filed.id).unwrap();
+        db.set_actor(Actor::parse("claude:x").unwrap());
+        db.add_note(filed.id, "started").unwrap();
+        db.set_actor(Actor::user());
+        let filed = db.get_issue(filed.id).unwrap();
+        assert!(filed.unreviewed && !filed.awaiting_triage);
+        assert!(filed.is_ready());
+
+        // Declining: all or nothing, only issues awaiting triage.
+        assert!(db.decline_issues(&[other.id, filed.id], "").is_err());
+        assert!(db.decline_issues(&[other.id, mine.id], "").is_err());
+        assert!(db.get_issue(other.id).unwrap().awaiting_triage);
+        let declined = db
+            .decline_issues(&[other.id, unnamed.id], "Not a bug.\n")
+            .unwrap();
+        assert_eq!(declined[0].issue.id, other.id);
+        for handoff in &declined {
+            assert_eq!(handoff.issue.status, Status::Cancelled);
+            assert!(!handoff.issue.awaiting_triage && !handoff.issue.unreviewed);
+            assert!(!handoff.issue.archived);
+            assert_eq!(handoff.note.text, "Not a bug.");
+            assert_eq!(
+                handoff.note.kind,
+                NoteKind::Review {
+                    verdict: Verdict::Declined
+                }
+            );
+        }
+        assert_eq!(
+            serde_json::to_value(&declined[0].note).unwrap()["verdict"],
+            "declined"
+        );
+        assert_eq!(
+            db.issue_activities(other.id).unwrap()[1].kind,
+            ActivityKind::Declined
+        );
+        assert!(ids(&triage, &db).is_empty());
+        // Declined, it can't be declined again.
+        assert!(db.decline_issues(&[other.id], "").is_err());
     }
 
     #[test]

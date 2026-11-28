@@ -78,25 +78,22 @@
       "updated_at": "<time>",
       "reviewed_at": "<time>",
       "unreviewed": false,
-      "unreviewed_actors": []
+      "unreviewed_actors": [],
+      "awaiting_triage": false
     },
     {
-      "id": "SOL-2",
-      "title": "Release",
-      "description": "After SOL-1.",
-      "status": "todo",
+      "id": "SOL-3",
+      "title": "Tail clicks on mono input",
+      "description": "",
+      "status": "cancelled",
       "created_at": "<time>",
       "archived": false,
-      "labels": [
-        "release"
-      ],
+      "labels": [],
       "projects": [],
       "checklist": [],
       "attachments": [],
       "links": [],
-      "depends_on": [
-        "SOL-1"
-      ],
+      "depends_on": [],
       "dependents": [],
       "waiting_on": [],
       "created_by": "claude:contract-test",
@@ -106,7 +103,8 @@
       "updated_at": "<time>",
       "reviewed_at": "<time>",
       "unreviewed": false,
-      "unreviewed_actors": []
+      "unreviewed_actors": [],
+      "awaiting_triage": false
     }
   ]
 }

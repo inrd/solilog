@@ -947,10 +947,14 @@ impl Db {
 }
 
 fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
+    let status: Status = row.get(2)?;
+    let created_by: Actor = row.get(6)?;
+    let reviewed_at: Option<i64> = row.get(11)?;
     Ok(Issue {
         id: row.get(0)?,
         title: row.get(1)?,
-        status: row.get(2)?,
+        awaiting_triage: crate::issue::awaits_triage(status, &created_by, reviewed_at),
+        status,
         created_at: row.get(3)?,
         archived: row.get(4)?,
         description: row.get(5)?,
@@ -962,12 +966,12 @@ fn issue_from_row(row: &Row) -> rusqlite::Result<Issue> {
         depends_on: Vec::new(),
         dependents: Vec::new(),
         waiting_on: Vec::new(),
-        created_by: row.get(6)?,
+        created_by,
         title_by: row.get(7)?,
         description_by: row.get(8)?,
         updated_by: row.get(9)?,
         updated_at: row.get(10)?,
-        reviewed_at: row.get(11)?,
+        reviewed_at,
         unreviewed: false,
         unreviewed_actors: Vec::new(),
     })

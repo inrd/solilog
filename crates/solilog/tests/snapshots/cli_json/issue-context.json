@@ -27,11 +27,10 @@
       "description_by": "claude:contract-test",
       "updated_by": "claude:contract-test",
       "updated_at": "<time>",
-      "reviewed_at": null,
-      "unreviewed": true,
-      "unreviewed_actors": [
-        "claude:contract-test"
-      ]
+      "reviewed_at": "<time>",
+      "unreviewed": false,
+      "unreviewed_actors": [],
+      "awaiting_triage": false
     },
     "projects": [],
     "depends_on": [

@@ -444,11 +444,18 @@ pub mod issue {
             /// current text is saved first, so a restore can be undone.
             ShowHistory,
             /// Mark the selected issues' non-user changes as reviewed. Any
-            /// later non-user write marks them unreviewed again.
+            /// later non-user write marks them unreviewed again. For an
+            /// issue an agent filed, this accepts it: it leaves triage and
+            /// agents can start it.
             MarkReviewed,
             /// Approve the selected issues that are in review: they become
             /// done, with an approval in their notes, and are marked reviewed.
             Approve,
+            /// Decline the selected issues that are awaiting triage (filed
+            /// by an agent, never reviewed): they are cancelled, with a
+            /// note saying so, and kept so that agents find them before
+            /// filing the same again.
+            Decline,
         ]
     );
 
